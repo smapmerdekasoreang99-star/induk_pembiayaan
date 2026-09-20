@@ -583,7 +583,11 @@ const REKAP = {
     judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBINA',
     catatan: 'Besaran tiap pertemuan ditentukan jumlah siswa yang hadir pada pertemuan itu, '
            + 'jadi dihitung per pertemuan lalu dijumlahkan — bukan dari rata-rata kehadiran, '
-           + 'yang akan memberi hasil berbeda. Pertemuan yang ditiadakan tidak dibayar.',
+           + 'yang akan memberi hasil berbeda. Yang dibayar hanya pertemuan yang benar-benar '
+           + 'berjalan dan dihadiri pembinanya atau penggantinya; pertemuan yang ditiadakan dan '
+           + 'yang pembinanya tidak hadir sama-sama tidak dibayar. Pada pertemuan yang '
+           + 'digantikan, haknya tetap pada pembina terjadwal — nama pengganti hanya dicatat '
+           + 'sebagai keterangan, tidak tertaut ke data pembina.',
     kolom: [
       { k: 'jenis', t: 'Jenis', w: 110, jumlah: false },
       { k: 'pertemuan', t: 'Pertemuan', w: 90, num: true },
