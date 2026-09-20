@@ -288,3 +288,23 @@ table.mx td.pk-sel.incar{background:#DCEFE8;box-shadow:inset 0 0 0 2px var(--pri
 .pu-tray.buang{justify-content:center;font-size:12px;color:var(--ink3);
   border:1px dashed var(--line);margin-top:10px;min-height:44px}
 .pu-tray.buang.incar{color:var(--danger);border-color:var(--danger)}
+
+/* ---- Tabel rekap pembiayaan ----
+   Kolomnya banyak dan semuanya angka yang harus terbaca utuh. Tanpa
+   min-width, aturan table{width:100%} memaksa seluruh kolom menyempit agar
+   muat — tabelnya jadi tidak pernah melebihi wadahnya, sehingga .scroll
+   tidak punya apa pun untuk digulir dan angka di kanan terpotong. */
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.rekap{min-width:1120px;font-size:12.5px}
+table.rekap th,table.rekap td{padding:7px 9px;white-space:nowrap}
+table.rekap td.nama{white-space:normal;min-width:190px}
+table.rekap tfoot td{background:#F7FAF9;border-top:2px solid var(--line)}
+/* Nomor dan nama dibekukan di kiri — tanpa ini, angka di kolom kanan
+   kehilangan konteks siapa pemiliknya saat digulir. Keduanya harus sticky;
+   kalau hanya namanya, kolom nomor akan menyelinap di bawahnya. */
+table.rekap th.lekat-no,table.rekap td.lekat-no{position:sticky;left:0;z-index:2;background:var(--card)}
+table.rekap th.lekat,table.rekap td.lekat{position:sticky;left:40px;z-index:2;background:var(--card);
+  box-shadow:1px 0 0 var(--line)}
+table.rekap thead th.lekat,table.rekap thead th.lekat-no{z-index:4;background:#F7FAF9}
+table.rekap tfoot td.lekat,table.rekap tfoot td.lekat-no{background:#F7FAF9}
+.gulir-petunjuk{font-size:12px;color:var(--ink3);padding:6px 16px 0}

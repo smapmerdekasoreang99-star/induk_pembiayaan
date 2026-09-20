@@ -52,7 +52,7 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 | Beranda | ✅ | Ringkasan kesiapan dan dari mana tiap angka datang |
 | Daftar Hadir | 🔲 kerangka | Kehadiran yang menjadi dasar pembiayaan, dibaca dari aplikasi lain |
 | Pengaturan Nominal | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku |
-| Rekapitulasi | 🔲 kerangka | Jumlah per periode per jenis, dengan unduhan Excel |
+| Rekapitulasi | ✅ | Lima rekap: Honor Mengajar, Guru Pengganti, Transport Piket, Transport Pembina, Honor Wali Kelas — masing-masing dengan unduhan xlsx |
 | Identitas Dokumen | ✅ | Kop dokumen, baca saja dari Data Induk |
 
 ## Tabel yang dipakai
@@ -60,7 +60,38 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 **Milik sendiri:** `ip_jenis_tarif` (jenis pembiayaan dan satuannya),
 `ip_tarif` (besaran berversi).
 
-**Fungsi:** `f_ip_tarif(p_acuan)` menjawab *"tarif apa yang berlaku pada
+**Perhitungan ada di database, bukan di aplikasi.** Lima fungsi, satu per
+rekap:
+
+| Fungsi | Menghitung |
+|---|---|
+| `f_ip_honor_mengajar` | honor menurut masa kerja, transport berdiri, insentif tatap muka, konsumsi |
+| `f_ip_honor_pengganti` | jam penggantian GT / PT / Infaler |
+| `f_ip_transport_piket` | hari jaga meja sekolah, unit, parkiran |
+| `f_ip_transport_pembina` | pertemuan ekskul dan pembinaan, menurut jumlah siswa hadir |
+| `f_ip_honor_wali_kelas` | komponen upacara, bimbingan, piket |
+
+Semuanya bertanda tangan `(p_awal date, p_akhir date)` dan mengambil tarif
+lewat `f_ip_nilai` pada **tanggal akhir periode**, bukan tanggal hari ini.
+
+Rumus honor mengajar sengaja tidak disalin dari
+`kehadiran_guru/assets/rekap-hitung.js` — dua salinan pasti menyimpang begitu
+salah satunya diperbaiki, dan untuk angka yang dibayarkan itu berarti dua
+dokumen resmi yang berbeda. Dengan di database, Kehadiran Guru kelak tinggal
+diarahkan ke fungsi yang sama.
+
+Empat hal yang mudah salah dan sudah ditangani di dalamnya:
+
+- jam kontrak adalah jam **per minggu**, tidak dikalikan jumlah pekan — yang
+  dikalikan hari hanya jam tatap muka dan hari kedatangan;
+- Upacara (`M25`) dan Bimbingan Wali Kelas (`M08`) **bukan** jam mengajar;
+- pada piket yang **digantikan**, harinya jatuh ke penggantinya, bukan ke
+  petugas terjadwal;
+- transport pembina dihitung **per pertemuan** menurut siswa yang hadir pada
+  pertemuan itu, lalu dijumlahkan — memakai rata-rata kehadiran akan memberi
+  hasil yang berbeda.
+
+**Fungsi tarif:** `f_ip_tarif(p_acuan)` menjawab *"tarif apa yang berlaku pada
 tanggal ini"* — dasar seluruh perhitungan. `f_ip_nilai(p_kode, p_acuan,
 p_ukuran)` mengambil satu angka, termasuk untuk tarif berjenjang.
 
@@ -79,6 +110,7 @@ mematahkannya, dan kontrak itulah yang menahannya.
   **Data Induk**; di sini hanya dibaca.
 - `guru_privat` (nama bank, nomor rekening, NPWP) masih kosong — daftar
   transfer belum bisa dicetak sampai diisi.
+- Lima jenis pembiayaan belum ditetapkan besarannya (masih Rp 0): transport piket meja sekolah, transport piket unit, dan tiga komponen honor wali kelas. Jumlah jam dan harinya sudah tercatat, tinggal menunggu keputusan yayasan.
 - Tarif masih tersalin di `kg_pengaturan` dan `ae_tarif`. Keduanya tetap ada
   selama Kehadiran Guru dan Absensi Ekskul masih memakainya, dan dipensiunkan
   setelah aplikasi ini menggantikan perannya.

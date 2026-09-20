@@ -25,9 +25,9 @@ const KONFIG = {
 };
 
 let sesi = { token: '', email: '', nama: '' };
-let D = { jenis: [], tarif: [], profil: null, galat: {} };
+let D = { jenis: [], tarif: [], profil: null, rekap: null, galat: {} };
 let halaman = 'beranda';
-let ui = { acuan: '' };
+let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'mengajar', ikutStaf: false };
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -55,6 +55,35 @@ function awalBulanDepan() {
   const n = new Date(d.getFullYear(), d.getMonth() + 1, 1);
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-01`;
 }
+/* Periode bawaan rekap: satu bulan penuh, karena pembiayaan dibayarkan
+   bulanan. Bukan "sampai hari ini", yang akan menghasilkan jumlah setengah
+   bulan dan mudah disangka jumlah sebenarnya. */
+function bulanIni() {
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth();
+  const p = n => String(n).padStart(2, '0');
+  return { awal: `${y}-${p(m + 1)}-01`,
+           akhir: `${y}-${p(m + 1)}-${p(new Date(y, m + 1, 0).getDate())}` };
+}
+
+/* Terbilang untuk daftar pembayaran — bendahara memerlukannya pada dokumen
+   yang ditandatangani. */
+const SATUAN = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas'];
+function terbilangAngka(n) {
+  n = Math.floor(Math.abs(Number(n) || 0));
+  if (n < 12) return SATUAN[n];
+  if (n < 20) return terbilangAngka(n - 10) + ' belas';
+  if (n < 100) return terbilangAngka(Math.floor(n / 10)) + ' puluh ' + terbilangAngka(n % 10);
+  if (n < 200) return 'seratus ' + terbilangAngka(n - 100);
+  if (n < 1000) return terbilangAngka(Math.floor(n / 100)) + ' ratus ' + terbilangAngka(n % 100);
+  if (n < 2000) return 'seribu ' + terbilangAngka(n - 1000);
+  if (n < 1e6) return terbilangAngka(Math.floor(n / 1000)) + ' ribu ' + terbilangAngka(n % 1000);
+  if (n < 1e9) return terbilangAngka(Math.floor(n / 1e6)) + ' juta ' + terbilangAngka(n % 1e6);
+  return terbilangAngka(Math.floor(n / 1e9)) + ' miliar ' + terbilangAngka(n % 1e9);
+}
+const terbilang = n => {
+  const t = terbilangAngka(n).replace(/\s+/g, ' ').trim();
+  return (t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Nol') + ' rupiah';
+};
 
 function toast(pesan, salah) {
   const r = $('#toast-root');
@@ -126,6 +155,14 @@ async function muatSemua() {
     ambil('ip_jenis_tarif', 'select=*&order=urutan'),
     rpc('f_ip_tarif', { p_acuan: ui.acuan })
   ]);
+
+  // RLS menolak dengan mengembalikan tabel kosong, bukan galat. Tanpa
+  // pemeriksaan ini, akun yang tidak berhak akan melihat rekap penuh dengan
+  // tarif Rp 0 dan menyangka itu angka sebenarnya — lebih berbahaya daripada
+  // sekadar ditolak masuk.
+  if (!D.jenis.length) throw new Error(
+    'Akun ini belum berhak membuka Induk Pembiayaan. Emailnya perlu didaftarkan '
+    + 'di operator_data dengan peran operator atau bendahara.');
 
   // Identitas dokumen milik Data Induk. Kegagalannya tidak menjatuhkan
   // halaman lain — hanya kop dokumen yang kosong.
@@ -462,30 +499,345 @@ function halHadir() {
 }
 
 /* ------------------------------------------------------ rekapitulasi */
+/* Kelima rekap berbentuk sama: satu fungsi database, satu daftar kolom.
+   Ditulis sebagai data, bukan lima halaman yang mirip-mirip — menambah rekap
+   keenam kelak cukup menambah satu baris di sini.                        */
+const REKAP = {
+  mengajar: {
+    nama: 'Honor Mengajar',
+    fungsi: 'f_ip_honor_mengajar',
+    judul: 'DAFTAR PENERIMAAN HONOR MENGAJAR',
+    catatan: 'Jam yang dibayar adalah jam kontrak per minggu, tidak dikalikan jumlah pekan — '
+           + 'honor dan transport memang dibayarkan bulanan atas dasar kontrak itu. Yang dikalikan '
+           + 'hari hanyalah jam tatap muka dan hari kedatangan. Upacara dan Bimbingan Wali Kelas '
+           + 'tidak termasuk jam mengajar.',
+    kolom: [
+      { k: 'masa_kerja', t: 'M.Kerja', w: 70, num: true, jumlah: false },
+      { k: 'jam_dibayar', t: 'Jam', w: 60, num: true },
+      { k: 'tarif_jam', t: 'Tarif', w: 95, rp: true, jumlah: false },
+      { k: 'honor_guru', t: 'Honor', w: 115, rp: true },
+      { k: 'transport', t: 'Transport', w: 115, rp: true },
+      { k: 'jam_tm', t: 'Jam TM', w: 65, num: true },
+      { k: 'insentif', t: 'Insentif', w: 110, rp: true },
+      { k: 'hari_datang', t: 'Hari', w: 55, num: true },
+      { k: 'konsumsi', t: 'Konsumsi', w: 110, rp: true }
+    ]
+  },
+  pengganti: {
+    nama: 'Guru Pengganti',
+    fungsi: 'f_ip_honor_pengganti',
+    judul: 'DAFTAR PENERIMAAN TRANSPORT GURU PENGGANTI',
+    catatan: 'Satu baris penugasan sama dengan satu jam pelajaran. GT = Guru diTugaskan, '
+           + 'PT = Piket diTugaskan, Inf = Infaler. Penggantian jam Upacara dan Bimbingan Wali '
+           + 'Kelas tidak termasuk; itu dibayar lewat jalur wali kelas.',
+    kolom: [
+      { k: 'jam_gt', t: 'GT', w: 55, num: true },
+      { k: 'honor_gt', t: 'Honor GT', w: 110, rp: true },
+      { k: 'jam_pt', t: 'PT', w: 55, num: true },
+      { k: 'honor_pt', t: 'Honor PT', w: 110, rp: true },
+      { k: 'jam_inf', t: 'Inf', w: 55, num: true },
+      { k: 'honor_inf', t: 'Honor Inf', w: 110, rp: true },
+      { k: 'jam_total', t: 'Jam', w: 60, num: true }
+    ]
+  },
+  piket: {
+    nama: 'Transport Piket',
+    fungsi: 'f_ip_transport_piket',
+    judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET',
+    catatan: 'Yang dibayar adalah orang yang benar-benar berjaga. Pada hari yang digantikan, '
+           + 'harinya jatuh ke penggantinya — bukan ke petugas terjadwal.',
+    kolom: [
+      { k: 'hari_meja', t: 'Meja', w: 60, num: true },
+      { k: 'honor_meja', t: 'Honor Meja', w: 115, rp: true },
+      { k: 'hari_unit', t: 'Unit', w: 60, num: true },
+      { k: 'honor_unit', t: 'Honor Unit', w: 115, rp: true },
+      { k: 'hari_parkiran', t: 'Parkiran', w: 75, num: true },
+      { k: 'honor_parkiran', t: 'Honor Parkiran', w: 125, rp: true },
+      { k: 'hari_total', t: 'Hari', w: 55, num: true }
+    ]
+  },
+  pembina: {
+    nama: 'Transport Pembina',
+    fungsi: 'f_ip_transport_pembina',
+    judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBINA',
+    catatan: 'Besaran tiap pertemuan ditentukan jumlah siswa yang hadir pada pertemuan itu, '
+           + 'jadi dihitung per pertemuan lalu dijumlahkan — bukan dari rata-rata kehadiran, '
+           + 'yang akan memberi hasil berbeda. Pertemuan yang ditiadakan tidak dibayar.',
+    kolom: [
+      { k: 'jenis', t: 'Jenis', w: 110, jumlah: false },
+      { k: 'pertemuan', t: 'Pertemuan', w: 90, num: true },
+      { k: 'siswa_hadir', t: 'Siswa hadir', w: 100, num: true }
+    ]
+  },
+  wali: {
+    nama: 'Honor Wali Kelas',
+    fungsi: 'f_ip_honor_wali_kelas',
+    judul: 'DAFTAR PENERIMAAN HONOR WALI KELAS',
+    catatan: 'Jamnya per minggu, diisi di Data Induk → Piket & Honor → Komponen honor wali kelas. '
+           + 'Baris bertanda "belum lengkap" masih ada komponen yang kosong — berbeda maknanya '
+           + 'dengan nol.',
+    kolom: [
+      { k: 'jam_upacara', t: 'Jam Upacara', w: 90, num: true },
+      { k: 'honor_upacara', t: 'Honor Upacara', w: 125, rp: true },
+      { k: 'jam_bimbingan', t: 'Jam Bimbingan', w: 100, num: true },
+      { k: 'honor_bimbingan', t: 'Honor Bimbingan', w: 130, rp: true },
+      { k: 'jam_piket', t: 'Jam Piket', w: 85, num: true },
+      { k: 'honor_piket', t: 'Honor Piket', w: 115, rp: true }
+    ]
+  }
+};
+
+async function muatRekap() {
+  const r = REKAP[ui.rekapJenis];
+  D.rekap = await rpc(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir });
+}
+
+const angkaSel = (b, k) => {
+  const v = b[k.k];
+  if (k.rp) return rupiah(v);
+  if (k.num) return Number(v) % 1 === 0 ? Number(v) : Number(v).toFixed(1).replace('.', ',');
+  return v == null ? '—' : esc(String(v));
+};
+
 function halRekap() {
+  const spek = REKAP[ui.rekapJenis];
+  const semua = D.rekap;
+  const punyaStaf = semua && semua.some(r => 'staf' in r);
+  const baris = !semua ? null : (ui.ikutStaf || !punyaStaf ? semua : semua.filter(r => !r.staf));
+  const jumlahStaf = punyaStaf ? semua.filter(r => r.staf).length : 0;
+  const fp = baris ? baris.filter(r => r.fingerprint).length : 0;
+
+  const kunciJumlah = ['jumlah', ...spek.kolom.filter(k => k.jumlah !== false && (k.num || k.rp)).map(k => k.k)];
+  const total = (baris || []).reduce((t, r) => {
+    for (const k of kunciJumlah) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
+    return t;
+  }, {});
+
+  // Jumlah nol padahal ada jam/hari tercatat berarti tarifnya belum diisi —
+  // keadaan yang harus dikatakan, bukan ditampilkan sebagai Rp 0 begitu saja.
+  const adaKegiatan = (baris || []).some(r => spek.kolom.some(k => k.num && Number(r[k.k]) > 0));
+  const tarifKosong = baris && baris.length && adaKegiatan && !(total.jumlah > 0);
+
   $('#isi').innerHTML = `
     <div class="head"><div><h1>Rekapitulasi Pembiayaan</h1>
-      <p>Jumlah yang harus dibayarkan per periode, per jenis pembiayaan, dengan
-         unduhan Excel masing-masing.</p></div></div>
+      <p>Jumlah yang harus dibayarkan pada satu periode. Angkanya memakai besaran yang
+         berlaku pada periode itu, bukan besaran hari ini.</p></div>
+      <div class="sp"></div>
+      <div class="mx-pilih">
+        <label class="kecil">Dari</label>
+        <input class="field" type="date" id="rAwal" value="${esc(ui.rekapAwal)}" style="width:auto">
+        <label class="kecil">sampai</label>
+        <input class="field" type="date" id="rAkhir" value="${esc(ui.rekapAkhir)}" style="width:auto">
+        <button class="btn btn-p" id="rHitung">Hitung</button>
+      </div></div>
 
-    <div class="info-box"><b>Halaman ini belum diisi.</b> Dikerjakan sesudah Pengaturan
-      Nominal lengkap, karena angkanya harus memakai besaran yang berlaku pada periode
-      yang direkap — bukan besaran hari ini.</div>
+    <div class="bar">${Object.entries(REKAP).map(([k, v]) =>
+      `<button class="chip${k === ui.rekapJenis ? ' on' : ''}" data-rekap="${k}">${esc(v.nama)}</button>`).join('')}
+    </div>
 
-    <div class="panel"><div class="panel-head"><h3>Rencana isinya</h3></div>
-      <div class="scroll"><table><thead><tr>
-        <th>Rekap</th><th>Dihitung dari</th>
-      </tr></thead><tbody>
-        ${[
-          ['Honor Mengajar', 'jam kontrak × tarif menurut masa kerja, ditambah transport, insentif tatap muka, dan konsumsi'],
-          ['Honor Guru Pengganti', 'jumlah jam penggantian × tarif PT / GT / Infaler'],
-          ['Transport Piket', 'hari jaga meja sekolah, unit, dan parkiran'],
-          ['Transport Pembina', 'pertemuan ekskul dan Pembinaan Imtaq menurut jumlah siswa hadir'],
-          ['Honor Wali Kelas', 'komponen upacara, bimbingan, dan piket'],
-          ['Rekap gabungan', 'seluruhnya per orang, untuk daftar pembayaran dan tanda tangan']
-        ].map(([a, b]) => `<tr><td style="font-weight:500">${esc(a)}</td>
-          <td class="kecil">${esc(b)}</td></tr>`).join('')}
-      </tbody></table></div></div>`;
+    ${!semua ? `<div class="panel"><div class="empty"><b>Belum dihitung</b>
+      Pilih periodenya lalu ketuk Hitung.</div></div>` : `
+
+    <div class="kartu-baris">
+      <div class="kartu"><b>${baris.length}</b><span>penerima</span></div>
+      <div class="kartu"><b>${rupiah(total.jumlah || 0)}</b><span>jumlah dibayarkan</span></div>
+    </div>
+
+    ${tarifKosong ? `<div class="info-box"><b>Kegiatannya tercatat, tetapi jumlahnya Rp 0.</b>
+      Besaran untuk jenis pembiayaan ini belum diisi. Isi di halaman
+      <b>Pengaturan Nominal</b>, lalu hitung ulang.</div>` : ''}
+    ${jumlahStaf ? `<div class="info-box"><b>${jumlahStaf} pemegang tugas Staf
+      ${ui.ikutStaf ? 'ikut ditampilkan' : 'dikecualikan'}.</b>
+      Kontrak staf dihitung berdasarkan jam kerja lewat fingerprint, bukan jam mengajar.
+      <button class="btn btn-sm" id="rStaf" style="margin-left:8px">${
+        ui.ikutStaf ? 'Kecualikan lagi' : 'Tampilkan juga'}</button></div>` : ''}
+    ${fp ? `<div class="info-box"><b>${fp} guru berinsentif fingerprint.</b>
+      Insentif tatap muka dan konsumsinya dibayarkan akhir bulan lewat mesin kehadiran,
+      jadi di sini ditulis nol supaya jumlahnya sama dengan yang benar-benar dibayarkan.</div>` : ''}
+
+    <div class="panel"><div class="panel-head"><h3>${esc(spek.nama)}</h3>
+      <div class="sp" style="flex:1"></div>
+      <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div>
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
+      <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
+        seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
+      <div class="scroll"><table class="rekap"><thead><tr>
+        <th style="width:40px" class="num lekat-no">No</th>
+        <th class="lekat">Nama</th>
+        ${spek.kolom.map(k => `<th style="width:${k.w}px" class="${k.num || k.rp ? 'num' : ''}">${esc(k.t)}</th>`).join('')}
+        <th style="width:125px" class="num">Jumlah</th>
+      </tr></thead><tbody>${
+        baris.length ? baris.map((b, i) => `<tr>
+          <td class="num lekat-no">${i + 1}</td>
+          <td class="nama lekat" style="font-weight:500">${esc(b.nama)}${
+            b.staf ? ' <span class="tag tag-l">Staf</span>' : ''}${
+            b.belum_lengkap ? ' <span class="kecil" style="color:var(--warn)">belum lengkap</span>' : ''}${
+            'masa_kerja' in b && b.masa_kerja == null ? ' <span class="kecil" style="color:var(--warn)">TMT kosong</span>' : ''}</td>
+          ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${angkaSel(b, k)}</td>`).join('')}
+          <td class="num" style="font-weight:600">${rupiah(b.jumlah)}</td></tr>`).join('')
+        : `<tr><td colspan="${spek.kolom.length + 3}"><div class="empty"><b>Tidak ada penerima</b>
+            Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
+      }</tbody>
+      ${baris.length ? `<tfoot><tr>
+        <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td>
+        ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}" style="font-weight:600">${
+          k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) : (total[k.k] || 0)}</td>`).join('')}
+        <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}</td></tr></tfoot>` : ''}
+      </table></div>
+      <div class="foot"><div class="info">Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>
+
+    <p class="kecil">${esc(spek.catatan)}</p>`}`;
+
+  $('#rHitung').onclick = () => {
+    ui.rekapAwal = $('#rAwal').value || ui.rekapAwal;
+    ui.rekapAkhir = $('#rAkhir').value || ui.rekapAkhir;
+    if (ui.rekapAwal > ui.rekapAkhir) { toast('Tanggal awal melewati tanggal akhir.', true); return; }
+    jalankan('Menghitung…', muatRekap);
+  };
+  $$('[data-rekap]').forEach(b => b.onclick = () => {
+    ui.rekapJenis = b.dataset.rekap;
+    D.rekap = null;
+    jalankan('Menghitung…', muatRekap);
+  });
+  if ($('#rStaf')) $('#rStaf').onclick = () => { ui.ikutStaf = !ui.ikutStaf; gambar(); };
+  if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…', () => unduhRekap(spek, baris, total));
+}
+
+/* ----------------------------------------------------------- excel */
+async function muatExcelJS() {
+  if (window.ExcelJS) return window.ExcelJS;
+  await new Promise((selesai, gagal) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
+    sc.onload = selesai;
+    sc.onerror = () => gagal(new Error('Pembuat Excel gagal dimuat. Periksa sambungan internet.'));
+    document.head.appendChild(sc);
+  });
+  return window.ExcelJS;
+}
+
+/* Satu penulis untuk kelima rekap, memakai daftar kolom yang sama dengan
+   tampilannya — supaya berkas Excel tidak pernah berbeda isi dari layar. */
+async function unduhRekap(spek, baris, total) {
+  const ExcelJS = await muatExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(spek.nama.slice(0, 28), {
+    pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+                 margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } }
+  });
+  const F = 'Calibri';
+  const kolom = spek.kolom;
+  const KOL = kolom.length + 4;      // No, Nama, …kolom…, Jumlah, Tanda tangan
+
+  ws.columns = [{ width: 5 }, { width: 30 },
+                ...kolom.map(k => ({ width: Math.max(9, Math.round(k.w / 8)) })),
+                { width: 15 }, { width: 22 }];
+  ws.views = [{ showGridLines: false }];
+
+  const p = D.profil || {};
+  try {
+    const gbr = await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject());
+    ws.addImage(wb.addImage({ buffer: gbr, extension: 'png' }), { tl: { col: 0.2, row: 0.15 }, ext: { width: 58, height: 58 } });
+  } catch (e) { /* tanpa logo pun berkasnya tetap terbentuk */ }
+
+  const tengah = (r, teks, ukuran, tebal) => {
+    ws.mergeCells(r, 2, r, KOL);
+    const c = ws.getCell(r, 2);
+    c.value = teks; c.font = { name: F, size: ukuran, bold: !!tebal };
+    c.alignment = { horizontal: 'center', vertical: 'middle' };
+  };
+  tengah(1, p.nama_sekolah || 'SMA Plus "Merdeka" Soreang', 13, true);
+  tengah(2, [p.alamat, p.kota].filter(Boolean).join(', '), 9);
+  tengah(4, spek.judul, 12, true);
+  tengah(5, `Periode ${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`, 10);
+
+  const TIPIS = { style: 'thin', color: { argb: 'FF808080' } };
+  const KOTAK = { top: TIPIS, left: TIPIS, bottom: TIPIS, right: TIPIS };
+  const RP = '"Rp" #,##0';
+
+  let r = 7;
+  ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), 'JUMLAH', 'TANDA TANGAN'].forEach((t, i) => {
+    const c = ws.getCell(r, i + 1);
+    c.value = t; c.font = { name: F, size: 9, bold: true };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c.border = KOTAK;
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+  });
+  ws.getRow(r).height = 30;
+  r += 1;
+
+  const sel = (br, kl, nilai, opsi = {}) => {
+    const c = ws.getCell(br, kl);
+    c.value = nilai;
+    c.font = { name: F, size: 10, bold: !!opsi.tebal };
+    c.alignment = { horizontal: opsi.rata || (typeof nilai === 'number' ? 'right' : 'left'), vertical: 'middle' };
+    c.border = KOTAK;
+    if (opsi.fmt) c.numFmt = opsi.fmt;
+    if (opsi.abu) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F7F7' } };
+    return c;
+  };
+
+  baris.forEach((b, i) => {
+    sel(r, 1, i + 1, { rata: 'center' });
+    sel(r, 2, b.nama);
+    kolom.forEach((k, j) => {
+      const v = b[k.k];
+      if (k.rp) sel(r, 3 + j, Number(v) || 0, { fmt: RP });
+      else if (k.num) sel(r, 3 + j, Number(v) || 0, { rata: 'center' });
+      else sel(r, 3 + j, v == null ? '—' : String(v), { rata: 'center' });
+    });
+    sel(r, kolom.length + 3, Number(b.jumlah) || 0, { fmt: RP, tebal: true });
+    sel(r, kolom.length + 4, `${i + 1}. ……………………`);
+    ws.getRow(r).height = 26;
+    r += 1;
+  });
+
+  sel(r, 1, 'JUMLAH', { rata: 'center', tebal: true, abu: true });
+  ws.mergeCells(r, 1, r, 2);
+  kolom.forEach((k, j) => {
+    if (k.jumlah === false) sel(r, 3 + j, '', { abu: true });
+    else if (k.rp) sel(r, 3 + j, total[k.k] || 0, { fmt: RP, tebal: true, abu: true });
+    else sel(r, 3 + j, total[k.k] || 0, { rata: 'center', tebal: true, abu: true });
+  });
+  sel(r, kolom.length + 3, total.jumlah || 0, { fmt: RP, tebal: true, abu: true });
+  sel(r, kolom.length + 4, '', { abu: true });
+  r += 1;
+
+  ws.getCell(r, 1).value = 'Terbilang:';
+  ws.getCell(r, 1).font = { name: F, size: 10, bold: true };
+  ws.mergeCells(r, 2, r, KOL);
+  ws.getCell(r, 2).value = terbilang(total.jumlah || 0);
+  ws.getCell(r, 2).font = { name: F, size: 10, italic: true };
+  r += 2;
+
+  ws.getCell(r, 2).value = 'Keterangan: ' + spek.catatan;
+  ws.getCell(r, 2).font = { name: F, size: 8, italic: true };
+  ws.mergeCells(r, 2, r, KOL);
+  ws.getRow(r).height = 24;
+  ws.getCell(r, 2).alignment = { wrapText: true, vertical: 'top' };
+  r += 3;
+
+  const kolomKanan = Math.max(4, KOL - 3);
+  ws.getCell(r - 1, kolomKanan).value = `${p.kota || 'Soreang'}, ${tglIndo(ui.rekapAkhir)}`;
+  ws.getCell(r - 1, kolomKanan).font = { name: F, size: 10 };
+  const ttd = (kl, jabatan, nama) => {
+    ws.getCell(r, kl).value = jabatan;
+    ws.getCell(r + 5, kl).value = nama || '……………………';
+    [r, r + 5].forEach(x => {
+      ws.getCell(x, kl).font = { name: F, size: 10, bold: x !== r, underline: x !== r };
+      ws.getCell(x, kl).alignment = { horizontal: 'center' };
+    });
+  };
+  ttd(2, 'Kepala Sekolah,', p.kepala_sekolah);
+  ttd(kolomKanan, 'Bendahara,', '');
+  ws.pageSetup.printTitlesRow = '7:7';
+
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = `${spek.nama} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('Berkas diunduh');
 }
 
 /* -------------------------------------------------- identitas dokumen */
@@ -537,4 +889,5 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') tutupModal()
 
 /* ------------------------------------------------------------- mulai */
 ui.acuan = hariIniISO();
+({ awal: ui.rekapAwal, akhir: ui.rekapAkhir } = bulanIni());
 layarMasuk();
