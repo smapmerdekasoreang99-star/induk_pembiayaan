@@ -621,15 +621,19 @@ const REKAP = {
     nama: 'Honor Wali Kelas',
     fungsi: 'f_ip_honor_wali_kelas',
     judul: 'DAFTAR PENERIMAAN HONOR WALI KELAS',
-    catatan: 'Jamnya per minggu, diisi di Data Induk → Piket & Honor → Komponen honor wali kelas. '
+    catatan: 'Jamnya PER MINGGU, bukan jumlah jam sepanjang periode — honor wali kelas '
+           + 'memang dibayarkan bulanan atas dasar jam kontrak itu, tidak dikalikan banyaknya '
+           + 'pekan. Karena itu angkanya berbeda dari rekap Wali Kelas di aplikasi Kehadiran '
+           + 'Guru, yang menghitung jam terjadwal sepanjang rentang tanggal untuk menilai '
+           + 'kehadiran. Diisi di Data Induk → Piket & Honor → Komponen honor wali kelas. '
            + 'Baris bertanda "belum lengkap" masih ada komponen yang kosong — berbeda maknanya '
            + 'dengan nol.',
     kolom: [
-      { k: 'jam_upacara', t: 'Jam Upacara', w: 90, num: true },
+      { k: 'jam_upacara', t: 'Jam Upacara /mg', w: 110, num: true },
       { k: 'honor_upacara', t: 'Honor Upacara', w: 125, rp: true },
-      { k: 'jam_bimbingan', t: 'Jam Bimbingan', w: 100, num: true },
+      { k: 'jam_bimbingan', t: 'Jam Bimbingan /mg', w: 120, num: true },
       { k: 'honor_bimbingan', t: 'Honor Bimbingan', w: 130, rp: true },
-      { k: 'jam_piket', t: 'Jam Piket', w: 85, num: true },
+      { k: 'jam_piket', t: 'Jam Piket /mg', w: 100, num: true },
       { k: 'honor_piket', t: 'Honor Piket', w: 115, rp: true }
     ]
   }
@@ -696,7 +700,9 @@ function halRekap() {
       <b>Pengaturan Nominal</b>, lalu hitung ulang.</div>` : ''}
     ${jumlahStaf ? `<div class="info-box"><b>${jumlahStaf} pemegang tugas Staf
       ${ui.ikutStaf ? 'ikut ditampilkan' : 'dikecualikan'}.</b>
-      Kontrak staf dihitung berdasarkan jam kerja lewat fingerprint, bukan jam mengajar.
+      Tugas Staf menggugurkan honor tambahan: jam kerjanya sudah dihitung lewat fingerprint,
+      jadi membayarnya lagi berarti dua kali. Mereka tetap ditampilkan supaya jumlah orang
+      di rekap ini sama dengan jumlah yang sebenarnya memegang tugas itu.
       <button class="btn btn-sm" id="rStaf" style="margin-left:8px">${
         ui.ikutStaf ? 'Kecualikan lagi' : 'Tampilkan juga'}</button></div>` : ''}
     ${fp ? `<div class="info-box"><b>${fp} guru berinsentif fingerprint.</b>
