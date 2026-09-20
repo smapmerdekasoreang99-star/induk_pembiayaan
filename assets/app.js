@@ -27,7 +27,7 @@ const KONFIG = {
 let sesi = { token: '', email: '', nama: '' };
 let D = { jenis: [], tarif: [], profil: null, rekap: null, galat: {} };
 let halaman = 'beranda';
-let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'mengajar', ikutStaf: false };
+let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'gabungan', ikutStaf: false };
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -503,6 +503,29 @@ function halHadir() {
    Ditulis sebagai data, bukan lima halaman yang mirip-mirip — menambah rekap
    keenam kelak cukup menambah satu baris di sini.                        */
 const REKAP = {
+  /* Rekap gabungan diletakkan paling depan karena inilah yang dipakai
+     membuat daftar pembayaran. Enam rekap sesudahnya adalah rinciannya:
+     dibuka bila ada angka yang perlu ditelusuri dari mana asalnya. */
+  gabungan: {
+    nama: 'Gabungan per Orang',
+    fungsi: 'f_ip_rekap_gabungan',
+    judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA',
+    catatan: 'Menjumlahkan ketujuh jenis pembiayaan menjadi satu baris per orang. '
+           + 'Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris gurunya, '
+           + 'sehingga seorang yang menerima dari beberapa jalur tetap muncul satu kali; '
+           + 'pelatih dari luar berdiri sendiri. Namanya memakai ejaan data induk. '
+           + 'Yang tidak menerima apa pun pada periode ini tidak dicetak.',
+    kolom: [
+      { k: 'jenis_orang', t: 'Jenis', w: 130, jumlah: false },
+      { k: 'mengajar', t: 'Mengajar', w: 125, rp: true },
+      { k: 'pengganti', t: 'Pengganti', w: 115, rp: true },
+      { k: 'piket_meja', t: 'Piket Meja', w: 115, rp: true },
+      { k: 'piket_unit', t: 'Piket Unit', w: 110, rp: true },
+      { k: 'piket_parkiran', t: 'Piket Parkiran', w: 125, rp: true },
+      { k: 'pembina', t: 'Pembina', w: 110, rp: true },
+      { k: 'wali', t: 'Wali Kelas', w: 115, rp: true }
+    ]
+  },
   mengajar: {
     nama: 'Honor Mengajar',
     fungsi: 'f_ip_honor_mengajar',
