@@ -756,25 +756,37 @@ async function unduhRekap(spek, baris, total) {
   ws.views = [{ showGridLines: false }];
 
   const p = D.profil || {};
-  try {
-    const gbr = await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject());
-    ws.addImage(wb.addImage({ buffer: gbr, extension: 'png' }), { tl: { col: 0.2, row: 0.15 }, ext: { width: 58, height: 58 } });
-  } catch (e) { /* tanpa logo pun berkasnya tetap terbentuk */ }
 
-  /* Kop disamakan dengan Data Induk: nama sekolah rata kiri menempel di
-     sebelah logo, bukan di tengah. Kolom tempat teks dimulai dihitung dari
-     lebar kolom yang sudah terlampaui logo, lalu digeser ke dalam sejauh
-     sisanya — kalau tidak, tulisannya tertimpa logo, dan kalau digeser satu
-     kolom penuh, jaraknya jadi terlalu jauh. */
-  const LEBAR_LOGO = 10;
-  let kumpul = 0, kolomTeks = 2, geser = 0;
-  const lebarKolom = ws.columns.map(k => k.width || 10);
-  for (let i = 0; i < lebarKolom.length; i++) {
-    const sebelum = kumpul;
-    kumpul += lebarKolom[i];
-    if (kumpul >= LEBAR_LOGO) { kolomTeks = i + 1; geser = Math.max(0, Math.round(LEBAR_LOGO - sebelum)); break; }
+  /* Kop disamakan dengan Data Induk: nama sekolah rata kiri, menempel di
+     sebelah logo. Perhitungannya dalam PIKSEL, bukan satuan lebar kolom —
+     keduanya berbeda (satu satuan lebar ≈ 7 px, satu tingkat indent ≈ 10 px).
+     Menyamakan keduanya membuat tulisannya terdorong jauh ke kanan. */
+  const PX_KOLOM = w => w * 7 + 5;        // lebar kolom Excel dalam piksel
+  const PX_INDENT = 10;                   // satu tingkat indent dalam piksel
+  const LOGO_KIRI = 4, LOGO_LEBAR = 52;
+  const kananLogo = LOGO_KIRI + LOGO_LEBAR;
+
+  let batas = 0, kolomTeks = 2, geser = 0;
+  for (let i = 0; i < ws.columns.length; i++) {
+    const sebelum = batas;
+    batas += PX_KOLOM(ws.columns[i].width || 10);
+    if (batas > kananLogo) {
+      kolomTeks = i + 1;
+      // Cukup menutupi bagian logo yang menjorok ke kolom ini, tidak lebih.
+      geser = Math.max(0, Math.ceil((kananLogo - sebelum) / PX_INDENT));
+      break;
+    }
   }
   if (kolomTeks < 2) { kolomTeks = 2; geser = 0; }
+
+  // Logo disisipkan sesudah perhitungan di atas, karena letaknya dinyatakan
+  // sebagai pecahan lebar kolom pertama.
+  try {
+    const gbr = await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject());
+    ws.addImage(wb.addImage({ buffer: gbr, extension: 'png' }),
+      { tl: { col: LOGO_KIRI / PX_KOLOM(ws.columns[0].width || 10), row: 0.15 },
+        ext: { width: LOGO_LEBAR, height: LOGO_LEBAR } });
+  } catch (e) { /* tanpa logo pun berkasnya tetap terbentuk */ }
 
   const kiri = (r, teks, ukuran, tebal) => {
     ws.mergeCells(r, kolomTeks, r, KOL);
