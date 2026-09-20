@@ -167,7 +167,7 @@ async function muatSemua() {
   // Identitas dokumen milik Data Induk. Kegagalannya tidak menjatuhkan
   // halaman lain — hanya kop dokumen yang kosong.
   try {
-    const pr = await ambil('profil_dokumen', 'select=*&limit=1');
+    const pr = await ambil('v_penanda_tangan', 'select=*&limit=1');
     D.profil = (pr && pr[0]) || null;
   } catch (e) {
     D.profil = null;
@@ -737,6 +737,15 @@ async function muatExcelJS() {
   return window.ExcelJS;
 }
 
+/* Penjaga: bila assets/kop-dokumen.js tidak termuat, unduhan gagal dengan
+   pesan yang bisa ditindaklanjuti, bukan "undefined". */
+function kopBersama() {
+  if (!window.KopDokumen) throw new Error(
+    'Berkas assets/kop-dokumen.js belum termuat, sehingga kop dokumen tidak bisa dibuat. '
+    + 'Muat ulang halaman; bila tetap gagal, laporkan ke operator.');
+  return window.KopDokumen;
+}
+
 /* Satu penulis untuk kelima rekap, memakai daftar kolom yang sama dengan
    tampilannya — supaya berkas Excel tidak pernah berbeda isi dari layar. */
 async function unduhRekap(spek, baris, total) {
@@ -754,67 +763,29 @@ async function unduhRekap(spek, baris, total) {
                 ...kolom.map(k => ({ width: Math.max(9, Math.round(k.w / 8)) })),
                 { width: 15 }, { width: 22 }];
   ws.views = [{ showGridLines: false }];
-
   const p = D.profil || {};
 
-  /* Kop disamakan dengan Data Induk: nama sekolah rata kiri, menempel di
-     sebelah logo. Perhitungannya dalam PIKSEL, bukan satuan lebar kolom —
-     keduanya berbeda (satu satuan lebar ≈ 7 px, satu tingkat indent ≈ 10 px).
-     Menyamakan keduanya membuat tulisannya terdorong jauh ke kanan. */
-  const PX_KOLOM = w => w * 7 + 5;        // lebar kolom Excel dalam piksel
-  const PX_INDENT = 10;                   // satu tingkat indent dalam piksel
-  const LOGO_KIRI = 4, LOGO_LEBAR = 52;
-  const kananLogo = LOGO_KIRI + LOGO_LEBAR;
-
-  let batas = 0, kolomTeks = 2, geser = 0;
-  for (let i = 0; i < ws.columns.length; i++) {
-    const sebelum = batas;
-    batas += PX_KOLOM(ws.columns[i].width || 10);
-    if (batas > kananLogo) {
-      kolomTeks = i + 1;
-      // Cukup menutupi bagian logo yang menjorok ke kolom ini, tidak lebih.
-      geser = Math.max(0, Math.ceil((kananLogo - sebelum) / PX_INDENT));
-      break;
-    }
-  }
-  if (kolomTeks < 2) { kolomTeks = 2; geser = 0; }
-
-  // Logo disisipkan sesudah perhitungan di atas, karena letaknya dinyatakan
-  // sebagai pecahan lebar kolom pertama.
+  /* Kop dibuat oleh assets/kop-dokumen.js — berkas yang sama persis di
+     keempat aplikasi. Perhitungan piksel yang dulu ada di sini sudah
+     pindah ke sana, sehingga letak kop cukup diatur sekali oleh operator
+     di Data Induk → Profil Dokumen dan berlaku untuk semua unduhan. */
+  let logo = null;
   try {
-    const gbr = await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject());
-    ws.addImage(wb.addImage({ buffer: gbr, extension: 'png' }),
-      { tl: { col: LOGO_KIRI / PX_KOLOM(ws.columns[0].width || 10), row: 0.15 },
-        ext: { width: LOGO_LEBAR, height: LOGO_LEBAR } });
+    logo = { buffer: await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject()) };
   } catch (e) { /* tanpa logo pun berkasnya tetap terbentuk */ }
 
-  const kiri = (r, teks, ukuran, tebal) => {
-    ws.mergeCells(r, kolomTeks, r, KOL);
-    const c = ws.getCell(r, kolomTeks);
-    c.value = teks; c.font = { name: F, size: ukuran, bold: !!tebal };
-    c.alignment = { horizontal: 'left', vertical: 'middle', indent: geser };
-    ws.getRow(r).height = ukuran >= 13 ? 22 : 16;
-  };
-  const tengah = (r, teks, ukuran, tebal) => {
-    ws.mergeCells(r, 1, r, KOL);
-    const c = ws.getCell(r, 1);
-    c.value = teks; c.font = { name: F, size: ukuran, bold: !!tebal };
-    c.alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getRow(r).height = ukuran >= 12 ? 24 : 18;
-  };
-
-  kiri(1, p.nama_sekolah || 'SMA Plus "Merdeka" Soreang', 13, true);
-  const alamat = [p.alamat, p.kota, p.npsn ? 'NPSN ' + p.npsn : ''].filter(Boolean);
-  if (alamat.length) kiri(2, alamat.join('  ·  '), 9);
-  ws.getRow(3).height = 8;    // logo setinggi tiga baris; judul tidak menabraknya
-  tengah(4, spek.judul, 12, true);
-  tengah(5, `Periode ${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`, 10);
+  const baris1 = kopBersama().kopExcel(ws, {
+    wb, logo, profil: p,
+    judul: spek.judul,
+    sub: `Periode ${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`,
+    kolomAkhir: KOL, font: F
+  });
 
   const TIPIS = { style: 'thin', color: { argb: 'FF808080' } };
   const KOTAK = { top: TIPIS, left: TIPIS, bottom: TIPIS, right: TIPIS };
   const RP = '"Rp" #,##0';
 
-  let r = 7;
+  let r = baris1;
   ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), 'JUMLAH', 'TANDA TANGAN'].forEach((t, i) => {
     const c = ws.getCell(r, i + 1);
     c.value = t; c.font = { name: F, size: 9, bold: true };
@@ -876,9 +847,15 @@ async function unduhRekap(spek, baris, total) {
   ws.getCell(r, 2).alignment = { wrapText: true, vertical: 'top' };
   r += 3;
 
+  /* Yang menandatangani adalah pejabat yang berwenang atas isi dokumen —
+     untuk pembiayaan itu Bendahara — dan Kepala Sekolah mengetahui. */
   const kolomKanan = Math.max(4, KOL - 3);
+  ws.getCell(r - 1, 2).value = 'Mengetahui,';
+  ws.getCell(r - 1, 2).font = { name: F, size: 10 };
+  ws.getCell(r - 1, 2).alignment = { horizontal: 'center' };
   ws.getCell(r - 1, kolomKanan).value = `${p.kota || 'Soreang'}, ${tglIndo(ui.rekapAkhir)}`;
   ws.getCell(r - 1, kolomKanan).font = { name: F, size: 10 };
+  ws.getCell(r - 1, kolomKanan).alignment = { horizontal: 'center' };
   const ttd = (kl, jabatan, nama) => {
     ws.getCell(r, kl).value = jabatan;
     ws.getCell(r + 5, kl).value = nama || '……………………';
@@ -888,7 +865,7 @@ async function unduhRekap(spek, baris, total) {
     });
   };
   ttd(2, 'Kepala Sekolah,', p.kepala_sekolah);
-  ttd(kolomKanan, 'Bendahara,', '');
+  ttd(kolomKanan, 'Bendahara,', p.bendahara);
   ws.pageSetup.printTitlesRow = '7:7';
 
   const buf = await wb.xlsx.writeBuffer();
@@ -929,12 +906,15 @@ function halIdentitas() {
         ${baris('Laman', p && p.laman)}
         ${baris('Kepala Sekolah', p && p.kepala_sekolah)}
         ${baris('NIP Kepala Sekolah', p && p.nip_kepala)}
+        ${baris('Bendahara', p && p.bendahara)}
+        ${baris('Wakasek Kurikulum', p && p.kurikulum)}
+        ${baris('Wakasek Kesiswaan', p && p.kesiswaan)}
         ${baris('Catatan kaki', p && p.catatan_kaki)}
       </tbody></table></div></div>
 
-    <p class="kecil">Nama bendahara penanda tangan belum ada di Profil Dokumen — sekarang
-      masih tersimpan terpisah di pengaturan Kehadiran Guru. Itu termasuk yang akan
-      dipindahkan ke Data Induk supaya benar-benar satu sumber.</p>`;
+    <p class="kecil">Nama bendahara dan Wakasek Kesiswaan kini ikut tersimpan di Profil
+      Dokumen, sehingga blok tanda tangan di seluruh unduhan Excel memakai nama yang sama
+      dengan aplikasi lain.</p>`;
 }
 
 /* ------------------------------------------------------------ modal */
