@@ -540,22 +540,43 @@ const REKAP = {
       { k: 'jam_total', t: 'Jam', w: 60, num: true }
     ]
   },
-  piket: {
-    nama: 'Transport Piket',
-    fungsi: 'f_ip_transport_piket',
-    judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET',
-    catatan: 'Yang dibayar adalah orang yang benar-benar berjaga. Pada hari yang digantikan, '
-           + 'harinya jatuh ke penggantinya — bukan ke petugas terjadwal.',
-    kolom: [
-      { k: 'hari_meja', t: 'Meja', w: 60, num: true },
-      { k: 'honor_meja', t: 'Honor Meja', w: 115, rp: true },
-      { k: 'hari_unit', t: 'Unit', w: 60, num: true },
-      { k: 'honor_unit', t: 'Honor Unit', w: 115, rp: true },
-      { k: 'hari_parkiran', t: 'Parkiran', w: 75, num: true },
-      { k: 'honor_parkiran', t: 'Honor Parkiran', w: 125, rp: true },
-      { k: 'hari_total', t: 'Hari', w: 55, num: true }
-    ]
-  },
+  /* Ketiga piket dilaporkan terpisah karena memang tiga pembiayaan berbeda:
+     dasar penugasannya beda, tarifnya beda, dan yang berhak pun beda. Bentuk
+     tabelnya sama, jadi hanya judul, catatan, dan satu argumen yang berbeda. */
+  ...(() => {
+    const kolomPiket = [
+      { k: 'hari', t: 'Hari jaga', w: 85, num: true },
+      { k: 'tarif', t: 'Tarif/hari', w: 110, rp: true, jumlah: false }
+    ];
+    const dasar = 'Yang dibayar adalah orang yang benar-benar berjaga. Pada hari yang '
+                + 'digantikan, harinya jatuh ke penggantinya — bukan ke petugas terjadwal.';
+    return {
+      piket_meja: {
+        nama: 'Piket Meja Sekolah', fungsi: 'f_ip_transport_piket',
+        arg: { p_jenis: 'Meja Sekolah' },
+        judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET MEJA SEKOLAH',
+        catatan: dasar + ' Pemegang tugas Staf tidak dihitung di sini: kehadirannya sudah '
+               + 'masuk kontrak jam kerja lewat fingerprint, jadi membayarnya lagi berarti dua kali.',
+        kolom: kolomPiket
+      },
+      piket_unit: {
+        nama: 'Piket Unit', fungsi: 'f_ip_transport_piket',
+        arg: { p_jenis: 'Unit' },
+        judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET UNIT',
+        catatan: dasar + ' Untuk guru diperbantukan yang menjaga unitnya, mis. Laboratorium '
+               + 'IPA atau Perpustakaan.',
+        kolom: kolomPiket
+      },
+      piket_parkiran: {
+        nama: 'Piket Parkiran', fungsi: 'f_ip_transport_piket',
+        arg: { p_jenis: 'Parkiran' },
+        judul: 'DAFTAR PENERIMAAN KOMPENSASI PIKET PARKIRAN',
+        catatan: dasar + ' Petugas parkiran memang staf, dan itu pengecualian yang sudah '
+               + 'disepakati — jadi di sini staf tetap dihitung.',
+        kolom: kolomPiket
+      }
+    };
+  })(),
   pembina: {
     nama: 'Transport Pembina',
     fungsi: 'f_ip_transport_pembina',
@@ -589,7 +610,7 @@ const REKAP = {
 
 async function muatRekap() {
   const r = REKAP[ui.rekapJenis];
-  D.rekap = await rpc(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir });
+  D.rekap = await rpc(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
 }
 
 const angkaSel = (b, k) => {
@@ -740,14 +761,40 @@ async function unduhRekap(spek, baris, total) {
     ws.addImage(wb.addImage({ buffer: gbr, extension: 'png' }), { tl: { col: 0.2, row: 0.15 }, ext: { width: 58, height: 58 } });
   } catch (e) { /* tanpa logo pun berkasnya tetap terbentuk */ }
 
+  /* Kop disamakan dengan Data Induk: nama sekolah rata kiri menempel di
+     sebelah logo, bukan di tengah. Kolom tempat teks dimulai dihitung dari
+     lebar kolom yang sudah terlampaui logo, lalu digeser ke dalam sejauh
+     sisanya — kalau tidak, tulisannya tertimpa logo, dan kalau digeser satu
+     kolom penuh, jaraknya jadi terlalu jauh. */
+  const LEBAR_LOGO = 10;
+  let kumpul = 0, kolomTeks = 2, geser = 0;
+  const lebarKolom = ws.columns.map(k => k.width || 10);
+  for (let i = 0; i < lebarKolom.length; i++) {
+    const sebelum = kumpul;
+    kumpul += lebarKolom[i];
+    if (kumpul >= LEBAR_LOGO) { kolomTeks = i + 1; geser = Math.max(0, Math.round(LEBAR_LOGO - sebelum)); break; }
+  }
+  if (kolomTeks < 2) { kolomTeks = 2; geser = 0; }
+
+  const kiri = (r, teks, ukuran, tebal) => {
+    ws.mergeCells(r, kolomTeks, r, KOL);
+    const c = ws.getCell(r, kolomTeks);
+    c.value = teks; c.font = { name: F, size: ukuran, bold: !!tebal };
+    c.alignment = { horizontal: 'left', vertical: 'middle', indent: geser };
+    ws.getRow(r).height = ukuran >= 13 ? 22 : 16;
+  };
   const tengah = (r, teks, ukuran, tebal) => {
-    ws.mergeCells(r, 2, r, KOL);
-    const c = ws.getCell(r, 2);
+    ws.mergeCells(r, 1, r, KOL);
+    const c = ws.getCell(r, 1);
     c.value = teks; c.font = { name: F, size: ukuran, bold: !!tebal };
     c.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(r).height = ukuran >= 12 ? 24 : 18;
   };
-  tengah(1, p.nama_sekolah || 'SMA Plus "Merdeka" Soreang', 13, true);
-  tengah(2, [p.alamat, p.kota].filter(Boolean).join(', '), 9);
+
+  kiri(1, p.nama_sekolah || 'SMA Plus "Merdeka" Soreang', 13, true);
+  const alamat = [p.alamat, p.kota, p.npsn ? 'NPSN ' + p.npsn : ''].filter(Boolean);
+  if (alamat.length) kiri(2, alamat.join('  ·  '), 9);
+  ws.getRow(3).height = 8;    // logo setinggi tiga baris; judul tidak menabraknya
   tengah(4, spek.judul, 12, true);
   tengah(5, `Periode ${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`, 10);
 
