@@ -504,13 +504,13 @@ function halHadir() {
    keenam kelak cukup menambah satu baris di sini.                        */
 const REKAP = {
   /* Rekap gabungan diletakkan paling depan karena inilah yang dipakai
-     membuat daftar pembayaran. Enam rekap sesudahnya adalah rinciannya:
+     membuat daftar pembayaran. Tujuh rekap sesudahnya adalah rinciannya:
      dibuka bila ada angka yang perlu ditelusuri dari mana asalnya. */
   gabungan: {
     nama: 'Gabungan per Orang',
     fungsi: 'f_ip_rekap_gabungan',
     judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA',
-    catatan: 'Menjumlahkan ketujuh jenis pembiayaan menjadi satu baris per orang. '
+    catatan: 'Menjumlahkan kedelapan jenis pembiayaan menjadi satu baris per orang. '
            + 'Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris gurunya, '
            + 'sehingga seorang yang menerima dari beberapa jalur tetap muncul satu kali; '
            + 'pelatih dari luar berdiri sendiri. Namanya memakai ejaan data induk. '
@@ -523,6 +523,7 @@ const REKAP = {
       { k: 'piket_unit', t: 'Piket Unit', w: 110, rp: true },
       { k: 'piket_parkiran', t: 'Piket Parkiran', w: 125, rp: true },
       { k: 'pembina', t: 'Pembina', w: 110, rp: true },
+      { k: 'osis', t: 'Pembina OSIS', w: 120, rp: true },
       { k: 'wali', t: 'Wali Kelas', w: 115, rp: true }
     ]
   },
@@ -619,11 +620,40 @@ const REKAP = {
            + 'berjalan dan dihadiri pembinanya atau penggantinya; pertemuan yang ditiadakan dan '
            + 'yang pembinanya tidak hadir sama-sama tidak dibayar. Pada pertemuan yang '
            + 'digantikan, haknya tetap pada pembina terjadwal — nama pengganti hanya dicatat '
-           + 'sebagai keterangan, tidak tertaut ke data pembina.',
+           + 'sebagai keterangan, tidak tertaut ke data pembina. Kolom Jenis menyebut tarif '
+           + 'yang dipakai: Internal dan Eksternal untuk ekstrakurikuler, Imtaq untuk pembinaan '
+           + 'Imtaq (mis. Tahfidz) yang tarifnya tersendiri. Pembina OSIS TIDAK ada di sini — '
+           + 'honornya flat per bulan, ada di daftar tersendiri. '
+           + 'Kegiatan yang dibimbing beberapa orang sekaligus: tarif pertemuan dihitung dari '
+           + 'SELURUH siswa yang hadir, lalu dibagi rata kepada pembimbing yang hadir pada '
+           + 'pertemuan itu — yang tidak datang tidak kebagian. Karena itu kolom Siswa hadir '
+           + 'adalah kehadiran PERTEMUANNYA, bukan bagian per orang: pada kegiatan semacam itu '
+           + 'angkanya sama untuk semua pembimbingnya, jadi sengaja tidak dijumlahkan.',
     kolom: [
       { k: 'jenis', t: 'Jenis', w: 110, jumlah: false },
       { k: 'pertemuan', t: 'Pertemuan', w: 90, num: true },
-      { k: 'siswa_hadir', t: 'Siswa hadir', w: 100, num: true }
+      // Tidak dijumlahkan: lihat catatan di atas — menjumlahkannya antar-orang
+      // akan menghitung satu pertemuan berkali-kali.
+      { k: 'siswa_hadir', t: 'Siswa hadir', w: 100, num: true, jumlah: false }
+    ]
+  },
+  /* Satu-satunya pembiayaan yang tidak dihitung per kejadian. Pertemuannya
+     tetap dicatat di Absensi Ekskul, tetapi bukan itu dasar pembayarannya —
+     jadi kolom "Pertemuan" sengaja tidak ada di sini, supaya tidak ada yang
+     mengira angkanya ikut menentukan. */
+  osis: {
+    nama: 'Honor Pembina OSIS',
+    fungsi: 'f_ip_honor_pembina_osis',
+    judul: 'DAFTAR PENERIMAAN HONOR PEMBINA OSIS',
+    catatan: 'FLAT per bulan, tidak bergantung jumlah pertemuan — haknya melekat pada tugas '
+           + '"Pembina OSIS" yang aktif di Data Induk → Tugas Guru. Jumlah bulan dihitung dari '
+           + 'bulan kalender yang LEBIH DARI SETENGAH harinya masuk rentang tanggal, karena '
+           + 'periode pembayaran memang jarang tepat tanggal 1 sampai akhir bulan. Akibatnya '
+           + 'rentang setengah bulan menghasilkan nol bulan: itu disengaja, supaya sebulan yang '
+           + 'dipotong dua tidak terbayar dua kali tanpa ada yang menyadari.',
+    kolom: [
+      { k: 'bulan', t: 'Bulan', w: 80, num: true },
+      { k: 'tarif', t: 'Tarif/bulan', w: 120, rp: true, jumlah: false }
     ]
   },
   wali: {
