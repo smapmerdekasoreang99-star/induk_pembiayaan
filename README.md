@@ -67,7 +67,7 @@ tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
 |---|---|
 | `f_ip_honor_mengajar` | honor menurut masa kerja, transport berdiri, insentif tatap muka, konsumsi |
 | `f_ip_honor_pengganti` | jam penggantian GT / PT / Infaler |
-| `f_ip_transport_piket` | hari jaga satu jenis piket; staf dikecualikan pada meja sekolah |
+| `f_ip_transport_piket` | giliran jaga satu jenis piket — kolom `ukuran` berisi **jam** untuk Meja Sekolah dan Unit, **hari** untuk Parkiran, mengikuti satuan pencatatannya di Kehadiran Guru; staf dikecualikan pada meja sekolah |
 | `f_ip_transport_pembina` | pertemuan ekskul dan pembinaan, menurut jumlah siswa hadir |
 | `f_ip_honor_wali_kelas` | komponen upacara, bimbingan, piket |
 

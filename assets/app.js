@@ -567,36 +567,45 @@ const REKAP = {
      dasar penugasannya beda, tarifnya beda, dan yang berhak pun beda. Bentuk
      tabelnya sama, jadi hanya judul, catatan, dan satu argumen yang berbeda. */
   ...(() => {
-    const kolomPiket = [
-      { k: 'hari', t: 'Hari jaga', w: 85, num: true },
-      { k: 'tarif', t: 'Tarif/hari', w: 110, rp: true, jumlah: false }
+    /* Satuannya berbeda antar jenis, dan kolomnya harus mengatakannya.
+       Meja sekolah dan unit dicatat per JAM pelajaran di Kehadiran Guru —
+       guru yang berjaga dua jam dan hadir satu jam dibayar satu jam —
+       sedangkan parkiran per HARI, karena memang sekali jaga sesudah bel
+       pulang, bukan jam pelajaran. Kolom `ukuran` dari
+       f_ip_transport_piket sengaja tidak bernama `hari`: nama yang
+       berbohong tentang satuan persis itulah yang dulu membuat tarif
+       menyimpang diam-diam. */
+    const kolomPiket = (satuan) => [
+      { k: 'ukuran', t: satuan === 'jam' ? 'Jam jaga' : 'Hari jaga', w: 85, num: true },
+      { k: 'tarif', t: 'Tarif/' + satuan, w: 110, rp: true, jumlah: false }
     ];
-    const dasar = 'Yang dibayar adalah orang yang benar-benar berjaga. Pada hari yang '
-                + 'digantikan, harinya jatuh ke penggantinya — bukan ke petugas terjadwal.';
+    const dasar = 'Yang dibayar adalah petugas terjadwal yang benar-benar berjaga. Piket tidak '
+                + 'mengenal pengganti: bila petugasnya berhalangan, gilirannya memang tidak dijaga.';
     return {
       piket_meja: {
         nama: 'Piket Meja Sekolah', fungsi: 'f_ip_transport_piket',
         arg: { p_jenis: 'Meja Sekolah' },
         judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET MEJA SEKOLAH',
-        catatan: dasar + ' Pemegang tugas Staf tidak dihitung di sini: kehadirannya sudah '
-               + 'masuk kontrak jam kerja lewat fingerprint, jadi membayarnya lagi berarti dua kali.',
-        kolom: kolomPiket
+        catatan: dasar + ' Dihitung per JAM pelajaran. Pemegang tugas Staf tidak dihitung di sini: '
+               + 'kehadirannya sudah masuk kontrak jam kerja lewat fingerprint, jadi membayarnya lagi berarti dua kali.',
+        kolom: kolomPiket('jam')
       },
       piket_unit: {
         nama: 'Piket Unit', fungsi: 'f_ip_transport_piket',
         arg: { p_jenis: 'Unit' },
         judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET UNIT',
-        catatan: dasar + ' Untuk guru diperbantukan yang menjaga unitnya, mis. Laboratorium '
-               + 'IPA atau Perpustakaan.',
-        kolom: kolomPiket
+        catatan: dasar + ' Dihitung per JAM pelajaran. Untuk guru diperbantukan yang menjaga '
+               + 'unitnya, mis. Laboratorium IPA atau Perpustakaan.',
+        kolom: kolomPiket('jam')
       },
       piket_parkiran: {
         nama: 'Piket Parkiran', fungsi: 'f_ip_transport_piket',
         arg: { p_jenis: 'Parkiran' },
         judul: 'DAFTAR PENERIMAAN KOMPENSASI PIKET PARKIRAN',
-        catatan: dasar + ' Petugas parkiran memang staf, dan itu pengecualian yang sudah '
-               + 'disepakati — jadi di sini staf tetap dihitung.',
-        kolom: kolomPiket
+        catatan: dasar + ' Dihitung per HARI jaga, bukan per jam pelajaran: parkiran memang '
+               + 'sekali jaga sesudah bel pulang. Petugas parkiran memang staf, dan itu pengecualian '
+               + 'yang sudah disepakati — jadi di sini staf tetap dihitung.',
+        kolom: kolomPiket('hari')
       }
     };
   })(),
