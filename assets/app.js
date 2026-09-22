@@ -992,15 +992,15 @@ const REKAP = {
            + 'Yang tidak menerima apa pun pada periode ini tidak dicetak.',
     kolom: [
       { k: 'jenis_orang', t: 'Jenis', w: 120, jumlah: false },
-      { k: 'mengajar', t: 'Mengajar', w: 120, rp: true },
-      { k: 'wali', t: 'Wali Kelas', w: 110, rp: true },
-      { k: 'diperbantukan', t: 'Diperbantukan', w: 120, rp: true },
-      { k: 'piket_meja', t: 'Piket Meja', w: 110, rp: true },
-      { k: 'pengganti', t: 'Pengganti', w: 110, rp: true },
-      { k: 'osis', t: 'Pembina OSIS', w: 115, rp: true },
-      { k: 'ekskul', t: 'Pembina Ekskul', w: 120, rp: true },
-      { k: 'tahfidz', t: 'Pemb. Tahfidz', w: 115, rp: true },
-      { k: 'parkiran', t: 'Piket Parkiran', w: 115, rp: true }
+      { k: 'mengajar', t: 'Honor Mengajar', w: 130, rp: true },
+      { k: 'wali', t: 'Honor Wali Kelas', w: 130, rp: true },
+      { k: 'diperbantukan', t: 'Honor Diperbantukan', w: 140, rp: true },
+      { k: 'piket_meja', t: 'Transpor Piket Meja', w: 135, rp: true },
+      { k: 'pengganti', t: 'Transpor Pengganti', w: 135, rp: true },
+      { k: 'osis', t: 'Honor Pembina OSIS', w: 140, rp: true },
+      { k: 'ekskul', t: 'Transpor Pemb. Ekskul', w: 145, rp: true },
+      { k: 'tahfidz', t: 'Transpor Pemb. Tahfidz', w: 150, rp: true },
+      { k: 'parkiran', t: 'Transpor Parkiran', w: 130, rp: true }
     ]
   },
   mengajar: {
@@ -1022,13 +1022,13 @@ const REKAP = {
       { k: 'jam_dibayar', t: 'Jam', w: 70, num: true,
         html: b => `${Number(b.jam_dibayar) || 0}${Number(b.jam_tambahan) > 0
           ? ` <span class="kecil">(+${Number(b.jam_tambahan)})</span>` : ''}` },
-      { k: 'tarif_jam', t: 'Tarif', w: 95, rp: true, jumlah: false },
-      { k: 'honor_guru', t: 'Honor', w: 115, rp: true },
-      { k: 'transport', t: 'Transport', w: 115, rp: true },
+      { k: 'tarif_jam', t: 'Nominal/jam', w: 105, rp: true, jumlah: false },
+      { k: 'honor_guru', t: 'Honor Mengajar', w: 125, rp: true },
+      { k: 'transport', t: 'Transpor Berdiri', w: 125, rp: true },
       { k: 'jam_tm', t: 'Jam TM', w: 65, num: true },
-      { k: 'insentif', t: 'Insentif', w: 110, rp: true },
+      { k: 'insentif', t: 'Insentif Tatap Muka', w: 135, rp: true },
       { k: 'hari_datang', t: 'Hari', w: 55, num: true },
-      { k: 'konsumsi', t: 'Konsumsi', w: 110, rp: true }
+      { k: 'konsumsi', t: 'Konsumsi Kedatangan', w: 140, rp: true }
     ]
   },
   wali: {
@@ -1037,7 +1037,7 @@ const REKAP = {
     judul: 'DAFTAR PENERIMAAN HONOR WALI KELAS',
     catatan: 'Honor Bulanan FLAT per bulan untuk tiap wali kelas yang tugasnya aktif pada periode; '
            + 'jumlah bulan dihitung dari bulan kalender yang lebih dari setengah harinya masuk rentang. '
-           + 'Upacara dan Bimbingan Wali Kelas dihitung dari jam PER MINGGU dikali tarif, bukan jumlah '
+           + 'Upacara dan Bimbingan Wali Kelas dihitung dari jam PER MINGGU dikali nominal, bukan jumlah '
            + 'jam sepanjang periode — dibayarkan bulanan atas dasar jam kontrak itu. Karena itu angkanya '
            + 'berbeda dari rekap Wali Kelas di aplikasi Kehadiran Guru, yang menghitung jam terjadwal '
            + 'sepanjang rentang untuk menilai kehadiran. Piket meja sekolah wali kelas tidak di sini: '
@@ -1045,12 +1045,11 @@ const REKAP = {
            + 'ada komponen yang kosong — berbeda maknanya dengan nol. Pemegang tugas Staf ditampilkan '
            + 'dengan honor nol.',
     kolom: [
-      { k: 'bulan', t: 'Bulan', w: 65, num: true, jumlah: false },
       { k: 'honor_bulanan', t: 'Honor Wali Kelas', w: 130, rp: true },
       { k: 'jam_upacara', t: 'Jam Upacara /mg', w: 110, num: true },
       { k: 'honor_upacara', t: 'Honor Upacara', w: 125, rp: true },
       { k: 'jam_bimbingan', t: 'Jam Bimbingan /mg', w: 120, num: true },
-      { k: 'honor_bimbingan', t: 'Honor Bimbingan', w: 130, rp: true }
+      { k: 'honor_bimbingan', t: 'Honor Bimbingan WK', w: 140, rp: true }
     ]
   },
   /* Honor penanggung jawab unit (flat per bulan) dan transport piket unit
@@ -1066,12 +1065,11 @@ const REKAP = {
            + 'transportnya tetap dihitung.',
     kolom: [
       { k: 'unit', t: 'Unit', w: 210, jumlah: false },
-      { k: 'bulan', t: 'Bulan', w: 65, num: true, jumlah: false },
-      { k: 'tarif_bulan', t: 'Tarif/bulan', w: 110, rp: true, jumlah: false },
-      { k: 'honor', t: 'Honor', w: 115, rp: true },
+      { k: 'tarif_bulan', t: 'Nominal/bulan', w: 115, rp: true, jumlah: false },
+      { k: 'honor', t: 'Honor Diperbantukan', w: 140, rp: true },
       { k: 'jam_jaga', t: 'Jam jaga', w: 80, num: true },
-      { k: 'tarif_jam', t: 'Tarif/jam', w: 100, rp: true, jumlah: false },
-      { k: 'transport', t: 'Transport', w: 115, rp: true }
+      { k: 'tarif_jam', t: 'Nominal/jam', w: 105, rp: true, jumlah: false },
+      { k: 'transport', t: 'Transpor Piket Unit', w: 135, rp: true }
     ]
   },
   piket_meja: {
@@ -1084,7 +1082,7 @@ const REKAP = {
            + 'jam kerja lewat fingerprint, jadi membayarnya lagi berarti dua kali.',
     kolom: [
       { k: 'ukuran', t: 'Jam jaga', w: 85, num: true },
-      { k: 'tarif', t: 'Tarif/jam', w: 110, rp: true, jumlah: false }
+      { k: 'tarif', t: 'Nominal/jam', w: 110, rp: true, jumlah: false }
     ]
   },
   pengganti: {
@@ -1096,11 +1094,11 @@ const REKAP = {
            + 'Kelas tidak termasuk; itu dibayar lewat jalur wali kelas.',
     kolom: [
       { k: 'jam_gt', t: 'GT', w: 55, num: true },
-      { k: 'honor_gt', t: 'Honor GT', w: 110, rp: true },
+      { k: 'honor_gt', t: 'Transpor GT', w: 115, rp: true },
       { k: 'jam_pt', t: 'PT', w: 55, num: true },
-      { k: 'honor_pt', t: 'Honor PT', w: 110, rp: true },
+      { k: 'honor_pt', t: 'Transpor PT', w: 115, rp: true },
       { k: 'jam_inf', t: 'Inf', w: 55, num: true },
-      { k: 'honor_inf', t: 'Honor Inf', w: 110, rp: true },
+      { k: 'honor_inf', t: 'Transpor Inf', w: 115, rp: true },
       { k: 'jam_total', t: 'Jam', w: 60, num: true }
     ]
   },
@@ -1121,7 +1119,7 @@ const REKAP = {
            + 'perorangan berkop sekolah, ditandatangani Kepala Sekolah, Bendahara, dan penerima.',
     kolom: [
       { k: 'bulan', t: 'Bulan', w: 80, num: true },
-      { k: 'tarif', t: 'Tarif/bulan', w: 120, rp: true, jumlah: false }
+      { k: 'tarif', t: 'Nominal/bulan', w: 120, rp: true, jumlah: false }
     ]
   },
   ...(() => {
@@ -1134,7 +1132,7 @@ const REKAP = {
                 + 'yang akan memberi hasil berbeda. Yang dibayar hanya pertemuan yang benar-benar '
                 + 'berjalan dan dihadiri pembinanya; pertemuan yang ditiadakan dan yang pembinanya '
                 + 'tidak hadir sama-sama tidak dibayar. Kegiatan yang dibimbing beberapa orang '
-                + 'sekaligus: tarif pertemuan dihitung dari SELURUH siswa yang hadir, lalu dibagi rata '
+                + 'sekaligus: nominal pertemuan dihitung dari SELURUH siswa yang hadir, lalu dibagi rata '
                 + 'kepada pembimbing yang hadir pada pertemuan itu — yang tidak datang tidak kebagian. '
                 + 'Karena itu kolom Siswa hadir adalah kehadiran PERTEMUANNYA, bukan bagian per orang, '
                 + 'dan sengaja tidak dijumlahkan.';
@@ -1148,7 +1146,7 @@ const REKAP = {
         nama: 'Pembina Ekskul', fungsi: 'f_ip_transport_pembina',
         saring: r => r.jenis !== 'Imtaq',
         judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBINA EKSTRAKURIKULER',
-        catatan: dasar + ' Kolom Jenis menyebut tarif yang dipakai: Internal untuk pembina yang guru '
+        catatan: dasar + ' Kolom Jenis menyebut nominal yang dipakai: Internal untuk pembina yang guru '
                + 'sekolah, Eksternal untuk pelatih dari luar.',
         kolom
       },
@@ -1156,7 +1154,7 @@ const REKAP = {
         nama: 'Pembimbing Tahfidz', fungsi: 'f_ip_transport_pembina',
         saring: r => r.jenis === 'Imtaq',
         judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBIMBING TAHFIDZ',
-        catatan: dasar + ' Tarifnya tersendiri (Transport Pembimbing Imtaq), satu skala untuk '
+        catatan: dasar + ' Nominalnya tersendiri (Transport Pembimbing Imtaq), satu skala untuk '
                + 'pembimbing dari dalam maupun luar sekolah.',
         kolom
       }
@@ -1173,7 +1171,7 @@ const REKAP = {
            + 'tetap dihitung.',
     kolom: [
       { k: 'ukuran', t: 'Hari jaga', w: 85, num: true },
-      { k: 'tarif', t: 'Tarif/hari', w: 110, rp: true, jumlah: false }
+      { k: 'tarif', t: 'Nominal/hari', w: 110, rp: true, jumlah: false }
     ]
   }
 };
