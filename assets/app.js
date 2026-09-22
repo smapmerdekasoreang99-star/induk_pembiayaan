@@ -1078,7 +1078,6 @@ const REKAP = {
            + 'transportnya tetap dihitung.',
     kolom: [
       { k: 'unit', t: 'Unit', w: 210, jumlah: false },
-      { k: 'tarif_bulan', t: 'Nominal/bulan', w: 115, rp: true, jumlah: false },
       { k: 'honor', t: 'Honor Diperbantukan', w: 140, rp: true },
       { k: 'jam_jaga', t: 'Jam jaga', w: 80, num: true },
       { k: 'tarif_jam', t: 'Nominal/jam', w: 105, rp: true, jumlah: false },
