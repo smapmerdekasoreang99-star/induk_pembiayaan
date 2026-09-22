@@ -665,7 +665,7 @@ function susunTabHadir(tab, h) {
              + 'Bimbingan setiap Senin, jadi dua Senin berarti 2 jam di tiap kolom. Ketidakhadiran yang '
              + 'berstatus (sakit, ijin, HTTM) tidak masuk kolom Hadir, tetapi tetap dihitung berbobot '
              + 'pada % Kehadiran, dengan bobot dan rumus yang sama seperti rekap kehadiran. Di '
-             + 'Honor dan Transport, honor wali kelas angkanya per minggu, karena honornya dibayarkan bulanan '
+             + 'Honor dan Transpor, honor wali kelas angkanya per minggu, karena honornya dibayarkan bulanan '
              + 'atas dasar jam kontrak itu.',
       judul: 'REKAP TUGAS WALI KELAS', berkas: 'Rekap Tugas Wali Kelas', ttd: 'kurikulum'
     };
@@ -696,7 +696,7 @@ function susunTabHadir(tab, h) {
              + 'pulang. "Terjadwal" dihitung dari jadwal piket pada hari kerja dalam rentang ini, di luar '
              + 'hari libur; "Jaga" adalah yang benar-benar dijalankan; "% Kehadiran" = Jaga ÷ Terjadwal. '
              + 'Piket tidak mengenal pengganti, jadi selisih antara keduanya berarti petugasnya tidak '
-             + 'hadir, atau gilirannya belum dicatat. Nilai rupiahnya ada di Honor dan Transport.',
+             + 'hadir, atau gilirannya belum dicatat. Nilai rupiahnya ada di Honor dan Transpor.',
       judul: 'REKAP PELAKSANAAN PIKET', berkas: 'Rekap Pelaksanaan Piket', ttd: 'kurikulum'
     };
   }
@@ -850,7 +850,7 @@ function susunTabHadir(tab, h) {
     kosong: 'Tidak ada pertemuan yang berjalan pada rentang ini.',
     catatan: 'Satu baris satu pertemuan yang benar-benar berjalan dan dihadiri pembinanya, diurutkan '
            + 'menurut nama pembina. Pertemuan yang ditiadakan dan yang pembinanya tidak hadir tidak ikut '
-           + 'dihitung. Bentuk inilah yang dipakai perhitungan transport pembina di Honor dan Transport.',
+           + 'dihitung. Bentuk inilah yang dipakai perhitungan transport pembina di Honor dan Transpor.',
     judul: 'REKAP PERTEMUAN PER PEMBINA', berkas: 'Rekap Per Pembina' };
 }
 
@@ -975,32 +975,36 @@ function halHadir() {
    Ditulis sebagai data, bukan lima halaman yang mirip-mirip — menambah rekap
    keenam kelak cukup menambah satu baris di sini.                        */
 const REKAP = {
-  /* Rekap gabungan diletakkan paling depan karena inilah yang dipakai
-     membuat daftar pembayaran. Tujuh rekap sesudahnya adalah rinciannya:
-     dibuka bila ada angka yang perlu ditelusuri dari mana asalnya. */
+  /* Susunan tabnya PER PENERIMA, bukan per jenis tarif (keputusan 22
+     September 2026): gabungan paling depan karena itulah dasar daftar
+     pembayaran, lalu satu tab untuk tiap golongan penerima. Tiap tab satu
+     fungsi database, satu daftar kolom; menambah tab kelak cukup menambah
+     satu entri di sini. `saring` menyaring baris hasil fungsi yang dipakai
+     dua tab sekaligus (transport pembina: ekskul lawan Tahfidz). */
   gabungan: {
-    nama: 'Gabungan per Orang',
+    nama: 'Gabungan per Guru',
     fungsi: 'f_ip_rekap_gabungan',
     judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA',
-    catatan: 'Menjumlahkan kedelapan jenis pembiayaan menjadi satu baris per orang. '
-           + 'Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris gurunya, '
-           + 'sehingga seorang yang menerima dari beberapa jalur tetap muncul satu kali; '
+    catatan: 'Menjumlahkan seluruh jenis pembiayaan menjadi satu baris per orang, kolomnya mengikuti '
+           + 'tab di halaman ini. Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris '
+           + 'gurunya, sehingga seorang yang menerima dari beberapa jalur tetap muncul satu kali; '
            + 'pelatih dari luar berdiri sendiri. Namanya memakai ejaan data induk. '
            + 'Yang tidak menerima apa pun pada periode ini tidak dicetak.',
     kolom: [
-      { k: 'jenis_orang', t: 'Jenis', w: 130, jumlah: false },
-      { k: 'mengajar', t: 'Mengajar', w: 125, rp: true },
-      { k: 'pengganti', t: 'Pengganti', w: 115, rp: true },
-      { k: 'piket_meja', t: 'Piket Meja', w: 115, rp: true },
-      { k: 'piket_unit', t: 'Piket Unit', w: 110, rp: true },
-      { k: 'piket_parkiran', t: 'Piket Parkiran', w: 125, rp: true },
-      { k: 'pembina', t: 'Pembina', w: 110, rp: true },
-      { k: 'osis', t: 'Pembina OSIS', w: 120, rp: true },
-      { k: 'wali', t: 'Wali Kelas', w: 115, rp: true }
+      { k: 'jenis_orang', t: 'Jenis', w: 120, jumlah: false },
+      { k: 'mengajar', t: 'Mengajar', w: 120, rp: true },
+      { k: 'wali', t: 'Wali Kelas', w: 110, rp: true },
+      { k: 'diperbantukan', t: 'Diperbantukan', w: 120, rp: true },
+      { k: 'piket_meja', t: 'Piket Meja', w: 110, rp: true },
+      { k: 'pengganti', t: 'Pengganti', w: 110, rp: true },
+      { k: 'osis', t: 'Pembina OSIS', w: 115, rp: true },
+      { k: 'ekskul', t: 'Pembina Ekskul', w: 120, rp: true },
+      { k: 'tahfidz', t: 'Pemb. Tahfidz', w: 115, rp: true },
+      { k: 'parkiran', t: 'Piket Parkiran', w: 115, rp: true }
     ]
   },
   mengajar: {
-    nama: 'Honor Mengajar',
+    nama: 'Guru Mengajar',
     fungsi: 'f_ip_honor_mengajar',
     judul: 'DAFTAR PENERIMAAN HONOR MENGAJAR',
     catatan: 'Jam yang dibayar adalah jam kontrak per minggu, tidak dikalikan jumlah pekan — '
@@ -1027,6 +1031,62 @@ const REKAP = {
       { k: 'konsumsi', t: 'Konsumsi', w: 110, rp: true }
     ]
   },
+  wali: {
+    nama: 'Wali Kelas',
+    fungsi: 'f_ip_honor_wali_kelas',
+    judul: 'DAFTAR PENERIMAAN HONOR WALI KELAS',
+    catatan: 'Honor Bulanan FLAT per bulan untuk tiap wali kelas yang tugasnya aktif pada periode; '
+           + 'jumlah bulan dihitung dari bulan kalender yang lebih dari setengah harinya masuk rentang. '
+           + 'Upacara dan Bimbingan Wali Kelas dihitung dari jam PER MINGGU dikali tarif, bukan jumlah '
+           + 'jam sepanjang periode — dibayarkan bulanan atas dasar jam kontrak itu. Karena itu angkanya '
+           + 'berbeda dari rekap Wali Kelas di aplikasi Kehadiran Guru, yang menghitung jam terjadwal '
+           + 'sepanjang rentang untuk menilai kehadiran. Piket meja sekolah wali kelas tidak di sini: '
+           + 'dibayar per jam jaga di daftar Piket Meja Sekolah. Baris bertanda "belum lengkap" masih '
+           + 'ada komponen yang kosong — berbeda maknanya dengan nol. Pemegang tugas Staf ditampilkan '
+           + 'dengan honor nol.',
+    kolom: [
+      { k: 'bulan', t: 'Bulan', w: 65, num: true, jumlah: false },
+      { k: 'honor_bulanan', t: 'Honor Wali Kelas', w: 130, rp: true },
+      { k: 'jam_upacara', t: 'Jam Upacara /mg', w: 110, num: true },
+      { k: 'honor_upacara', t: 'Honor Upacara', w: 125, rp: true },
+      { k: 'jam_bimbingan', t: 'Jam Bimbingan /mg', w: 120, num: true },
+      { k: 'honor_bimbingan', t: 'Honor Bimbingan', w: 130, rp: true }
+    ]
+  },
+  /* Honor penanggung jawab unit (flat per bulan) dan transport piket unit
+     (per jam jaga) dalam satu daftar, satu baris per unit yang dipegang. */
+  diperbantukan: {
+    nama: 'Guru Diperbantukan',
+    fungsi: 'f_ip_honor_diperbantukan',
+    judul: 'DAFTAR PENERIMAAN HONOR DAN TRANSPOR GURU DIPERBANTUKAN',
+    catatan: 'Honor FLAT per bulan untuk tiap unit yang dipegang (tugas Diperbantukan yang aktif di '
+           + 'Data Induk → Tugas Guru); jumlah bulan dihitung dari bulan kalender yang LEBIH DARI '
+           + 'SETENGAH harinya masuk rentang. Transport dihitung per JAM jaga unit yang tercatat Hadir '
+           + 'di Kehadiran Guru → Pelaksanaan Piket, per penugasan. Pemegang tugas Staf: honor nol, '
+           + 'transportnya tetap dihitung.',
+    kolom: [
+      { k: 'unit', t: 'Unit', w: 210, jumlah: false },
+      { k: 'bulan', t: 'Bulan', w: 65, num: true, jumlah: false },
+      { k: 'tarif_bulan', t: 'Tarif/bulan', w: 110, rp: true, jumlah: false },
+      { k: 'honor', t: 'Honor', w: 115, rp: true },
+      { k: 'jam_jaga', t: 'Jam jaga', w: 80, num: true },
+      { k: 'tarif_jam', t: 'Tarif/jam', w: 100, rp: true, jumlah: false },
+      { k: 'transport', t: 'Transport', w: 115, rp: true }
+    ]
+  },
+  piket_meja: {
+    nama: 'Piket Meja Sekolah', fungsi: 'f_ip_transport_piket',
+    arg: { p_jenis: 'Meja Sekolah' },
+    judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET MEJA SEKOLAH',
+    catatan: 'Yang dibayar adalah petugas terjadwal yang benar-benar berjaga. Piket tidak mengenal '
+           + 'pengganti: bila petugasnya berhalangan, gilirannya memang tidak dijaga. Dihitung per JAM '
+           + 'pelajaran. Pemegang tugas Staf tidak dihitung di sini: kehadirannya sudah masuk kontrak '
+           + 'jam kerja lewat fingerprint, jadi membayarnya lagi berarti dua kali.',
+    kolom: [
+      { k: 'ukuran', t: 'Jam jaga', w: 85, num: true },
+      { k: 'tarif', t: 'Tarif/jam', w: 110, rp: true, jumlah: false }
+    ]
+  },
   pengganti: {
     nama: 'Guru Pengganti',
     fungsi: 'f_ip_honor_pengganti',
@@ -1044,123 +1104,85 @@ const REKAP = {
       { k: 'jam_total', t: 'Jam', w: 60, num: true }
     ]
   },
-  /* Ketiga piket dilaporkan terpisah karena memang tiga pembiayaan berbeda:
-     dasar penugasannya beda, tarifnya beda, dan yang berhak pun beda. Bentuk
-     tabelnya sama, jadi hanya judul, catatan, dan satu argumen yang berbeda. */
-  ...(() => {
-    /* Satuannya berbeda antar jenis, dan kolomnya harus mengatakannya.
-       Meja sekolah dan unit dicatat per JAM pelajaran di Kehadiran Guru —
-       guru yang berjaga dua jam dan hadir satu jam dibayar satu jam —
-       sedangkan parkiran per HARI, karena memang sekali jaga sesudah bel
-       pulang, bukan jam pelajaran. Kolom `ukuran` dari
-       f_ip_transport_piket sengaja tidak bernama `hari`: nama yang
-       berbohong tentang satuan persis itulah yang dulu membuat tarif
-       menyimpang diam-diam. */
-    const kolomPiket = (satuan) => [
-      { k: 'ukuran', t: satuan === 'jam' ? 'Jam jaga' : 'Hari jaga', w: 85, num: true },
-      { k: 'tarif', t: 'Tarif/' + satuan, w: 110, rp: true, jumlah: false }
-    ];
-    const dasar = 'Yang dibayar adalah petugas terjadwal yang benar-benar berjaga. Piket tidak '
-                + 'mengenal pengganti: bila petugasnya berhalangan, gilirannya memang tidak dijaga.';
-    return {
-      piket_meja: {
-        nama: 'Piket Meja Sekolah', fungsi: 'f_ip_transport_piket',
-        arg: { p_jenis: 'Meja Sekolah' },
-        judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET MEJA SEKOLAH',
-        catatan: dasar + ' Dihitung per JAM pelajaran. Pemegang tugas Staf tidak dihitung di sini: '
-               + 'kehadirannya sudah masuk kontrak jam kerja lewat fingerprint, jadi membayarnya lagi berarti dua kali.',
-        kolom: kolomPiket('jam')
-      },
-      piket_unit: {
-        nama: 'Piket Unit', fungsi: 'f_ip_transport_piket',
-        arg: { p_jenis: 'Unit' },
-        judul: 'DAFTAR PENERIMAAN TRANSPORT PIKET UNIT',
-        catatan: dasar + ' Dihitung per JAM pelajaran. Untuk guru diperbantukan yang menjaga '
-               + 'unitnya, mis. Laboratorium IPA atau Perpustakaan.',
-        kolom: kolomPiket('jam')
-      },
-      piket_parkiran: {
-        nama: 'Piket Parkiran', fungsi: 'f_ip_transport_piket',
-        arg: { p_jenis: 'Parkiran' },
-        judul: 'DAFTAR PENERIMAAN KOMPENSASI PIKET PARKIRAN',
-        catatan: dasar + ' Dihitung per HARI jaga, bukan per jam pelajaran: parkiran memang '
-               + 'sekali jaga sesudah bel pulang. Petugas parkiran memang staf, dan itu pengecualian '
-               + 'yang sudah disepakati — jadi di sini staf tetap dihitung.',
-        kolom: kolomPiket('hari')
-      }
-    };
-  })(),
-  pembina: {
-    nama: 'Transport Pembina',
-    fungsi: 'f_ip_transport_pembina',
-    judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBINA',
-    catatan: 'Besaran tiap pertemuan ditentukan jumlah siswa yang hadir pada pertemuan itu, '
-           + 'jadi dihitung per pertemuan lalu dijumlahkan — bukan dari rata-rata kehadiran, '
-           + 'yang akan memberi hasil berbeda. Yang dibayar hanya pertemuan yang benar-benar '
-           + 'berjalan dan dihadiri pembinanya atau penggantinya; pertemuan yang ditiadakan dan '
-           + 'yang pembinanya tidak hadir sama-sama tidak dibayar. Pada pertemuan yang '
-           + 'digantikan, haknya tetap pada pembina terjadwal — nama pengganti hanya dicatat '
-           + 'sebagai keterangan, tidak tertaut ke data pembina. Kolom Jenis menyebut tarif '
-           + 'yang dipakai: Internal dan Eksternal untuk ekstrakurikuler, Imtaq untuk pembinaan '
-           + 'Imtaq (mis. Tahfidz) yang tarifnya tersendiri. Pembina OSIS TIDAK ada di sini — '
-           + 'honornya flat per bulan, ada di daftar tersendiri. '
-           + 'Kegiatan yang dibimbing beberapa orang sekaligus: tarif pertemuan dihitung dari '
-           + 'SELURUH siswa yang hadir, lalu dibagi rata kepada pembimbing yang hadir pada '
-           + 'pertemuan itu — yang tidak datang tidak kebagian. Karena itu kolom Siswa hadir '
-           + 'adalah kehadiran PERTEMUANNYA, bukan bagian per orang: pada kegiatan semacam itu '
-           + 'angkanya sama untuk semua pembimbingnya, jadi sengaja tidak dijumlahkan.',
-    kolom: [
-      { k: 'jenis', t: 'Jenis', w: 110, jumlah: false },
-      { k: 'pertemuan', t: 'Pertemuan', w: 90, num: true },
-      // Tidak dijumlahkan: lihat catatan di atas — menjumlahkannya antar-orang
-      // akan menghitung satu pertemuan berkali-kali.
-      { k: 'siswa_hadir', t: 'Siswa hadir', w: 100, num: true, jumlah: false }
-    ]
-  },
-  /* Satu-satunya pembiayaan yang tidak dihitung per kejadian. Pertemuannya
-     tetap dicatat di Absensi Ekskul, tetapi bukan itu dasar pembayarannya —
-     jadi kolom "Pertemuan" sengaja tidak ada di sini, supaya tidak ada yang
-     mengira angkanya ikut menentukan. */
+  /* Satu-satunya pembiayaan yang tidak dihitung per kejadian, dan
+     penerimanya seorang — karena itu unduhannya berbentuk KUITANSI, bukan
+     daftar bertanda tangan. */
   osis: {
-    nama: 'Honor Pembina OSIS',
+    nama: 'Pembina OSIS',
     fungsi: 'f_ip_honor_pembina_osis',
     judul: 'DAFTAR PENERIMAAN HONOR PEMBINA OSIS',
+    kuitansi: 'Honor Pembina OSIS',
     catatan: 'FLAT per bulan, tidak bergantung jumlah pertemuan — haknya melekat pada tugas '
            + '"Pembina OSIS" yang aktif di Data Induk → Tugas Guru. Jumlah bulan dihitung dari '
            + 'bulan kalender yang LEBIH DARI SETENGAH harinya masuk rentang tanggal, karena '
            + 'periode pembayaran memang jarang tepat tanggal 1 sampai akhir bulan. Akibatnya '
            + 'rentang setengah bulan menghasilkan nol bulan: itu disengaja, supaya sebulan yang '
-           + 'dipotong dua tidak terbayar dua kali tanpa ada yang menyadari.',
+           + 'dipotong dua tidak terbayar dua kali tanpa ada yang menyadari. Unduhannya kuitansi '
+           + 'perorangan berkop sekolah, ditandatangani Kepala Sekolah, Bendahara, dan penerima.',
     kolom: [
       { k: 'bulan', t: 'Bulan', w: 80, num: true },
       { k: 'tarif', t: 'Tarif/bulan', w: 120, rp: true, jumlah: false }
     ]
   },
-  wali: {
-    nama: 'Honor Wali Kelas',
-    fungsi: 'f_ip_honor_wali_kelas',
-    judul: 'DAFTAR PENERIMAAN HONOR WALI KELAS',
-    catatan: 'Jamnya PER MINGGU, bukan jumlah jam sepanjang periode — honor wali kelas '
-           + 'memang dibayarkan bulanan atas dasar jam kontrak itu, tidak dikalikan banyaknya '
-           + 'pekan. Karena itu angkanya berbeda dari rekap Wali Kelas di aplikasi Kehadiran '
-           + 'Guru, yang menghitung jam terjadwal sepanjang rentang tanggal untuk menilai '
-           + 'kehadiran. Jam upacara dan bimbingan memakai angka bawaan tiap komponen; jam piket mengikuti jadwal di Data Induk → Jadwal Piket. '
-           + 'Baris bertanda "belum lengkap" masih ada komponen yang kosong — berbeda maknanya '
-           + 'dengan nol.',
+  ...(() => {
+    /* Transport pembina dibaca dari satu fungsi, lalu dipecah dua tab
+       menurut jenis tarifnya: Internal/Eksternal untuk ekstrakurikuler,
+       Imtaq untuk pembimbing Tahfidz. Pembina OSIS tidak pernah ada di
+       sini — honornya flat per bulan, tab tersendiri. */
+    const dasar = 'Besaran tiap pertemuan ditentukan jumlah siswa yang hadir pada pertemuan itu, '
+                + 'jadi dihitung per pertemuan lalu dijumlahkan — bukan dari rata-rata kehadiran, '
+                + 'yang akan memberi hasil berbeda. Yang dibayar hanya pertemuan yang benar-benar '
+                + 'berjalan dan dihadiri pembinanya; pertemuan yang ditiadakan dan yang pembinanya '
+                + 'tidak hadir sama-sama tidak dibayar. Kegiatan yang dibimbing beberapa orang '
+                + 'sekaligus: tarif pertemuan dihitung dari SELURUH siswa yang hadir, lalu dibagi rata '
+                + 'kepada pembimbing yang hadir pada pertemuan itu — yang tidak datang tidak kebagian. '
+                + 'Karena itu kolom Siswa hadir adalah kehadiran PERTEMUANNYA, bukan bagian per orang, '
+                + 'dan sengaja tidak dijumlahkan.';
+    const kolom = [
+      { k: 'jenis', t: 'Jenis', w: 100, jumlah: false },
+      { k: 'pertemuan', t: 'Pertemuan', w: 90, num: true },
+      { k: 'siswa_hadir', t: 'Siswa hadir', w: 100, num: true, jumlah: false }
+    ];
+    return {
+      ekskul: {
+        nama: 'Pembina Ekskul', fungsi: 'f_ip_transport_pembina',
+        saring: r => r.jenis !== 'Imtaq',
+        judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBINA EKSTRAKURIKULER',
+        catatan: dasar + ' Kolom Jenis menyebut tarif yang dipakai: Internal untuk pembina yang guru '
+               + 'sekolah, Eksternal untuk pelatih dari luar.',
+        kolom
+      },
+      tahfidz: {
+        nama: 'Pembimbing Tahfidz', fungsi: 'f_ip_transport_pembina',
+        saring: r => r.jenis === 'Imtaq',
+        judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBIMBING TAHFIDZ',
+        catatan: dasar + ' Tarifnya tersendiri (Transport Pembimbing Imtaq), satu skala untuk '
+               + 'pembimbing dari dalam maupun luar sekolah.',
+        kolom
+      }
+    };
+  })(),
+  piket_parkiran: {
+    nama: 'Piket Parkiran', fungsi: 'f_ip_transport_piket',
+    arg: { p_jenis: 'Parkiran' },
+    judul: 'DAFTAR PENERIMAAN KOMPENSASI PIKET PARKIRAN',
+    catatan: 'Yang dibayar adalah petugas terjadwal yang benar-benar berjaga. Piket tidak mengenal '
+           + 'pengganti: bila petugasnya berhalangan, gilirannya memang tidak dijaga. Dihitung per HARI '
+           + 'jaga, bukan per jam pelajaran: parkiran memang sekali jaga sesudah bel pulang. Petugas '
+           + 'parkiran memang staf, dan itu pengecualian yang sudah disepakati — jadi di sini staf '
+           + 'tetap dihitung.',
     kolom: [
-      { k: 'jam_upacara', t: 'Jam Upacara /mg', w: 110, num: true },
-      { k: 'honor_upacara', t: 'Honor Upacara', w: 125, rp: true },
-      { k: 'jam_bimbingan', t: 'Jam Bimbingan /mg', w: 120, num: true },
-      { k: 'honor_bimbingan', t: 'Honor Bimbingan', w: 130, rp: true },
-      { k: 'jam_piket', t: 'Jam Piket /mg', w: 100, num: true },
-      { k: 'honor_piket', t: 'Honor Piket', w: 115, rp: true }
+      { k: 'ukuran', t: 'Hari jaga', w: 85, num: true },
+      { k: 'tarif', t: 'Tarif/hari', w: 110, rp: true, jumlah: false }
     ]
   }
 };
 
+
 async function muatRekap() {
   const r = REKAP[ui.rekapJenis];
-  D.rekap = await rpc(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
+  const hasil = await rpc(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
+  D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
 }
 
 const angkaSel = (b, k) => {
@@ -1195,7 +1217,7 @@ function halRekap() {
   const tarifKosong = baris && baris.length && adaKegiatan && !(total.jumlah > 0);
 
   $('#isi').innerHTML = `
-    <div class="head"><div><h1>Honor dan Transport</h1>
+    <div class="head"><div><h1>Honor dan Transpor</h1>
       <p>Jumlah yang harus dibayarkan pada satu periode. Angkanya memakai besaran yang
          berlaku pada periode itu, bukan besaran hari ini.</p></div>
       <div class="sp"></div>
@@ -1237,7 +1259,7 @@ function halRekap() {
     <div class="panel"><div class="panel-head"><h3>${esc(spek.nama)}</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div>
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh (xlsx)'}</button></div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
         seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
       <div class="scroll"><table class="rekap"><thead><tr>
@@ -1279,7 +1301,8 @@ function halRekap() {
     jalankan('Menghitung…', muatRekap);
   });
   if ($('#rStaf')) $('#rStaf').onclick = () => { ui.ikutStaf = !ui.ikutStaf; gambar(); };
-  if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…', () => unduhRekap(spek, baris, total));
+  if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…',
+    () => spek.kuitansi ? unduhKuitansi(spek, baris) : unduhRekap(spek, baris, total));
 }
 
 /* ----------------------------------------------------------- excel */
@@ -1443,6 +1466,109 @@ async function unduhRekap(spek, baris, total) {
   ws.pageSetup.printTitlesRow = '7:7';
 
   await simpanBuku(wb, `${spek.nama} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
+}
+
+/* Kuitansi perorangan — untuk pembiayaan yang penerimanya seorang (Pembina
+   OSIS). Satu lembar per penerima, berkop sekolah yang sama dengan berkas
+   lain, dan tiga tanda tangan: Kepala Sekolah menyetujui, Bendahara
+   melunasi, penerima menerima. Bukan "Bendahara BOS" — sumber dananya
+   bukan urusan kuitansi ini. */
+function labelPeriodeRekap() {
+  const a = ui.rekapAwal, b = ui.rekapAkhir;
+  const [ya, ma, da] = a.split('-').map(Number), [yb, mb, db] = b.split('-').map(Number);
+  const akhirBulan = new Date(ya, ma, 0).getDate();
+  const NAMA = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+  if (da === 1 && ya === yb && ma === mb && db === akhirBulan) return `bulan ${NAMA[ma - 1]} ${ya}`;
+  return `periode ${tglIndo(a)} – ${tglIndo(b)}`;
+}
+
+async function unduhKuitansi(spek, baris) {
+  if (!baris || !baris.length) throw new Error('Tidak ada penerima pada periode ini.');
+  const ExcelJS = await muatExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const F = 'Calibri';
+  const p = D.profil || {};
+  const logo = await ambilLogo();
+  const KOL = 8;
+  const dipakai = new Set();
+
+  baris.forEach((b, i) => {
+    let namaLembar = String(b.nama || 'Kuitansi').replace(/[\\/*?:[\]]/g, ' ').slice(0, 28).trim() || 'Kuitansi';
+    if (dipakai.has(namaLembar)) namaLembar = `${namaLembar.slice(0, 25)} ${i + 1}`;
+    dipakai.add(namaLembar);
+    const ws = wb.addWorksheet(namaLembar, {
+      pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+                   margins: { left: 0.6, right: 0.6, top: 0.6, bottom: 0.6, header: 0.2, footer: 0.2 } }
+    });
+    ws.columns = [{ width: 3 }, { width: 20 }, { width: 3 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 3 }];
+    ws.views = [{ showGridLines: false }];
+
+    const r0 = kopBersama().kopExcel(ws, { wb, logo, profil: p, judul: 'KWITANSI', sub: '', kolomAkhir: KOL, font: F });
+    const tulis = (r, c, v, o = {}) => {
+      const sel = ws.getCell(r, c);
+      sel.value = v;
+      sel.font = { name: F, size: o.ukuran || 10, bold: !!o.tebal, underline: !!o.garis };
+      sel.alignment = { horizontal: o.rata || 'left', vertical: 'middle', wrapText: !!o.lipat };
+      return sel;
+    };
+    const kotak = (r1, c1, r2, c2) => {
+      ws.mergeCells(r1, c1, r2, c2);
+      const s = ws.getCell(r1, c1);
+      s.border = { top: { style: 'medium' }, left: { style: 'medium' }, bottom: { style: 'medium' }, right: { style: 'medium' } };
+      return s;
+    };
+    const jumlah = Number(b.jumlah) || 0;
+    const untuk = `${spek.kuitansi} ${labelPeriodeRekap()}`
+      + (b.bulan != null ? ` (${b.bulan} bulan × ${rupiah(b.tarif)})` : '');
+
+    let r = r0 + 1;
+    tulis(r, 2, 'No.', { tebal: true });            tulis(r, 3, ':');  tulis(r, 4, '……………………');
+    r += 1;
+    tulis(r, 2, 'Telah terima dari', { tebal: true }); tulis(r, 3, ':'); tulis(r, 4, p.nama_sekolah || KONFIG.sekolah, { tebal: true });
+    r += 1;
+    tulis(r, 2, 'Uang sebesar', { tebal: true });   tulis(r, 3, ':');
+    kotak(r, 4, r, 7).value = terbilang(jumlah);
+    ws.getCell(r, 4).font = { name: F, size: 12, bold: true };
+    ws.getCell(r, 4).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    ws.getRow(r).height = 30;
+    r += 1;
+    tulis(r, 2, 'Untuk pembayaran', { tebal: true }); tulis(r, 3, ':'); tulis(r, 4, untuk, { lipat: true });
+    ws.mergeCells(r, 4, r, 7);
+    ws.getRow(r).height = 30;
+    r += 2;
+    kotak(r, 2, r, 2).value = `Rp ${jumlah.toLocaleString('id-ID')},-`;
+    ws.getCell(r, 2).font = { name: F, size: 12, bold: true };
+    ws.getCell(r, 2).alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(r).height = 26;
+    r += 2;
+
+    // Tiga tanda tangan: setuju, lunas, menerima.
+    tulis(r, 2, 'Setuju dibayar,');
+    tulis(r, 4, 'LUNAS DIBAYAR', { tebal: true });
+    tulis(r, 6, `${p.kota || 'Soreang'}, ${tglIndo(ui.rekapAkhir)}`);
+    tulis(r + 1, 4, 'Pada tanggal : ……………');
+    tulis(r + 2, 2, 'Kepala Sekolah,');
+    tulis(r + 2, 4, 'Bendahara,');
+    tulis(r + 2, 6, 'Yang menerima,');
+    tulis(r + 7, 2, p.kepala_sekolah || '……………………', { tebal: true, garis: true });
+    tulis(r + 7, 4, p.bendahara || '……………………', { tebal: true, garis: true });
+    tulis(r + 7, 6, b.nama || '……………………', { tebal: true, garis: true });
+    r += 8;
+
+    // Bingkai keliling kuitansi, dari kop sampai tanda tangan.
+    for (let rr = 1; rr <= r; rr++) {
+      const kiri = ws.getCell(rr, 1), kanan = ws.getCell(rr, KOL);
+      kiri.border = { ...(kiri.border || {}), left: { style: 'medium' } };
+      kanan.border = { ...(kanan.border || {}), right: { style: 'medium' } };
+    }
+    for (let cc = 1; cc <= KOL; cc++) {
+      const atas = ws.getCell(1, cc), bawah = ws.getCell(r, cc);
+      atas.border = { ...(atas.border || {}), top: { style: 'medium' } };
+      bawah.border = { ...(bawah.border || {}), bottom: { style: 'medium' } };
+    }
+  });
+
+  await simpanBuku(wb, `Kuitansi ${spek.kuitansi} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
 }
 
 /* Penulis Excel halaman Kehadiran dan Piket: memakai daftar kolom yang sama

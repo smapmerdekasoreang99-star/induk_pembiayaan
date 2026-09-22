@@ -52,7 +52,7 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 | Beranda | ✅ | Ringkasan kesiapan dan dari mana tiap angka datang |
 | Kehadiran dan Piket | ✅ | Kehadiran yang menjadi dasar pembiayaan, persis seperti di aplikasi asalnya: dari Kehadiran Guru tab Kehadiran Guru, Guru Pengganti, Wali Kelas, Piket (tanpa Hari Libur); dari Absensi Ekskul tab Per kegiatan, Per pertemuan, Per pembina (tanpa Per siswa). Tiap tab bisa diunduh xlsx |
 | Penggajian | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku (dulu bernama Pengaturan Nominal) |
-| Honor dan Transport | ✅ | Tujuh rekap: Honor Mengajar, Guru Pengganti, Piket Meja Sekolah, Piket Unit, Piket Parkiran, Transport Pembina, Honor Wali Kelas — masing-masing dengan unduhan xlsx |
+| Honor dan Transpor | ✅ | Disusun per penerima: Gabungan per Guru, Guru Mengajar, Wali Kelas (honor bulanan + Upacara + Bimbingan), Guru Diperbantukan (honor bulanan + transport piket unit, per unit), Piket Meja Sekolah, Guru Pengganti, Pembina OSIS (unduhannya **kuitansi** perorangan berkop, ditandatangani Kepala Sekolah, Bendahara, penerima), Pembina Ekskul, Pembimbing Tahfidz, Piket Parkiran — selebihnya daftar bertanda tangan xlsx |
 | Identitas Dokumen | ✅ | Kop dokumen, baca saja dari Data Induk |
 
 ## Tabel yang dipakai
@@ -69,7 +69,10 @@ tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
 | `f_ip_honor_pengganti` | jam penggantian GT / PT / Infaler |
 | `f_ip_transport_piket` | giliran jaga satu jenis piket — kolom `ukuran` berisi **jam** untuk Meja Sekolah dan Unit, **hari** untuk Parkiran, mengikuti satuan pencatatannya di Kehadiran Guru; staf dikecualikan pada meja sekolah |
 | `f_ip_transport_pembina` | pertemuan ekskul dan pembinaan, menurut jumlah siswa hadir |
-| `f_ip_honor_wali_kelas` | komponen upacara, bimbingan, piket |
+| `f_ip_honor_wali_kelas` | honor bulanan flat + komponen upacara dan bimbingan (jam per minggu); piket tidak termasuk, dibayar per jam jaga di Piket Meja Sekolah |
+| `f_ip_honor_diperbantukan` | honor bulanan flat per unit yang dipegang + transport piket unit per jam jaga, per penugasan |
+| `f_ip_honor_pembina_osis` | flat per bulan; `f_ip_bulan` menghitung bulan yang lebih dari setengah harinya masuk rentang, dipakai ketiga honor flat |
+| `f_ip_rekap_gabungan` | satu baris per penerima, kolomnya mengikuti tab: mengajar, wali, diperbantukan, piket meja, pengganti, OSIS, ekskul, Tahfidz, parkiran |
 
 Semuanya mengambil periode sebagai argumen (`f_ip_transport_piket` ditambah
 `p_jenis`) dan mengambil tarif
@@ -135,8 +138,10 @@ mematahkannya, dan kontrak itulah yang menahannya.
   ada di Penggajian, dan `f_ip_honor_staf` belum dibuat.
 - `guru_privat` (nama bank, nomor rekening, NPWP) masih kosong — daftar
   transfer belum bisa dicetak sampai diisi.
-- Tiga komponen honor wali kelas belum ditetapkan besarannya (masih Rp 0).
-  Jumlah jamnya sudah tercatat, tinggal menunggu keputusan yayasan.
+- Honor bulanan wali kelas (`wali_bulanan`), honor bulanan guru diperbantukan
+  (`diperbantukan_bulanan`), dan tiga komponen jam wali kelas belum
+  ditetapkan besarannya (masih Rp 0). Isiannya sudah ada di Penggajian;
+  jumlah bulan dan jamnya sudah terhitung, tinggal menunggu keputusan yayasan.
 - Tarif masih tersalin di `kg_pengaturan` dan `ae_tarif`. Keduanya tetap ada
   selama Kehadiran Guru dan Absensi Ekskul masih memakainya, dan dipensiunkan
   setelah aplikasi ini menggantikan perannya.
