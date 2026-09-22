@@ -25,7 +25,7 @@ const KONFIG = {
 };
 
 let sesi = { token: '', email: '', nama: '' };
-let D = { jenis: [], tarif: [], profil: null, rekap: null, hadir: null, galat: {} };
+let D = { jenis: [], tarif: [], tarifSemua: [], profil: null, rekap: null, hadir: null, galat: {} };
 let halaman = 'beranda';
 let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'gabungan', ikutStaf: false,
            hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '',
@@ -152,10 +152,13 @@ async function masuk(email, sandi) {
 /* -------------------------------------------------------- muat semua */
 async function muatSemua() {
   D.galat = {};
-  // Katalog jenis + besaran yang berlaku pada tanggal acuan.
-  [D.jenis, D.tarif] = await Promise.all([
+  // Katalog jenis, besaran yang berlaku pada tanggal acuan, dan seluruh
+  // versi — yang terakhir untuk menunjukkan versi yang BELUM berlaku, supaya
+  // besaran yang baru disimpan untuk bulan depan tidak tampak hilang.
+  [D.jenis, D.tarif, D.tarifSemua] = await Promise.all([
     ambil('ip_jenis_tarif', 'select=*&order=urutan'),
-    rpc('f_ip_tarif', { p_acuan: ui.acuan })
+    rpc('f_ip_tarif', { p_acuan: ui.acuan }),
+    ambil('ip_tarif', 'select=kode,berlaku_mulai,batas_min,batas_maks,nilai&order=berlaku_mulai.asc,batas_min.asc')
   ]);
 
   // RLS menolak dengan mengembalikan tabel kosong, bukan galat. Tanpa
@@ -296,12 +299,25 @@ function halNominal() {
             <td style="text-align:right;font-weight:600">${rupiah(t.nilai)}</td></tr>`).join('')}</tbody></table>`
         : `<div style="font-size:22px;font-weight:600">${rupiah(baris[0].nilai)}</div>`;
 
+    /* Versi yang belum berlaku pada tanggal acuan. Tanpa ini, besaran yang
+       baru disimpan untuk bulan depan tidak terlihat di mana pun dan tampak
+       seolah tidak tersimpan. */
+    const mendatang = (D.tarifSemua || []).filter(t => t.kode === j.kode && t.berlaku_mulai > ui.acuan);
+    const tglBerikut = mendatang.length ? mendatang[0].berlaku_mulai : null;
+    const versiBerikut = tglBerikut ? mendatang.filter(t => t.berlaku_mulai === tglBerikut) : [];
+    const teksBerikut = !versiBerikut.length ? ''
+      : j.berjenjang ? `${versiBerikut.length} jenjang`
+      : rupiah(versiBerikut[0].nilai);
+
     return `<div class="panel">
       <div class="panel-head"><h3>${esc(j.nama)}</h3>
         <div class="sp" style="flex:1"></div>
         <div class="info">${esc(j.satuan)}</div></div>
       <div style="padding:14px 16px">
         ${isi}
+        ${teksBerikut ? `<p class="kecil" style="margin:10px 0 0;color:var(--warn)"><b>Versi berikutnya: ${esc(teksBerikut)}</b>,
+          berlaku mulai ${esc(tglIndo(tglBerikut))}. Belum dipakai pada tanggal acuan halaman ini
+          (${esc(tglIndo(ui.acuan))}); rekap periode sebelum tanggal itu tetap memakai besaran di atas.</p>` : ''}
         ${j.penjelasan ? `<p class="kecil" style="margin:10px 0 0">${esc(j.penjelasan)}</p>` : ''}
       </div>
       <div class="foot">
@@ -363,7 +379,9 @@ function formTarif(kode) {
 
     <div class="fg"><label>Berlaku mulai <span style="color:var(--danger)">*</span></label>
       <input class="field" type="date" id="t-mulai" value="${esc(awalBulanDepan())}">
-      <div class="hint">Bawaannya tanggal 1 bulan depan, karena pembiayaan dihitung per bulan.</div></div>
+      <div class="hint">Bawaannya tanggal 1 bulan depan, karena pembiayaan dihitung per bulan. Rekap sebuah
+        periode memakai besaran yang berlaku pada tanggal AKHIR periode itu — supaya bulan ini ikut
+        memakai besaran baru, pilih tanggal 1 bulan ini atau lebih awal.</div></div>
 
     ${j.berjenjang ? `
       <div class="fg penuh"><label>Jenjang menurut ${esc(j.satuan_jenjang)}</label>
@@ -436,8 +454,15 @@ function formTarif(kode) {
       // supaya jenjang yang dihapus di formulir ikut hilang.
       await buang('ip_tarif', `kode=eq.${enc(kode)}&berlaku_mulai=eq.${enc(mulai)}`);
       await simpanBaru('ip_tarif', baris);
+      /* Bila versi barunya belum berlaku pada tanggal acuan, halaman akan
+         tetap menampilkan versi lama dan besaran yang baru saja disimpan
+         tampak hilang. Tanggal acuannya dipindahkan ke tanggal berlakunya,
+         dan pemindahan itu disebut di pesan. */
+      const acuanPindah = mulai > ui.acuan;
+      if (acuanPindah) ui.acuan = mulai;
       await muatSemua();
-      toast(`${j.nama}: besaran baru berlaku ${tglIndo(mulai)}`);
+      toast(`${j.nama}: besaran baru berlaku ${tglIndo(mulai)}`
+        + (acuanPindah ? `. Tanggal acuan halaman dipindahkan ke ${tglIndo(mulai)} supaya besaran itu terlihat.` : ''));
     });
   };
 }
@@ -550,7 +575,7 @@ function susunTabHadir(tab, h) {
 
   if (tab === 'kehadiran') {
     const baris = saring(h.kehadiran);
-    const total = jumlahkan(baris, ['terjadwal', 'hadir_tm', 'httm', 'st', 'it', 'tk']);
+    const total = jumlahkan(baris, ['kontrak', 'terjadwal', 'hadir_tm', 'httm', 'st', 'it', 'tk']);
     total.hadir = Math.round(bobotHadir(total) * 100) / 100;
     total.persen = persenDari(total.hadir, total.terjadwal);
     total.nama = `Total (${baris.length} guru)`;
@@ -558,12 +583,13 @@ function susunTabHadir(tab, h) {
       cari: 'Saring nama guru…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
       kolom: [
         { k: 'nama', t: 'Guru', lekat: true },
-        angka('terjadwal', 'Terjadwal', 85), angka('hadir_tm', 'Hadir'), angka('httm', 'HTTM'),
+        angka('kontrak', 'Kontrak Jam', 90), angka('terjadwal', 'Terjadwal', 85), angka('hadir_tm', 'Hadir'), angka('httm', 'HTTM'),
         angka('st', 'ST', 55), angka('it', 'IT', 55), angka('tk', 'TK', 55),
         angka('hadir', 'Hadir (bobot)', 100, fmtJam), kolPersen('persen', '% Hadir')
       ],
       baris, total, kosong: 'Tidak ada data pada rentang ini.',
-      catatan: 'Bobot kehadiran per status: HTTM 100% · ST 20% · IT 10% · TK 0%. % Hadir = (Hadir '
+      catatan: 'Kontrak Jam = jam mengajar per minggu menurut jadwal KBM pada semester tanggal akhir rentang; '
+             + 'Terjadwal = jam sepanjang rentang. Bobot kehadiran per status: HTTM 100% · ST 20% · IT 10% · TK 0%. % Hadir = (Hadir '
              + 'tatap muka + jumlah berbobot) ÷ Terjadwal. Sabtu–Minggu dan hari libur tidak dihitung '
              + 'sebagai hari kerja. Upacara dan Bimbingan Wali Kelas (Senin jam 1–2) tidak termasuk — '
              + 'lihat tab Wali Kelas.',
