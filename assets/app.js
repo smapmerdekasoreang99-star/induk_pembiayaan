@@ -583,12 +583,17 @@ function susunTabHadir(tab, h) {
       cari: 'Saring nama guru…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
       kolom: [
         { k: 'nama', t: 'Guru', lekat: true },
-        angka('kontrak', 'Kontrak Jam', 90), angka('terjadwal', 'Terjadwal', 85), angka('hadir_tm', 'Hadir'), angka('httm', 'HTTM'),
+        // (+n) = jam Tugas Tambahan per minggu, sama seperti di Honor Mengajar.
+        { k: 'kontrak', t: 'Kontrak Jam', w: 95, num: true,
+          html: r => `${Number(r.kontrak) || 0}${Number(r.tambahan) > 0 ? ` <span class="kecil">(+${Number(r.tambahan)})</span>` : ''}`,
+          xls: r => Number(r.tambahan) > 0 ? `${Number(r.kontrak) || 0} (+${Number(r.tambahan)})` : Number(r.kontrak) || 0 },
+        angka('terjadwal', 'Terjadwal', 85), angka('hadir_tm', 'Hadir'), angka('httm', 'HTTM'),
         angka('st', 'ST', 55), angka('it', 'IT', 55), angka('tk', 'TK', 55),
         angka('hadir', 'Hadir (bobot)', 100, fmtJam), kolPersen('persen', '% Hadir')
       ],
       baris, total, kosong: 'Tidak ada data pada rentang ini.',
       catatan: 'Kontrak Jam = jam mengajar per minggu menurut jadwal KBM pada semester tanggal akhir rentang; '
+             + '(+n) = jam Tugas Tambahan per minggu dari Data Induk, di luar jadwal KBM. '
              + 'Terjadwal = jam sepanjang rentang. Bobot kehadiran per status: HTTM 100% · ST 20% · IT 10% · TK 0%. % Hadir = (Hadir '
              + 'tatap muka + jumlah berbobot) ÷ Terjadwal. Sabtu–Minggu dan hari libur tidak dihitung '
              + 'sebagai hari kerja. Upacara dan Bimbingan Wali Kelas (Senin jam 1–2) tidak termasuk — '
