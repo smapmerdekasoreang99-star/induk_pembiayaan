@@ -51,8 +51,8 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 |---|---|---|
 | Beranda | ✅ | Ringkasan kesiapan dan dari mana tiap angka datang |
 | Kehadiran dan Piket | ✅ | Kehadiran yang menjadi dasar pembiayaan, persis seperti di aplikasi asalnya: dari Kehadiran Guru tab Kehadiran Guru, Guru Pengganti, Wali Kelas, Piket (tanpa Hari Libur); dari Absensi Ekskul tab Per kegiatan, Per pertemuan, Per pembina (tanpa Per siswa). Tiap tab bisa diunduh xlsx |
-| Pengaturan Nominal | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku |
-| Rekapitulasi | ✅ | Tujuh rekap: Honor Mengajar, Guru Pengganti, Piket Meja Sekolah, Piket Unit, Piket Parkiran, Transport Pembina, Honor Wali Kelas — masing-masing dengan unduhan xlsx |
+| Penggajian | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku (dulu bernama Pengaturan Nominal) |
+| Honor dan Transport | ✅ | Tujuh rekap: Honor Mengajar, Guru Pengganti, Piket Meja Sekolah, Piket Unit, Piket Parkiran, Transport Pembina, Honor Wali Kelas — masing-masing dengan unduhan xlsx |
 | Identitas Dokumen | ✅ | Kop dokumen, baca saja dari Data Induk |
 
 ## Tabel yang dipakai
@@ -132,7 +132,7 @@ mematahkannya, dan kontrak itulah yang menahannya.
 - Kehadiran staf sudah terbaca (tab Kehadiran Staf, dari `f_ip_kehadiran_staf`;
   dicatat di Kehadiran Guru → Kehadiran Staf). Honornya belum: tiga besaran
   untuk pola bulanan, bulanan + insentif kedatangan, dan upah harian belum
-  ada di Pengaturan Nominal, dan `f_ip_honor_staf` belum dibuat.
+  ada di Penggajian, dan `f_ip_honor_staf` belum dibuat.
 - `guru_privat` (nama bank, nomor rekening, NPWP) masih kosong — daftar
   transfer belum bisa dicetak sampai diisi.
 - Tiga komponen honor wali kelas belum ditetapkan besarannya (masih Rp 0).

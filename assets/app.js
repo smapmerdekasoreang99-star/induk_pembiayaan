@@ -246,7 +246,7 @@ function halBeranda() {
 
     ${belumDiisi.length ? `<div class="info-box"><b>${belumDiisi.length} jenis pembiayaan belum ada besarannya
       pada ${esc(tglIndo(ui.acuan))}:</b> ${esc(belumDiisi.map(j => j.nama).join(', '))}.
-      Isi di halaman Pengaturan Nominal sebelum rekap dijalankan.</div>` : ''}
+      Isi di halaman Penggajian sebelum rekap dijalankan.</div>` : ''}
     ${nol.length ? `<div class="info-box"><b>${nol.length} besaran masih Rp 0.</b>
       Periksa apakah memang nol, atau belum diisi.</div>` : ''}
 
@@ -313,7 +313,7 @@ function halNominal() {
   };
 
   $('#isi').innerHTML = `
-    <div class="head"><div><h1>Pengaturan Nominal</h1>
+    <div class="head"><div><h1>Penggajian</h1>
       <p>Besaran tiap jenis pembiayaan. Mengubahnya tidak menimpa yang lama —
          yang tersimpan adalah besaran baru beserta tanggal mulai berlakunya.</p></div>
       <div class="sp"></div>
@@ -634,7 +634,7 @@ function susunTabHadir(tab, h) {
              + 'Bimbingan setiap Senin, jadi dua Senin berarti 2 jam di tiap kolom. Ketidakhadiran yang '
              + 'berstatus (sakit, ijin, HTTM) tidak masuk kolom Hadir, tetapi tetap dihitung berbobot '
              + 'pada % Kehadiran, dengan bobot dan rumus yang sama seperti rekap kehadiran. Di '
-             + 'Rekapitulasi honor wali kelas angkanya per minggu, karena honornya dibayarkan bulanan '
+             + 'Honor dan Transport, honor wali kelas angkanya per minggu, karena honornya dibayarkan bulanan '
              + 'atas dasar jam kontrak itu.',
       judul: 'REKAP TUGAS WALI KELAS', berkas: 'Rekap Tugas Wali Kelas', ttd: 'kurikulum'
     };
@@ -665,7 +665,7 @@ function susunTabHadir(tab, h) {
              + 'pulang. "Terjadwal" dihitung dari jadwal piket pada hari kerja dalam rentang ini, di luar '
              + 'hari libur; "Jaga" adalah yang benar-benar dijalankan; "% Kehadiran" = Jaga ÷ Terjadwal. '
              + 'Piket tidak mengenal pengganti, jadi selisih antara keduanya berarti petugasnya tidak '
-             + 'hadir, atau gilirannya belum dicatat. Nilai rupiahnya ada di Rekapitulasi.',
+             + 'hadir, atau gilirannya belum dicatat. Nilai rupiahnya ada di Honor dan Transport.',
       judul: 'REKAP PELAKSANAAN PIKET', berkas: 'Rekap Pelaksanaan Piket', ttd: 'kurikulum'
     };
   }
@@ -819,7 +819,7 @@ function susunTabHadir(tab, h) {
     kosong: 'Tidak ada pertemuan yang berjalan pada rentang ini.',
     catatan: 'Satu baris satu pertemuan yang benar-benar berjalan dan dihadiri pembinanya, diurutkan '
            + 'menurut nama pembina. Pertemuan yang ditiadakan dan yang pembinanya tidak hadir tidak ikut '
-           + 'dihitung. Bentuk inilah yang dipakai perhitungan transport pembina di Rekapitulasi.',
+           + 'dihitung. Bentuk inilah yang dipakai perhitungan transport pembina di Honor dan Transport.',
     judul: 'REKAP PERTEMUAN PER PEMBINA', berkas: 'Rekap Per Pembina' };
 }
 
@@ -977,10 +977,16 @@ const REKAP = {
            + 'hari hanyalah jam tatap muka dan hari kedatangan. Upacara dan Bimbingan Wali Kelas '
            + 'tidak termasuk jam mengajar. Pemegang tugas Staf berhonor nol — kecuali yang jam '
            + 'mengajarnya dinyatakan di luar tupoksi di Data Induk → Tugas Guru: honor dan transport '
-           + 'berdirinya dibayar, insentif dan konsumsinya tetap tidak karena lewat fingerprint.',
+           + 'berdirinya dibayar, insentif dan konsumsinya tetap tidak karena lewat fingerprint. '
+           + '(+n) di kolom Jam adalah guru dengan Tugas Tambahan: n jam tambahan mengajar per minggu, '
+           + 'dari Data Induk → Tugas Guru, sudah termasuk dalam jumlah jamnya.',
     kolom: [
       { k: 'masa_kerja', t: 'M.Kerja', w: 70, num: true, jumlah: false },
-      { k: 'jam_dibayar', t: 'Jam', w: 60, num: true },
+      // Guru bertugas tambahan: jam tambahannya disebut kecil di samping
+      // jumlah jam, supaya terlihat kenapa jamnya melebihi jadwal KBM.
+      { k: 'jam_dibayar', t: 'Jam', w: 70, num: true,
+        html: b => `${Number(b.jam_dibayar) || 0}${Number(b.jam_tambahan) > 0
+          ? ` <span class="kecil">(+${Number(b.jam_tambahan)})</span>` : ''}` },
       { k: 'tarif_jam', t: 'Tarif', w: 95, rp: true, jumlah: false },
       { k: 'honor_guru', t: 'Honor', w: 115, rp: true },
       { k: 'transport', t: 'Transport', w: 115, rp: true },
@@ -1158,7 +1164,7 @@ function halRekap() {
   const tarifKosong = baris && baris.length && adaKegiatan && !(total.jumlah > 0);
 
   $('#isi').innerHTML = `
-    <div class="head"><div><h1>Rekapitulasi Pembiayaan</h1>
+    <div class="head"><div><h1>Honor dan Transport</h1>
       <p>Jumlah yang harus dibayarkan pada satu periode. Angkanya memakai besaran yang
          berlaku pada periode itu, bukan besaran hari ini.</p></div>
       <div class="sp"></div>
@@ -1184,7 +1190,7 @@ function halRekap() {
 
     ${tarifKosong ? `<div class="info-box"><b>Kegiatannya tercatat, tetapi jumlahnya Rp 0.</b>
       Besaran untuk jenis pembiayaan ini belum diisi. Isi di halaman
-      <b>Pengaturan Nominal</b>, lalu hitung ulang.</div>` : ''}
+      <b>Penggajian</b>, lalu hitung ulang.</div>` : ''}
     ${jumlahStaf ? `<div class="info-box"><b>${jumlahStaf} pemegang tugas Staf berhonor nol
       ${ui.ikutStaf ? 'ikut ditampilkan' : 'disembunyikan'}.</b>
       Tugas Staf menggugurkan honor tambahan: jam kerjanya sudah dihitung lewat fingerprint,
@@ -1215,7 +1221,7 @@ function halRekap() {
             b.staf ? ` <span class="tag tag-l">${b.mengajar_dibayar ? 'Staf · di luar tupoksi' : 'Staf'}</span>` : ''}${
             b.belum_lengkap ? ' <span class="kecil" style="color:var(--warn)">belum lengkap</span>' : ''}${
             'masa_kerja' in b && b.masa_kerja == null ? ' <span class="kecil" style="color:var(--warn)">TMT kosong</span>' : ''}</td>
-          ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${angkaSel(b, k)}</td>`).join('')}
+          ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}</td>`).join('')}
           <td class="num" style="font-weight:600">${rupiah(b.jumlah)}</td></tr>`).join('')
         : `<tr><td colspan="${spek.kolom.length + 3}"><div class="empty"><b>Tidak ada penerima</b>
             Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
