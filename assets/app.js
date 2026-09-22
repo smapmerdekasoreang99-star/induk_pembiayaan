@@ -975,7 +975,9 @@ const REKAP = {
     catatan: 'Jam yang dibayar adalah jam kontrak per minggu, tidak dikalikan jumlah pekan — '
            + 'honor dan transport memang dibayarkan bulanan atas dasar kontrak itu. Yang dikalikan '
            + 'hari hanyalah jam tatap muka dan hari kedatangan. Upacara dan Bimbingan Wali Kelas '
-           + 'tidak termasuk jam mengajar.',
+           + 'tidak termasuk jam mengajar. Pemegang tugas Staf berhonor nol — kecuali yang jam '
+           + 'mengajarnya dinyatakan di luar tupoksi di Data Induk → Tugas Guru: honor dan transport '
+           + 'berdirinya dibayar, insentif dan konsumsinya tetap tidak karena lewat fingerprint.',
     kolom: [
       { k: 'masa_kerja', t: 'M.Kerja', w: 70, num: true, jumlah: false },
       { k: 'jam_dibayar', t: 'Jam', w: 60, num: true },
@@ -1134,9 +1136,14 @@ const angkaSel = (b, k) => {
 function halRekap() {
   const spek = REKAP[ui.rekapJenis];
   const semua = D.rekap;
+  /* Pemegang tugas Staf berhonor nol di rekap ini — aturannya ditegakkan di
+     fungsi database, bukan di layar. Yang disembunyikan secara bawaan hanya
+     yang benar-benar nol; staf yang jam mengajarnya dinyatakan di luar
+     tupoksi (mengajar_dibayar) tetap tampil karena memang dibayar. */
   const punyaStaf = semua && semua.some(r => 'staf' in r);
-  const baris = !semua ? null : (ui.ikutStaf || !punyaStaf ? semua : semua.filter(r => !r.staf));
-  const jumlahStaf = punyaStaf ? semua.filter(r => r.staf).length : 0;
+  const digugurkan = r => r.staf && !r.mengajar_dibayar;
+  const baris = !semua ? null : (ui.ikutStaf || !punyaStaf ? semua : semua.filter(r => !digugurkan(r)));
+  const jumlahStaf = punyaStaf ? semua.filter(digugurkan).length : 0;
   const fp = baris ? baris.filter(r => r.fingerprint).length : 0;
 
   const kunciJumlah = ['jumlah', ...spek.kolom.filter(k => k.jumlah !== false && (k.num || k.rp)).map(k => k.k)];
@@ -1178,11 +1185,12 @@ function halRekap() {
     ${tarifKosong ? `<div class="info-box"><b>Kegiatannya tercatat, tetapi jumlahnya Rp 0.</b>
       Besaran untuk jenis pembiayaan ini belum diisi. Isi di halaman
       <b>Pengaturan Nominal</b>, lalu hitung ulang.</div>` : ''}
-    ${jumlahStaf ? `<div class="info-box"><b>${jumlahStaf} pemegang tugas Staf
-      ${ui.ikutStaf ? 'ikut ditampilkan' : 'dikecualikan'}.</b>
+    ${jumlahStaf ? `<div class="info-box"><b>${jumlahStaf} pemegang tugas Staf berhonor nol
+      ${ui.ikutStaf ? 'ikut ditampilkan' : 'disembunyikan'}.</b>
       Tugas Staf menggugurkan honor tambahan: jam kerjanya sudah dihitung lewat fingerprint,
-      jadi membayarnya lagi berarti dua kali. Mereka tetap ditampilkan supaya jumlah orang
-      di rekap ini sama dengan jumlah yang sebenarnya memegang tugas itu.
+      jadi membayarnya lagi berarti dua kali. Angkanya memang nol di fungsi penghitung, bukan
+      sekadar disembunyikan. Staf yang jam mengajarnya dinyatakan di luar tupoksi di Data Induk
+      tetap tampil dan dibayar honor serta transport berdirinya.
       <button class="btn btn-sm" id="rStaf" style="margin-left:8px">${
         ui.ikutStaf ? 'Kecualikan lagi' : 'Tampilkan juga'}</button></div>` : ''}
     ${fp ? `<div class="info-box"><b>${fp} guru berinsentif fingerprint.</b>
@@ -1204,7 +1212,7 @@ function halRekap() {
         baris.length ? baris.map((b, i) => `<tr>
           <td class="num lekat-no">${i + 1}</td>
           <td class="nama lekat" style="font-weight:500">${esc(b.nama)}${
-            b.staf ? ' <span class="tag tag-l">Staf</span>' : ''}${
+            b.staf ? ` <span class="tag tag-l">${b.mengajar_dibayar ? 'Staf · di luar tupoksi' : 'Staf'}</span>` : ''}${
             b.belum_lengkap ? ' <span class="kecil" style="color:var(--warn)">belum lengkap</span>' : ''}${
             'masa_kerja' in b && b.masa_kerja == null ? ' <span class="kecil" style="color:var(--warn)">TMT kosong</span>' : ''}</td>
           ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${angkaSel(b, k)}</td>`).join('')}
