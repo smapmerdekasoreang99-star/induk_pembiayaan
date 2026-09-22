@@ -50,7 +50,7 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 | Halaman | Keadaan | Isinya |
 |---|---|---|
 | Beranda | ✅ | Ringkasan kesiapan dan dari mana tiap angka datang |
-| Daftar Hadir | 🔲 kerangka | Kehadiran yang menjadi dasar pembiayaan, dibaca dari aplikasi lain |
+| Kehadiran dan Piket | ✅ | Kehadiran yang menjadi dasar pembiayaan, persis seperti di aplikasi asalnya: dari Kehadiran Guru tab Kehadiran Guru, Guru Pengganti, Wali Kelas, Piket (tanpa Hari Libur); dari Absensi Ekskul tab Per kegiatan, Per pertemuan, Per pembina (tanpa Per siswa). Tiap tab bisa diunduh xlsx |
 | Pengaturan Nominal | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku |
 | Rekapitulasi | ✅ | Tujuh rekap: Honor Mengajar, Guru Pengganti, Piket Meja Sekolah, Piket Unit, Piket Parkiran, Transport Pembina, Honor Wali Kelas — masing-masing dengan unduhan xlsx |
 | Identitas Dokumen | ✅ | Kop dokumen, baca saja dari Data Induk |
@@ -96,10 +96,32 @@ Empat hal yang mudah salah dan sudah ditangani di dalamnya:
 tanggal ini"* — dasar seluruh perhitungan. `f_ip_nilai(p_kode, p_acuan,
 p_ukuran)` mengambil satu angka, termasuk untuk tarif berjenjang.
 
-**Dibaca dari aplikasi lain:** `profil_dokumen`, `v_guru` (Data Induk);
-menyusul `kg_ketidakhadiran_guru`, `kg_penugasan_pengganti`,
-`kg_pelaksanaan_piket` (Kehadiran Guru), `ae_sesi`, `ae_kehadiran`
-(Absensi Ekskul).
+**Kehadiran dan Piket** memakai lima fungsi lagi, dengan rumus yang
+dipindahkan apa adanya dari `kehadiran_guru/assets/rekap-hitung.js` dan
+`absen_ekskul/scripts/rekap.js`:
+
+| Fungsi | Menampilkan |
+|---|---|
+| `f_ip_hari_kerja` | hari kerja dalam rentang (Senin–Jumat di luar `hari_libur`), dipakai keempat fungsi berikut |
+| `f_ip_kehadiran_guru` | terjadwal, hadir, HTTM/ST/IT/TK, hadir berbobot, % hadir per guru — jadwal tahun ajaran aktif, semester mengikuti tanggal |
+| `f_ip_kehadiran_wali` | Upacara dan Bimbingan Wali Kelas per wali kelas, persentase dari gabungan keduanya |
+| `f_ip_pengganti_rinci` | satu baris satu jam penggantian; ringkasan GT/PT/Inf per guru pengganti disusun aplikasi dari sini |
+| `f_ip_pelaksanaan_piket` | Terjadwal dan Jaga per petugas — jam untuk Meja Sekolah dan Unit, hari untuk Parkiran |
+| `f_ip_ekskul_pertemuan` | satu baris satu pertemuan ekskul/pembinaan dengan jumlah siswa H/S/I/A; rekap per kegiatan dan per pembina disusun aplikasi dari sini |
+| `f_ip_kehadiran_staf` | hari kerja (ketentuan Jam Kerja Staf tiap orang, di luar hari libur), hadir, tidak hadir, belum dicatat, terlambat — hanya staf berpola bulanan + insentif kedatangan atau upah harian |
+
+Ketujuh tab dimuat sekaligus untuk satu periode, jadi berpindah tab tidak
+menunggu jaringan. Yang dikerjakan aplikasi hanya menyaring, menjumlahkan,
+dan menggambar; berkas xlsx tiap tab ditulis dari daftar kolom yang sama
+dengan layarnya. Yang menandatangani unduhan ini Wakasek Kurikulum (kehadiran
+guru) atau Wakasek Kesiswaan (ekskul), bukan Bendahara — ini dokumen
+kehadiran, bukan pembayaran.
+
+**Dibaca dari aplikasi lain:** `profil_dokumen`, `v_guru`, `jadwal_kbm`,
+`hari_libur`, `piket`, `piket_unit`, `piket_parkiran`, `guru_tugas` (Data
+Induk); `kg_ketidakhadiran_guru`, `kg_penugasan_pengganti`,
+`kg_pelaksanaan_piket` (Kehadiran Guru); `ekskul`, `ae_pembina`, `ae_sesi`,
+`ae_kehadiran` (Absensi Ekskul).
 
 Daftarnya dijaga [`database/kontrak/induk_pembiayaan.sql`](../database/kontrak/induk_pembiayaan.sql):
 karena aplikasi ini hidup dari data aplikasi lain, perubahan di sana bisa
@@ -107,8 +129,10 @@ mematahkannya, dan kontrak itulah yang menahannya.
 
 ## Yang belum selesai
 
-- Kehadiran staf belum ada datanya di mana pun. Pencatatannya akan dibuat di
-  **Data Induk**; di sini hanya dibaca.
+- Kehadiran staf sudah terbaca (tab Kehadiran Staf, dari `f_ip_kehadiran_staf`;
+  dicatat di Kehadiran Guru → Kehadiran Staf). Honornya belum: tiga besaran
+  untuk pola bulanan, bulanan + insentif kedatangan, dan upah harian belum
+  ada di Pengaturan Nominal, dan `f_ip_honor_staf` belum dibuat.
 - `guru_privat` (nama bank, nomor rekening, NPWP) masih kosong — daftar
   transfer belum bisa dicetak sampai diisi.
 - Tiga komponen honor wali kelas belum ditetapkan besarannya (masih Rp 0).

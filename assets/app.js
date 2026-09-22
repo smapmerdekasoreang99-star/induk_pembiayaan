@@ -25,9 +25,11 @@ const KONFIG = {
 };
 
 let sesi = { token: '', email: '', nama: '' };
-let D = { jenis: [], tarif: [], profil: null, rekap: null, galat: {} };
+let D = { jenis: [], tarif: [], profil: null, rekap: null, hadir: null, galat: {} };
 let halaman = 'beranda';
-let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'gabungan', ikutStaf: false };
+let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'gabungan', ikutStaf: false,
+           hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '',
+           penggantiRinci: false, ekskulKategori: '' };
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -264,7 +266,7 @@ function halBeranda() {
           ['Piket meja sekolah, unit, parkiran', 'Kehadiran Guru — Pelaksanaan Piket', true],
           ['Ekskul dan Pembinaan Imtaq', 'Absensi Ekskul — laporan pertemuan', true],
           ['Tugas wali kelas (upacara, bimbingan)', 'Data Induk — jam bawaan tiap komponen', true],
-          ['Kehadiran staf', 'Data Induk — belum dibuat', false]
+          ['Kehadiran staf (satpam, kebersihan, staf kontrak)', 'Kehadiran Guru — Kehadiran Staf; ketentuan jam kerja dan pola honornya di Data Induk', true]
         ].map(([a, b, siap]) => `<tr>
           <td style="font-weight:500">${esc(a)}</td><td class="kecil">${esc(b)}</td>
           <td>${siap ? '<span class="tag tag-l">siap dibaca</span>'
@@ -467,35 +469,474 @@ function dialogRiwayat(kode) {
   });
 }
 
-/* ------------------------------------------------------ daftar hadir */
+/* ------------------------------------------------ kehadiran dan piket */
+/* Kehadiran yang menjadi dasar pembiayaan, ditampilkan persis seperti di
+   aplikasi asalnya: rekap Kehadiran Guru (tab Kehadiran Guru, Guru
+   Pengganti, Wali Kelas, Piket — tanpa Hari Libur, yang memang diatur di
+   sana) dan rekap Absensi Ekskul (per kegiatan, per pertemuan, per pembina
+   — tanpa Per siswa, yang bukan urusan pembiayaan).
+
+   Angkanya dihitung fungsi database (f_ip_kehadiran_*, f_ip_pengganti_rinci,
+   f_ip_pelaksanaan_piket, f_ip_ekskul_pertemuan), bukan disalin dari
+   rekap-hitung.js aplikasi Kehadiran Guru: dua salinan pasti menyimpang
+   begitu salah satunya diperbaiki, dan bendahara akan membaca angka yang
+   berbeda dari yang dibaca kurikulum. Yang dikerjakan di sini hanya
+   menyaring, menjumlahkan, dan menggambar.                               */
+const HADIR_TAB = {
+  kehadiran: { nama: 'Kehadiran Guru', asal: 'guru' },
+  pengganti: { nama: 'Guru Pengganti', asal: 'guru' },
+  wali:      { nama: 'Wali Kelas',     asal: 'guru' },
+  piket:     { nama: 'Piket',          asal: 'guru' },
+  staf:      { nama: 'Kehadiran Staf', asal: 'guru' },
+  kegiatan:  { nama: 'Per kegiatan',   asal: 'ekskul' },
+  pertemuan: { nama: 'Per pertemuan',  asal: 'ekskul' },
+  pembina:   { nama: 'Per pembina',    asal: 'ekskul' }
+};
+const KATEGORI_EKSKUL = ['Ekstrakurikuler', 'Pembinaan Imtaq', 'Pembinaan Kesiswaan'];
+const HARI_NAMA = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+const STATUS_PEMBINA = { H: 'Hadir', TH: 'Tidak hadir', KG: 'Ditiadakan' };
+
+function tglPanjang(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso || '')) return '—';
+  return `${HARI_NAMA[new Date(iso + 'T00:00:00').getDay()]}, ${tglIndo(iso)}`;
+}
+const jamPendek = t => t ? String(t).slice(0, 5) : '';
+const persenBulat = (a, b) => b ? Math.round(a / b * 100) : 0;
+const persenDari = (hadir, terjadwal) => terjadwal ? Math.round(hadir / terjadwal * 10000) / 100 : null;
+const fmtJam = v => { const n = Number(v) || 0; return n % 1 === 0 ? String(n) : n.toFixed(2).replace('.', ','); };
+const fmtPersen = p => p == null ? '—' : Number(p).toFixed(2).replace('.', ',') + '%';
+/* Ambang warnanya sama dengan aplikasi Kehadiran Guru: 95 % baik, 85 % sedang. */
+const selPersen = p => p == null ? '—'
+  : `<span class="persen ${p >= 95 ? 'baik' : p >= 85 ? 'sedang' : 'rendah'}">${fmtPersen(p)}</span>`;
+const lencana = (kode, teks) => `<span class="lencana ${esc(String(kode).toLowerCase())}">${esc(teks || kode)}</span>`;
+const jumlahkan = (baris, kunci) => baris.reduce((t, r) => {
+  for (const k of kunci) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
+  return t;
+}, {});
+const bobotHadir = b => b.hadir_tm + b.httm + b.st * 0.2 + b.it * 0.1;
+
+/* Ketujuh tab dimuat sekaligus untuk satu periode: enam permintaan yang
+   berjalan serentak lebih ringan daripada satu permintaan tiap kali
+   berpindah tab, dan sesudahnya berpindah tab tidak menunggu jaringan. */
+async function muatHadir() {
+  const arg = { p_awal: ui.hadirAwal, p_akhir: ui.hadirAkhir };
+  const [hariKerja, kehadiran, wali, pengganti, piket, staf, sesi, ekskul] = await Promise.all([
+    rpc('f_ip_hari_kerja', arg),
+    rpc('f_ip_kehadiran_guru', arg),
+    rpc('f_ip_kehadiran_wali', arg),
+    rpc('f_ip_pengganti_rinci', arg),
+    rpc('f_ip_pelaksanaan_piket', arg),
+    rpc('f_ip_kehadiran_staf', arg),
+    rpc('f_ip_ekskul_pertemuan', arg),
+    ambil('ekskul', 'select=id,nama,pembina_id,kategori,hari,jam_mulai,aktif&order=id')
+  ]);
+  D.hadir = { awal: ui.hadirAwal, akhir: ui.hadirAkhir, hariKerja: (hariKerja || []).length,
+              kehadiran: kehadiran || [], wali: wali || [], pengganti: pengganti || [],
+              piket: piket || [], staf: staf || [], sesi: sesi || [], ekskul: ekskul || [] };
+}
+
+/* Tiap tab dijabarkan sebagai data — daftar kolom, baris, baris jumlah,
+   keterangan — lalu digambar dan diunduh oleh satu penggambar dan satu
+   penulis Excel yang sama, supaya berkas yang diunduh tidak pernah berbeda
+   isi dari layar.
+     kolom: { k, t, w, num, f (pemformat layar), html (sel utuh), xls (nilai
+             Excel), fmt (numFmt Excel), lekat (dibekukan di kiri) }        */
+function susunTabHadir(tab, h) {
+  const q = ui.hadirSaring.trim().toLowerCase();
+  const saring = baris => baris.filter(r => !q || String(r.nama || '').toLowerCase().includes(q));
+  const periode = `${tglPanjang(h.awal)} – ${tglPanjang(h.akhir)}`;
+  const angka = (k, t, w, f) => ({ k, t, w: w || 70, num: true, f });
+  const kolPersen = (k, t) => ({ k, t: t || '% Kehadiran', w: 100, num: true, html: r => selPersen(r[k]), f: fmtPersen, fmt: '0.00' });
+
+  if (tab === 'kehadiran') {
+    const baris = saring(h.kehadiran);
+    const total = jumlahkan(baris, ['terjadwal', 'hadir_tm', 'httm', 'st', 'it', 'tk']);
+    total.hadir = Math.round(bobotHadir(total) * 100) / 100;
+    total.persen = persenDari(total.hadir, total.terjadwal);
+    total.nama = `Total (${baris.length} guru)`;
+    return {
+      cari: 'Saring nama guru…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
+      kolom: [
+        { k: 'nama', t: 'Guru', lekat: true },
+        angka('terjadwal', 'Terjadwal', 85), angka('hadir_tm', 'Hadir'), angka('httm', 'HTTM'),
+        angka('st', 'ST', 55), angka('it', 'IT', 55), angka('tk', 'TK', 55),
+        angka('hadir', 'Hadir (bobot)', 100, fmtJam), kolPersen('persen', '% Hadir')
+      ],
+      baris, total, kosong: 'Tidak ada data pada rentang ini.',
+      catatan: 'Bobot kehadiran per status: HTTM 100% · ST 20% · IT 10% · TK 0%. % Hadir = (Hadir '
+             + 'tatap muka + jumlah berbobot) ÷ Terjadwal. Sabtu–Minggu dan hari libur tidak dihitung '
+             + 'sebagai hari kerja. Upacara dan Bimbingan Wali Kelas (Senin jam 1–2) tidak termasuk — '
+             + 'lihat tab Wali Kelas.',
+      judul: 'REKAP KEHADIRAN GURU', berkas: 'Rekap Kehadiran Guru', ttd: 'kurikulum'
+    };
+  }
+
+  if (tab === 'pengganti') {
+    /* Jam tugas wali kelas dikeluarkan dan hanya disebut jumlahnya —
+       penggantiannya dibayar lewat jalur wali kelas. Ringkasan per guru
+       pengganti disusun dari rinciannya, jadi keduanya tidak mungkin beda. */
+    const rinci = h.pengganti.filter(r => !r.wali);
+    const waliDikecualikan = h.pengganti.length - rinci.length;
+    const tp = rinci.filter(r => r.kode === 'TP').length;
+    const per = new Map();
+    for (const r of rinci) {
+      if (r.kode === 'TP' || !r.pengganti_id) continue;
+      if (!per.has(r.pengganti_id)) per.set(r.pengganti_id, { nama: r.pengganti, GT: 0, PT: 0, Inf: 0, total: 0 });
+      const b = per.get(r.pengganti_id);
+      if (b[r.kode] !== undefined) b[r.kode] += 1;
+      b.total += 1;
+    }
+    const ringkas = [...per.values()].sort((a, b) => b.total - a.total || a.nama.localeCompare(b.nama, 'id'));
+    const total = jumlahkan(ringkas, ['GT', 'PT', 'Inf', 'total']);
+    total.nama = `Total (${ringkas.length} guru pengganti)`;
+    const dasar = {
+      ringkas: `${total.total} jam digantikan · ${tp} jam tanpa pengganti (TP)`
+             + (waliDikecualikan ? ` · ${waliDikecualikan} jam tugas wali kelas tidak termasuk` : ''),
+      pilihan: [['ringkas', 'Per guru pengganti'], ['rinci', 'Rincian per jam']],
+      catatan: 'GT = Guru diTugaskan · PT = Piket diTugaskan · Inf = Infaler · TP = Tidak Perlu Pengganti '
+             + '(tidak masuk hitungan per guru). Penggantian jam Upacara dan Bimbingan Wali Kelas tidak termasuk.',
+      kosong: 'Belum ada penugasan pada rentang ini.', ttd: 'kurikulum'
+    };
+    if (!ui.penggantiRinci) return { ...dasar,
+      kolom: [{ k: 'nama', t: 'Guru Pengganti', lekat: true },
+              angka('GT', 'GT', 55), angka('PT', 'PT', 55), angka('Inf', 'Inf', 55), angka('total', 'Total jam', 85)],
+      baris: ringkas, total, judul: 'REKAP GURU PENGGANTI', berkas: 'Rekap Guru Pengganti' };
+    return { ...dasar,
+      kolom: [
+        { k: 'tanggal', t: 'Tanggal', w: 105, f: tglIndo },
+        { k: 'jam_ke', t: 'Jam', w: 75, f: v => 'Jam ke-' + v },
+        { k: 'kelas', t: 'Kelas', w: 90 }, { k: 'mapel', t: 'Mata Pelajaran', w: 170 },
+        { k: 'guru', t: 'Guru Tidak Hadir', w: 180 },
+        { k: 'status', t: 'Ket', w: 70, html: r => lencana(r.status) },
+        { k: 'pengganti', t: 'Guru Pengganti', w: 180, f: v => v || '—' },
+        { k: 'kode', t: 'Status', w: 70, html: r => lencana(r.kode) }
+      ],
+      baris: rinci, total: null, judul: 'RINCIAN PENUGASAN GURU PENGGANTI', berkas: 'Rincian Guru Pengganti' };
+  }
+
+  if (tab === 'wali') {
+    const baris = saring(h.wali);
+    const total = jumlahkan(baris, ['terjadwal_upacara', 'hadir_upacara', 'terjadwal_bimbingan', 'hadir_bimbingan', 'terjadwal', 'hadir']);
+    total.persen = persenDari(total.hadir, total.terjadwal);
+    total.nama = `Total (${baris.length} wali kelas)`;
+    return {
+      cari: 'Saring nama wali kelas…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
+      kelompok: [{ n: 1 }, { t: 'Upacara (jam)', n: 2 }, { t: 'Bimbingan WK (jam)', n: 2 }, { n: 1 }],
+      kolom: [
+        { k: 'nama', t: 'Wali Kelas', lekat: true },
+        angka('terjadwal_upacara', 'Terjadwal', 85), angka('hadir_upacara', 'Hadir'),
+        angka('terjadwal_bimbingan', 'Terjadwal', 85), angka('hadir_bimbingan', 'Hadir'),
+        kolPersen('persen')
+      ],
+      baris, total, kosong: 'Tidak ada jam tugas wali kelas pada rentang ini.',
+      catatan: 'Upacara & Bimbingan Wali Kelas, Senin jam 1–2 — direkap terpisah dari jam mengajar. '
+             + 'Terjadwal dihitung sepanjang rentang tanggal: tiap wali kelas 1 jam Upacara dan 1 jam '
+             + 'Bimbingan setiap Senin, jadi dua Senin berarti 2 jam di tiap kolom. Ketidakhadiran yang '
+             + 'berstatus (sakit, ijin, HTTM) tidak masuk kolom Hadir, tetapi tetap dihitung berbobot '
+             + 'pada % Kehadiran, dengan bobot dan rumus yang sama seperti rekap kehadiran. Di '
+             + 'Rekapitulasi honor wali kelas angkanya per minggu, karena honornya dibayarkan bulanan '
+             + 'atas dasar jam kontrak itu.',
+      judul: 'REKAP TUGAS WALI KELAS', berkas: 'Rekap Tugas Wali Kelas', ttd: 'kurikulum'
+    };
+  }
+
+  if (tab === 'piket') {
+    const baris = h.piket.map(r => ({ ...r,
+      meja_persen: persenDari(r.meja_jaga, r.meja_terjadwal),
+      unit_persen: persenDari(r.unit_jaga, r.unit_terjadwal),
+      parkiran_persen: persenDari(r.parkiran_jaga, r.parkiran_terjadwal) }));
+    const total = jumlahkan(baris, ['meja_terjadwal', 'meja_jaga', 'unit_terjadwal', 'unit_jaga',
+                                    'parkiran_terjadwal', 'parkiran_jaga', 'catatan']);
+    for (const j of ['meja', 'unit', 'parkiran']) total[j + '_persen'] = persenDari(total[j + '_jaga'], total[j + '_terjadwal']);
+    total.nama = `Total (${baris.length} petugas)`;
+    return {
+      ringkas: `${periode} · ${total.catatan} catatan pelaksanaan`,
+      kelompok: [{ n: 1 }, { t: 'Meja Sekolah (jam)', n: 3 }, { t: 'Unit (jam)', n: 3 }, { t: 'Parkiran (hari)', n: 3 }],
+      kolom: [
+        { k: 'nama', t: 'Nama', lekat: true },
+        angka('meja_terjadwal', 'Terjadwal', 85), angka('meja_jaga', 'Jaga', 60), kolPersen('meja_persen'),
+        angka('unit_terjadwal', 'Terjadwal', 85), angka('unit_jaga', 'Jaga', 60), kolPersen('unit_persen'),
+        angka('parkiran_terjadwal', 'Terjadwal', 85), angka('parkiran_jaga', 'Jaga', 60), kolPersen('parkiran_persen')
+      ],
+      baris, total,
+      kosong: 'Belum ada catatan pelaksanaan piket pada rentang tanggal ini. Diisi di Kehadiran Guru → Pelaksanaan Piket.',
+      catatan: 'Satuannya mengikuti jadwalnya: Meja Sekolah dan Unit dihitung per JAM pelajaran, Parkiran '
+             + 'per HARI jaga — parkiran memang bukan jam pelajaran, melainkan sekali jaga sesudah bel '
+             + 'pulang. "Terjadwal" dihitung dari jadwal piket pada hari kerja dalam rentang ini, di luar '
+             + 'hari libur; "Jaga" adalah yang benar-benar dijalankan; "% Kehadiran" = Jaga ÷ Terjadwal. '
+             + 'Piket tidak mengenal pengganti, jadi selisih antara keduanya berarti petugasnya tidak '
+             + 'hadir, atau gilirannya belum dicatat. Nilai rupiahnya ada di Rekapitulasi.',
+      judul: 'REKAP PELAKSANAAN PIKET', berkas: 'Rekap Pelaksanaan Piket', ttd: 'kurikulum'
+    };
+  }
+
+  if (tab === 'staf') {
+    /* Hari hadir tenaga kependidikan yang honornya bergantung kedatangan.
+       Dicatat di Kehadiran Guru → Kehadiran Staf; hari kerja tiap orang
+       mengikuti ketentuan Jam Kerja Staf di Data Induk, jadi bisa berbeda
+       antar orang (ada yang bekerja Sabtu). */
+    const POLA = { bulanan: 'bulanan', bulanan_harian: 'bulanan + insentif kedatangan', harian: 'upah harian' };
+    const baris = saring(h.staf).map(r => ({ ...r, pola: POLA[r.pola_honor] || r.pola_honor || '—',
+      persen: persenDari(r.hadir, r.hari_kerja) }));
+    const total = jumlahkan(baris, ['hari_kerja', 'hadir', 'tidak_hadir', 'belum', 'terlambat']);
+    total.persen = persenDari(total.hadir, total.hari_kerja);
+    total.nama = `Total (${baris.length} staf)`;
+    return {
+      cari: 'Saring nama staf…', ringkas: periode,
+      kolom: [
+        { k: 'nama', t: 'Nama', lekat: true },
+        { k: 'jabatan', t: 'Jabatan', w: 140, f: v => v || '—' },
+        { k: 'pola', t: 'Pola honor', w: 190, html: r => `${esc(r.pola)}${
+            r.sumber_hadir === 'fingerprint' ? ' <span class="kecil">fingerprint</span>' : ''}` },
+        angka('hari_kerja', 'Hari kerja', 85), angka('hadir', 'Hadir'), angka('tidak_hadir', 'Tidak hadir', 85),
+        angka('belum', 'Belum dicatat', 95), angka('terlambat', 'Terlambat', 80),
+        kolPersen('persen', '% Hadir')
+      ],
+      baris, total,
+      kosong: 'Belum ada staf yang hari hadirnya perlu dicatat, atau belum ada catatan pada rentang ini.',
+      catatan: 'Hanya staf berpola honor bulanan + insentif kedatangan atau upah harian; staf berpola '
+             + 'bulanan murni tidak bergantung hari hadir. Hari kerja dihitung dari ketentuan Jam Kerja '
+             + 'Staf di Data Induk untuk tiap orang, di luar hari libur sekolah. "Belum dicatat" adalah '
+             + 'hari kerja yang belum punya catatan — bukan tidak hadir. Terlambat = jam masuk tercatat '
+             + 'lebih lambat dari ketentuan. Dicatat di Kehadiran Guru → Kehadiran Staf, manual atau dari '
+             + 'rekaman fingerprint.',
+      judul: 'REKAP KEHADIRAN STAF', berkas: 'Rekap Kehadiran Staf', ttd: 'kurikulum'
+    };
+  }
+
+  /* ---- Absensi Ekskul: ketiga tab berbagi penyaring kategori dan ringkasan ---- */
+  const kat = ui.ekskulKategori;
+  const kategoriDari = e => (e && e.kategori) || 'Ekstrakurikuler';
+  const ekskul = h.ekskul.filter(e => !kat || kategoriDari(e) === kat);
+  const boleh = new Set(ekskul.map(e => e.id));
+  const sesi = h.sesi.filter(s => boleh.has(s.ekskul_id));
+  const perKegiatan = ekskul.map(e => {
+    const s = sesi.filter(x => x.ekskul_id === e.id);
+    const terlaksana = s.filter(x => x.status_pembina !== 'KG');
+    const hadir = terlaksana.reduce((a, x) => a + x.h, 0);
+    const slot = terlaksana.reduce((a, x) => a + x.h + x.s + x.i + x.a, 0);
+    return {
+      id: e.id, nama: e.nama, kategori: kategoriDari(e),
+      pembina: (s[0] && s[0].pembina) || '—',
+      jadwal: `${e.hari || ''} ${jamPendek(e.jam_mulai)}`.trim(),
+      pertemuan: s.length, terlaksana: terlaksana.length,
+      pHadir: s.filter(x => x.status_pembina === 'H').length,
+      pTidak: s.filter(x => x.status_pembina === 'TH').length,
+      pLibur: s.filter(x => x.status_pembina === 'KG').length,
+      hadirSiswa: hadir,
+      rata: terlaksana.length ? Math.round(hadir / terlaksana.length) : 0,
+      tingkat: persenBulat(hadir, slot),
+      foto: s.filter(x => x.foto).length
+    };
+  }).filter(b => b.pertemuan > 0);
+
+  const tot = jumlahkan(perKegiatan, ['pertemuan', 'terlaksana', 'pHadir', 'hadirSiswa', 'foto']);
+  const belum = ekskul.filter(e => e.aktif !== false && !perKegiatan.some(x => x.id === e.id)).length;
+  const kartu = (a, b) => `<div class="kartu"><b>${esc(a)}</b><span>${esc(b)}</span></div>`;
+  const ringkasan = !sesi.length ? '' : `<div class="kartu-baris">
+    ${kartu(`${tot.pertemuan} pertemuan`, `${tot.terlaksana} terlaksana · ${tot.pertemuan - tot.terlaksana} ditiadakan`)}
+    ${kartu(`${persenBulat(tot.pHadir, tot.pertemuan)}% pembina hadir`, `${tot.pHadir} dari ${tot.pertemuan} pertemuan dihadiri pembinanya`)}
+    ${kartu(`${tot.hadirSiswa} kehadiran siswa`, `rata-rata ${tot.terlaksana ? Math.round(tot.hadirSiswa / tot.terlaksana) : 0} siswa per pertemuan`)}
+    ${kartu(`${tot.foto} berfoto`, `${tot.pertemuan - tot.foto} laporan belum melampirkan foto`)}
+    ${belum ? kartu(`${belum} tanpa catatan`, 'kegiatan yang tidak punya satu pun laporan') : ''}
+  </div>`;
+  const ekskulDasar = { ringkasan, kategori: true, ttd: 'kesiswaan',
+    ringkas: `${periode}${kat ? ' · hanya ' + kat : ''}`,
+    kosong: 'Tidak ada pertemuan pada rentang ini.' };
+
+  if (tab === 'kegiatan') {
+    const total = { ...tot, nama: 'Jumlah', rata: null, tingkat: null };
+    total.pTidak = perKegiatan.reduce((a, x) => a + x.pTidak, 0);
+    return { ...ekskulDasar,
+      kolom: [
+        { k: 'nama', t: 'Kegiatan', lekat: true, html: r => `<b>${esc(r.nama)}</b>${
+            r.kategori !== 'Ekstrakurikuler' ? `<div class="kecil">${esc(r.kategori)}</div>` : ''}` },
+        { k: 'pembina', t: 'Pembina', w: 160 }, { k: 'jadwal', t: 'Jadwal', w: 100 },
+        angka('pertemuan', 'Pertemuan', 85), angka('terlaksana', 'Terlaksana', 85),
+        angka('pHadir', 'Pembina hadir', 95), angka('pTidak', 'Tidak hadir', 85),
+        angka('hadirSiswa', 'Siswa hadir', 85), angka('rata', 'Rata-rata', 80),
+        { k: 'tingkat', t: 'Tingkat hadir', w: 90, num: true, f: v => v + '%', fmt: '0"%"' },
+        angka('foto', 'Berfoto', 70)
+      ],
+      baris: perKegiatan, total,
+      catatan: 'Jumlah pertemuan, kehadiran pembina, dan kehadiran siswa pada rentang tanggal yang dipilih. '
+             + 'Tingkat hadir = siswa hadir ÷ seluruh catatan kehadiran pada pertemuan yang terlaksana.',
+      judul: 'REKAP KEGIATAN EKSTRAKURIKULER DAN PEMBINAAN', berkas: 'Rekap Kegiatan Ekskul' };
+  }
+
+  if (tab === 'pertemuan') {
+    return { ...ekskulDasar,
+      kolom: [
+        { k: 'tanggal', t: 'Tanggal', w: 105, f: tglIndo },
+        { k: 'ekskul', t: 'Kegiatan', w: 170 },
+        { k: 'status_pembina', t: 'Pembina', w: 110,
+          html: r => lencana(r.status_pembina, STATUS_PEMBINA[r.status_pembina] || r.status_pembina),
+          xls: r => STATUS_PEMBINA[r.status_pembina] || r.status_pembina },
+        angka('h', 'Hadir', 60), angka('s', 'S', 50), angka('i', 'I', 50), angka('a', 'A', 50),
+        { k: 'foto', t: 'Foto', w: 70, html: r => r.foto
+            ? `<a href="${esc(r.foto)}" target="_blank" rel="noopener"><img class="foto-mini" src="${esc(r.foto)}" alt="Foto kegiatan"></a>`
+            : '<span class="kecil">—</span>', xls: r => r.foto || '' },
+        { k: 'materi', t: 'Materi', w: 220, f: v => v || '' }
+      ],
+      baris: sesi, total: null,
+      catatan: 'Urut menurut tanggal, lengkap dengan foto kegiatan yang dilampirkan pembina. '
+             + 'S = sakit, I = izin, A = tanpa keterangan.',
+      judul: 'RINCIAN PERTEMUAN EKSTRAKURIKULER DAN PEMBINAAN', berkas: 'Rincian Pertemuan Ekskul' };
+  }
+
+  /* Per pembina: satu baris satu pertemuan yang benar-benar berjalan dan
+     dihadiri pembinanya, dikelompokkan per kegiatan menurut nama pembina —
+     bentuk yang dipakai perhitungan transport. */
+  const baris = [];
+  let no = 0;
+  const urut = [...ekskul].sort((a, b) => {
+    const pa = (sesi.find(x => x.ekskul_id === a.id) || {}).pembina || '';
+    const pb = (sesi.find(x => x.ekskul_id === b.id) || {}).pembina || '';
+    return pa.localeCompare(pb, 'id') || a.nama.localeCompare(b.nama, 'id');
+  });
+  for (const e of urut) {
+    const s = sesi.filter(x => x.ekskul_id === e.id && x.status_pembina === 'H');
+    if (!s.length) continue;
+    no++;
+    s.forEach((x, i) => {
+      const peserta = x.h + x.s + x.i + x.a;
+      baris.push({ no: i === 0 ? no : '', ekskul: i === 0 ? e.nama : '', pembina: i === 0 ? (x.pembina || '—') : '',
+                   ekskulPenuh: e.nama, pembinaPenuh: x.pembina || '—', awal: i === 0,
+                   tanggal: x.tanggal, hadir: x.h, peserta, persen: persenBulat(x.h, peserta) });
+    });
+  }
+  return { ...ekskulDasar, tanpaNomor: true, barisKelas: r => r.awal ? 'awal-kelompok' : '',
+    kolom: [
+      { k: 'no', t: 'No.', w: 45, num: true, f: v => v === '' ? '' : String(v) },
+      { k: 'ekskul', t: 'Kegiatan', w: 170, xls: r => r.ekskulPenuh },
+      { k: 'pembina', t: 'Pembina', w: 160, xls: r => r.pembinaPenuh },
+      { k: 'tanggal', t: 'Pertemuan', w: 170, f: tglPanjang },
+      angka('hadir', 'Kehadiran Siswa', 100), angka('peserta', 'Peserta', 70),
+      { k: 'persen', t: '% Kehadiran', w: 90, num: true, f: v => v + '%', fmt: '0"%"' }
+    ],
+    baris, total: baris.length ? { ekskul: 'Jumlah', tanggal: `${baris.length} pertemuan`,
+                                   hadir: baris.reduce((a, x) => a + x.hadir, 0), persen: null } : null,
+    kosong: 'Tidak ada pertemuan yang berjalan pada rentang ini.',
+    catatan: 'Satu baris satu pertemuan yang benar-benar berjalan dan dihadiri pembinanya, diurutkan '
+           + 'menurut nama pembina. Pertemuan yang ditiadakan dan yang pembinanya tidak hadir tidak ikut '
+           + 'dihitung. Bentuk inilah yang dipakai perhitungan transport pembina di Rekapitulasi.',
+    judul: 'REKAP PERTEMUAN PER PEMBINA', berkas: 'Rekap Per Pembina' };
+}
+
+/* Nilai satu sel di layar. */
+function selHadir(b, k) {
+  if (k.html) return k.html(b);
+  const v = b[k.k];
+  if (k.f) return esc(k.f(v));
+  if (k.num) return v == null ? '—' : esc(fmtJam(v));
+  return v == null ? '—' : esc(String(v));
+}
+
+function tabelHadir(isi) {
+  const nomor = !isi.tanpaNomor;
+  const th = (k, extra = '') => `<th style="width:${k.w || 80}px" class="${k.num ? 'num' : ''}${k.lekat ? ' lekat' : ''}"${extra}>${esc(k.t)}</th>`;
+  let kepala;
+  if (isi.kelompok) {
+    let i = 0, atas = nomor ? '<th rowspan="2" style="width:40px" class="num lekat-no">No</th>' : '', bawah = '';
+    for (const g of isi.kelompok) {
+      const ks = isi.kolom.slice(i, i + g.n); i += g.n;
+      if (!g.t) atas += th(ks[0], ' rowspan="2"');
+      else { atas += `<th colspan="${g.n}" class="kelompok">${esc(g.t)}</th>`; bawah += ks.map(k => th(k)).join(''); }
+    }
+    kepala = `<tr>${atas}</tr><tr>${bawah}</tr>`;
+  } else {
+    kepala = `<tr>${nomor ? '<th style="width:40px" class="num lekat-no">No</th>' : ''}${isi.kolom.map(k => th(k)).join('')}</tr>`;
+  }
+  const lebar = isi.kolom.length + (nomor ? 1 : 0);
+  const sel = (k, isiSel, tebal) => `<td class="${k.num ? 'num' : ''}${k.lekat ? ' lekat nama' : ''}"${tebal ? ' style="font-weight:600"' : ''}>${isiSel}</td>`;
+  const badan = isi.baris.length ? isi.baris.map((b, i) => `<tr${isi.barisKelas ? ` class="${isi.barisKelas(b)}"` : ''}>
+      ${nomor ? `<td class="num lekat-no">${i + 1}</td>` : ''}
+      ${isi.kolom.map(k => sel(k, selHadir(b, k), k.lekat)).join('')}</tr>`).join('')
+    : `<tr><td colspan="${lebar}"><div class="empty"><b>Tidak ada data</b>${esc(isi.kosong || '')}</div></td></tr>`;
+  const kaki = isi.total && isi.baris.length ? `<tfoot><tr>
+      ${nomor ? '<td class="num lekat-no"></td>' : ''}
+      ${isi.kolom.map(k => {
+        const v = isi.total[k.k];
+        const teks = v === undefined ? '' : v === null ? '—'
+                   : (k.lekat || !k.num) ? esc(String(v))
+                   : k.html ? k.html(isi.total) : k.f ? esc(k.f(v)) : esc(fmtJam(v));
+        return sel(k, teks, true);
+      }).join('')}</tr></tfoot>` : '';
+  return `<table class="rekap hadir"><thead>${kepala}</thead><tbody>${badan}</tbody>${kaki}</table>`;
+}
+
 function halHadir() {
+  const h = D.hadir;
+  const spek = HADIR_TAB[ui.hadirTab];
+  const isi = h ? susunTabHadir(ui.hadirTab, h) : null;
+  const chip = ([k, v]) => `<button class="chip${k === ui.hadirTab ? ' on' : ''}" data-hadir="${k}">${esc(v.nama)}</button>`;
+  const berubah = h && (h.awal !== ui.hadirAwal || h.akhir !== ui.hadirAkhir);
+
   $('#isi').innerHTML = `
-    <div class="head"><div><h1>Daftar Hadir</h1>
-      <p>Kehadiran yang menjadi dasar pembiayaan. Dibaca dari aplikasi tempat
-         kehadirannya dicatat — halaman ini tidak mencatat apa pun.</p></div></div>
+    <div class="head"><div><h1>Kehadiran dan Piket</h1>
+      <p>Kehadiran yang menjadi dasar pembiayaan, dibaca dari aplikasi tempat kehadirannya
+         dicatat — halaman ini tidak mencatat apa pun. Bila ada yang keliru, perbaikannya di
+         Kehadiran Guru atau Absensi Ekskul.</p></div>
+      <div class="sp"></div>
+      <div class="mx-pilih">
+        <label class="kecil">Dari</label>
+        <input class="field" type="date" id="hAwal" value="${esc(ui.hadirAwal)}" style="width:auto">
+        <label class="kecil">sampai</label>
+        <input class="field" type="date" id="hAkhir" value="${esc(ui.hadirAkhir)}" style="width:auto">
+        <span class="kecil" id="hBerubah" style="color:var(--warn)"${berubah ? '' : ' hidden'}>Rentang berubah</span>
+        <button class="btn btn-p" id="hHitung">Hitung</button>
+      </div></div>
 
-    <div class="info-box"><b>Halaman ini belum diisi.</b> Bentuknya sudah disiapkan;
-      isinya menyusul setelah Pengaturan Nominal dan Rekapitulasi selesai.</div>
+    <div class="bar"><span class="label">Kehadiran Guru</span>
+      ${Object.entries(HADIR_TAB).filter(([, v]) => v.asal === 'guru').map(chip).join('')}
+      <span class="label" style="margin-left:14px">Absensi Ekskul</span>
+      ${Object.entries(HADIR_TAB).filter(([, v]) => v.asal === 'ekskul').map(chip).join('')}
+    </div>
 
-    <div class="panel"><div class="panel-head"><h3>Yang akan ditampilkan</h3></div>
-      <div class="scroll"><table><thead><tr>
-        <th>Bagian</th><th>Sumber datanya</th>
-      </tr></thead><tbody>
-        ${[
-          ['Kehadiran staf', 'Data Induk — pencatatan dan ketentuannya dibuat di sana'],
-          ['Guru mengajar', 'Kehadiran Guru — jam terjadwal, hadir, dan tidak hadir'],
-          ['Guru pengganti', 'Kehadiran Guru — penugasan GT / PT / Infaler'],
-          ['Piket meja sekolah, unit, parkiran', 'Kehadiran Guru — Pelaksanaan Piket'],
-          ['Ekskul dan Pembinaan Imtaq', 'Absensi Ekskul — pertemuan dan jumlah siswa hadir'],
-          ['Tugas lainnya', 'Data Induk — komponen honor wali kelas dan jam tugas tambahan']
-        ].map(([a, b]) => `<tr><td style="font-weight:500">${esc(a)}</td>
-          <td class="kecil">${esc(b)}</td></tr>`).join('')}
-      </tbody></table></div></div>
+    ${!h ? `<div class="panel"><div class="empty"><b>Belum dihitung</b>
+      Pilih periodenya lalu ketuk Hitung.</div></div>` : `
+    ${isi.ringkasan || ''}
+    <div class="panel"><div class="panel-head"><h3>${esc(spek.nama)}</h3>
+      ${isi.pilihan ? `<div class="pg">${isi.pilihan.map(([k, t]) =>
+        `<button data-pilih="${k}" class="${(k === 'rinci') === ui.penggantiRinci ? 'on' : ''}">${esc(t)}</button>`).join('')}</div>` : ''}
+      ${isi.kategori ? `<select class="field sempit" id="hKategori"><option value="">Semua kategori</option>${
+        KATEGORI_EKSKUL.map(k => `<option${k === ui.ekskulKategori ? ' selected' : ''}>${esc(k)}</option>`).join('')}</select>` : ''}
+      ${isi.cari ? `<input class="field sempit" type="search" id="hCari" placeholder="${esc(isi.cari)}" value="${esc(ui.hadirSaring)}" autocomplete="off">` : ''}
+      <div class="sp" style="flex:1"></div>
+      <div class="info">${esc(isi.ringkas)}</div>
+      <button class="btn btn-sm" id="hUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
+      <div class="gulir-petunjuk">Geser mendatar bila tabel lebih lebar dari layar. Kolom pertama tetap terlihat saat digeser.</div>
+      <div class="scroll" id="hTabel">${tabelHadir(isi)}</div>
+      ${isi.catatan ? `<div class="foot"><div class="info">${esc(isi.catatan)}</div></div>` : ''}
+    </div>`}`;
 
-    <p class="kecil">Kehadiran staf sengaja dicatat di Data Induk, bukan di sini, mengikuti
-      aturan yang sudah dipakai seluruh sistem: satu tempat mengubah, banyak tempat membaca.
-      Induk Pembiayaan cukup membaca hasilnya, mengatur pembiayaannya, dan menyusun daftar
-      pembayarannya.</p>`;
+  /* Tanggal yang diubah tetapi belum dihitung adalah jebakan: angka di layar
+     masih milik rentang lama sementara tanggal di atasnya sudah baru. Penanda
+     "Rentang berubah" menyala sampai rekapnya benar-benar dihitung ulang. */
+  const tandai = () => {
+    ui.hadirAwal = $('#hAwal').value || ui.hadirAwal;
+    ui.hadirAkhir = $('#hAkhir').value || ui.hadirAkhir;
+    $('#hBerubah').hidden = !h || (h.awal === ui.hadirAwal && h.akhir === ui.hadirAkhir);
+  };
+  $('#hAwal').onchange = tandai;
+  $('#hAkhir').onchange = tandai;
+  $('#hHitung').onclick = () => {
+    tandai();
+    if (ui.hadirAwal > ui.hadirAkhir) { toast('Tanggal awal melewati tanggal akhir.', true); return; }
+    jalankan('Memuat kehadiran…', muatHadir);
+  };
+  $$('[data-hadir]').forEach(b => b.onclick = () => {
+    ui.hadirTab = b.dataset.hadir; ui.hadirSaring = '';
+    if (!D.hadir) jalankan('Memuat kehadiran…', muatHadir); else gambar();
+  });
+  $$('[data-pilih]').forEach(b => b.onclick = () => { ui.penggantiRinci = b.dataset.pilih === 'rinci'; gambar(); });
+  if ($('#hKategori')) $('#hKategori').onchange = e => { ui.ekskulKategori = e.target.value; gambar(); };
+  // Menyaring nama menggambar ulang tabelnya saja, supaya kotak isiannya tidak kehilangan fokus.
+  if ($('#hCari')) $('#hCari').oninput = e => {
+    ui.hadirSaring = e.target.value;
+    $('#hTabel').innerHTML = tabelHadir(susunTabHadir(ui.hadirTab, D.hadir));
+  };
+  if ($('#hUnduh')) $('#hUnduh').onclick = () => jalankan('Menyiapkan berkas…', () => unduhHadir(isi));
 }
 
 /* ------------------------------------------------------ rekapitulasi */
@@ -818,6 +1259,47 @@ function kopBersama() {
   return window.KopDokumen;
 }
 
+/* Bagian yang dipakai bersama oleh kedua penulis Excel (rekap pembiayaan
+   dan kehadiran): gaya sel, kepala tabel, logo, dan pengunduhan. */
+const TIPIS = { style: 'thin', color: { argb: 'FF808080' } };
+const KOTAK = { top: TIPIS, left: TIPIS, bottom: TIPIS, right: TIPIS };
+const RP = '"Rp" #,##0';
+
+async function ambilLogo() {
+  try {
+    return { buffer: await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject()) };
+  } catch (e) { return null; /* tanpa logo pun berkasnya tetap terbentuk */ }
+}
+function kepalaExcel(ws, r, judul, F) {
+  judul.forEach((t, i) => {
+    const c = ws.getCell(r, i + 1);
+    c.value = t; c.font = { name: F, size: 9, bold: true };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c.border = KOTAK;
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+  });
+  ws.getRow(r).height = 30;
+}
+const penulisSel = (ws, F) => (br, kl, nilai, opsi = {}) => {
+  const c = ws.getCell(br, kl);
+  c.value = nilai;
+  c.font = { name: F, size: 10, bold: !!opsi.tebal };
+  c.alignment = { horizontal: opsi.rata || (typeof nilai === 'number' ? 'right' : 'left'), vertical: 'middle',
+                  wrapText: !!opsi.lipat };
+  c.border = KOTAK;
+  if (opsi.fmt) c.numFmt = opsi.fmt;
+  if (opsi.abu) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F7F7' } };
+  return c;
+};
+async function simpanBuku(wb, nama) {
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = nama;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('Berkas diunduh');
+}
+
 /* Satu penulis untuk kelima rekap, memakai daftar kolom yang sama dengan
    tampilannya — supaya berkas Excel tidak pernah berbeda isi dari layar. */
 async function unduhRekap(spek, baris, total) {
@@ -841,43 +1323,18 @@ async function unduhRekap(spek, baris, total) {
      keempat aplikasi. Perhitungan piksel yang dulu ada di sini sudah
      pindah ke sana, sehingga letak kop cukup diatur sekali oleh operator
      di Data Induk → Profil Dokumen dan berlaku untuk semua unduhan. */
-  let logo = null;
-  try {
-    logo = { buffer: await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject()) };
-  } catch (e) { /* tanpa logo pun berkasnya tetap terbentuk */ }
-
   const baris1 = kopBersama().kopExcel(ws, {
-    wb, logo, profil: p,
+    wb, logo: await ambilLogo(), profil: p,
     judul: spek.judul,
     sub: `Periode ${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`,
     kolomAkhir: KOL, font: F
   });
 
-  const TIPIS = { style: 'thin', color: { argb: 'FF808080' } };
-  const KOTAK = { top: TIPIS, left: TIPIS, bottom: TIPIS, right: TIPIS };
-  const RP = '"Rp" #,##0';
-
   let r = baris1;
-  ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), 'JUMLAH', 'TANDA TANGAN'].forEach((t, i) => {
-    const c = ws.getCell(r, i + 1);
-    c.value = t; c.font = { name: F, size: 9, bold: true };
-    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-    c.border = KOTAK;
-    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
-  });
-  ws.getRow(r).height = 30;
+  kepalaExcel(ws, r, ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), 'JUMLAH', 'TANDA TANGAN'], F);
   r += 1;
 
-  const sel = (br, kl, nilai, opsi = {}) => {
-    const c = ws.getCell(br, kl);
-    c.value = nilai;
-    c.font = { name: F, size: 10, bold: !!opsi.tebal };
-    c.alignment = { horizontal: opsi.rata || (typeof nilai === 'number' ? 'right' : 'left'), vertical: 'middle' };
-    c.border = KOTAK;
-    if (opsi.fmt) c.numFmt = opsi.fmt;
-    if (opsi.abu) c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F7F7' } };
-    return c;
-  };
+  const sel = penulisSel(ws, F);
 
   baris.forEach((b, i) => {
     sel(r, 1, i + 1, { rata: 'center' });
@@ -940,12 +1397,108 @@ async function unduhRekap(spek, baris, total) {
   ttd(kolomKanan, 'Bendahara,', p.bendahara);
   ws.pageSetup.printTitlesRow = '7:7';
 
-  const buf = await wb.xlsx.writeBuffer();
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  a.download = `${spek.nama} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`;
-  document.body.appendChild(a); a.click(); a.remove();
-  toast('Berkas diunduh');
+  await simpanBuku(wb, `${spek.nama} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
+}
+
+/* Penulis Excel halaman Kehadiran dan Piket: memakai daftar kolom yang sama
+   dengan tabel di layar. Yang menandatangani adalah pejabat yang berwenang
+   atas isinya — Wakasek Kurikulum untuk kehadiran guru, Wakasek Kesiswaan
+   untuk ekstrakurikuler — dan Kepala Sekolah mengetahui; bukan Bendahara,
+   karena ini dokumen kehadiran, bukan pembayaran. */
+async function unduhHadir(isi) {
+  const ExcelJS = await muatExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(isi.berkas.slice(0, 28), {
+    pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+                 margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } }
+  });
+  const F = 'Calibri';
+  const nomor = !isi.tanpaNomor;
+  const kolom = isi.kolom;
+  const KOL = kolom.length + (nomor ? 1 : 0);
+  const h = D.hadir;
+
+  ws.columns = [...(nomor ? [{ width: 5 }] : []),
+                ...kolom.map(k => ({ width: k.lekat ? 30 : Math.max(8, Math.round((k.w || 80) / 7)) }))];
+  ws.views = [{ showGridLines: false }];
+  const p = D.profil || {};
+
+  const baris1 = kopBersama().kopExcel(ws, {
+    wb, logo: await ambilLogo(), profil: p,
+    judul: isi.judul,
+    sub: `Periode ${tglIndo(h.awal)} – ${tglIndo(h.akhir)}`,
+    kolomAkhir: KOL, font: F
+  });
+
+  // Kepala tabel satu baris; nama kelompok kolom (mis. "Meja Sekolah (jam)")
+  // ditempelkan di depan nama kolomnya supaya satuannya tidak hilang.
+  const label = [];
+  if (isi.kelompok) {
+    let i = 0;
+    for (const g of isi.kelompok) {
+      kolom.slice(i, i + g.n).forEach(k => label.push((g.t ? g.t + ' — ' : '') + k.t));
+      i += g.n;
+    }
+  } else kolom.forEach(k => label.push(k.t));
+
+  let r = baris1;
+  kepalaExcel(ws, r, [...(nomor ? ['NO'] : []), ...label.map(t => t.toUpperCase())], F);
+  r += 1;
+  const sel = penulisSel(ws, F);
+  const awalKolom = nomor ? 2 : 1;
+
+  const nilaiSel = (b, k) => {
+    if (k.xls) return k.xls(b);
+    const v = b[k.k];
+    if (k.num) return v == null || v === '' ? (v === '' ? '' : '—') : Number(v);
+    return v == null ? '' : (k.f ? k.f(v) : String(v));
+  };
+  isi.baris.forEach((b, i) => {
+    if (nomor) sel(r, 1, i + 1, { rata: 'center' });
+    kolom.forEach((k, j) => sel(r, awalKolom + j, nilaiSel(b, k),
+      { fmt: k.fmt, rata: k.num ? 'right' : undefined, lipat: !k.num && !k.lekat }));
+    ws.getRow(r).height = 22;
+    r += 1;
+  });
+
+  if (isi.total && isi.baris.length) {
+    if (nomor) sel(r, 1, '', { abu: true });
+    kolom.forEach((k, j) => {
+      const v = isi.total[k.k];
+      const nilai = v === undefined ? '' : v === null ? '—' : (k.num && !k.lekat) ? Number(v) : String(v);
+      sel(r, awalKolom + j, nilai, { fmt: k.fmt, tebal: true, abu: true, rata: k.num ? 'right' : undefined });
+    });
+    r += 1;
+  }
+  r += 1;
+
+  if (isi.catatan) {
+    ws.getCell(r, 1).value = 'Keterangan: ' + isi.catatan;
+    ws.getCell(r, 1).font = { name: F, size: 8, italic: true };
+    ws.mergeCells(r, 1, r, KOL);
+    ws.getRow(r).height = 36;
+    ws.getCell(r, 1).alignment = { wrapText: true, vertical: 'top' };
+    r += 2;
+  }
+
+  const kolomKiri = nomor ? 2 : 1;
+  const kolomKanan = Math.max(kolomKiri + 2, KOL - 2);
+  const tulis = (br, kl, v, tebal) => {
+    ws.getCell(br, kl).value = v;
+    ws.getCell(br, kl).font = { name: F, size: 10, bold: !!tebal, underline: !!tebal };
+    ws.getCell(br, kl).alignment = { horizontal: 'center' };
+  };
+  const [jabatan, nama] = isi.ttd === 'kesiswaan'
+    ? ['Wakasek Kesiswaan,', p.kesiswaan] : ['Wakasek Kurikulum,', p.kurikulum];
+  tulis(r, kolomKiri, 'Mengetahui,');
+  tulis(r, kolomKanan, `${p.kota || 'Soreang'}, ${tglIndo(h.akhir)}`);
+  tulis(r + 1, kolomKiri, 'Kepala Sekolah,');
+  tulis(r + 1, kolomKanan, jabatan);
+  tulis(r + 6, kolomKiri, p.kepala_sekolah || '……………………', true);
+  tulis(r + 6, kolomKanan, nama || '……………………', true);
+  ws.pageSetup.printTitlesRow = `${baris1}:${baris1}`;
+
+  await simpanBuku(wb, `${isi.berkas} ${h.awal} sd ${h.akhir}.xlsx`);
 }
 
 /* -------------------------------------------------- identitas dokumen */
@@ -1001,4 +1554,5 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') tutupModal()
 /* ------------------------------------------------------------- mulai */
 ui.acuan = hariIniISO();
 ({ awal: ui.rekapAwal, akhir: ui.rekapAkhir } = bulanIni());
+({ awal: ui.hadirAwal, akhir: ui.hadirAkhir } = bulanIni());
 layarMasuk();

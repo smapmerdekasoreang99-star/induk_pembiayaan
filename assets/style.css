@@ -28,7 +28,11 @@ h1,h2,h3{margin:0}
 /* ---- Kerangka ---- */
 .app{display:flex;min-height:100vh}
 .sidebar{width:212px;flex:none;background:var(--gelap);color:var(--tinta-terang-2);padding:20px 0;display:flex;flex-direction:column}
-.sidebar .brand{padding:0 20px 16px;border-bottom:1px solid var(--gelap-2)}
+/* Lambang sekolah di bilah samping, seperti di Kehadiran Guru dan Absensi
+   Ekskul — supaya kelima aplikasi dikenali sebagai satu keluarga. */
+.sidebar .brand{padding:0 20px 16px;border-bottom:1px solid var(--gelap-2);display:flex;align-items:center;gap:12px}
+.sidebar .brand img{width:40px;height:40px;object-fit:contain;flex:none}
+.sidebar .brand>div{min-width:0}
 .sidebar .brand b{display:block;color:#fff;font-size:14px;font-weight:600;line-height:1.3}
 .sidebar .brand span{font-size:11.5px}
 .sidebar nav{padding:12px 12px;display:flex;flex-direction:column;gap:2px;flex:1}
@@ -194,6 +198,37 @@ table.rekap th.lekat,table.rekap td.lekat{position:sticky;left:40px;z-index:2;ba
 table.rekap thead th.lekat,table.rekap thead th.lekat-no{z-index:4;background:var(--emas-kabut)}
 table.rekap tfoot td.lekat,table.rekap tfoot td.lekat-no{background:var(--emas-kabut)}
 .gulir-petunjuk{font-size:12px;color:var(--ink3);padding:8px 16px 0}
+
+/* ---- Kehadiran dan Piket ----
+   Tabel kehadiran lebih ramping daripada rekap pembiayaan: kolomnya lebih
+   sedikit, jadi tidak perlu dipaksa selebar 1120 px. Nomor dan nama tetap
+   dibekukan di kiri dengan aturan table.rekap di atas. */
+table.rekap.hadir{min-width:760px}
+table.rekap.hadir th.num,table.rekap.hadir td.num{text-align:right}
+table.rekap.hadir thead th.kelompok{text-align:center;border-bottom:1px solid var(--line)}
+table.rekap.hadir .satuan{font-weight:400;color:var(--ink3)}
+/* Persentase kehadiran: warnanya adalah maknanya — hijau baik, emas sedang,
+   merah rendah — mengikuti ambang yang dipakai aplikasi Kehadiran Guru. */
+.persen{display:inline-block;padding:1px 8px;border-radius:999px;font-weight:600;font-size:12px}
+.persen.baik{background:var(--hadir-muda);color:var(--hadir)}
+.persen.sedang{background:var(--emas-muda);color:var(--emas-teks)}
+.persen.rendah{background:var(--absen-muda);color:var(--absen)}
+/* Lencana status dan kode penugasan pada rincian per jam. */
+.lencana{display:inline-block;padding:1px 7px;border-radius:4px;font-size:12px;font-weight:600}
+.lencana.st{background:var(--sakit-muda);color:var(--sakit)}
+.lencana.it{background:var(--emas-muda);color:var(--emas-teks)}
+.lencana.tk{background:var(--absen-muda);color:var(--absen)}
+.lencana.httm,.lencana.tp{background:var(--kertas-3);color:var(--ink2);border:1px solid var(--line)}
+.lencana.gt{background:var(--sakit-muda);color:var(--sakit)}
+.lencana.pt{background:var(--emas-muda);color:var(--emas-teks)}
+.lencana.inf,.lencana.h{background:var(--hadir-muda);color:var(--hadir)}
+.lencana.th{background:var(--absen-muda);color:var(--absen)}
+.lencana.kg{background:var(--kertas-3);color:var(--ink2);border:1px solid var(--line)}
+.foto-mini{width:48px;height:36px;object-fit:cover;border-radius:4px;border:1px solid var(--line);display:block}
+/* Baris pertama tiap kelompok (rekap per pembina): garis pemisah lebih tegas. */
+table.rekap tr.awal-kelompok td{border-top:2px solid var(--line)}
+.bar .label{font-size:12px;color:var(--ink3);margin-right:2px}
+.bar .field.sempit{width:auto;padding:4px 8px;font-size:13px}
 
 /* Tabel ringkas untuk daftar rincian di dalam kartu: lebih rapat daripada
    tabel rekap, tanpa bingkai sendiri karena kartunya sudah membingkai. */
