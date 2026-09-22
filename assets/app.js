@@ -263,7 +263,7 @@ function halBeranda() {
           ['Guru pengganti', 'Kehadiran Guru — Penugasan Pengganti', true],
           ['Piket meja sekolah, unit, parkiran', 'Kehadiran Guru — Pelaksanaan Piket', true],
           ['Ekskul dan Pembinaan Imtaq', 'Absensi Ekskul — laporan pertemuan', true],
-          ['Tugas wali kelas (upacara, bimbingan)', 'Data Induk — Komponen honor', true],
+          ['Tugas wali kelas (upacara, bimbingan)', 'Data Induk — jam bawaan tiap komponen', true],
           ['Kehadiran staf', 'Data Induk — belum dibuat', false]
         ].map(([a, b, siap]) => `<tr>
           <td style="font-weight:500">${esc(a)}</td><td class="kecil">${esc(b)}</td>
@@ -664,7 +664,7 @@ const REKAP = {
            + 'memang dibayarkan bulanan atas dasar jam kontrak itu, tidak dikalikan banyaknya '
            + 'pekan. Karena itu angkanya berbeda dari rekap Wali Kelas di aplikasi Kehadiran '
            + 'Guru, yang menghitung jam terjadwal sepanjang rentang tanggal untuk menilai '
-           + 'kehadiran. Diisi di Data Induk → Piket & Honor → Komponen honor wali kelas. '
+           + 'kehadiran. Jam upacara dan bimbingan memakai angka bawaan tiap komponen; jam piket mengikuti jadwal di Data Induk → Jadwal Piket. '
            + 'Baris bertanda "belum lengkap" masih ada komponen yang kosong — berbeda maknanya '
            + 'dengan nol.',
     kolom: [
