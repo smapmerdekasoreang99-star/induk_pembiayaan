@@ -230,6 +230,43 @@ table.rekap tr.awal-kelompok td{border-top:2px solid var(--line)}
 .bar .label{font-size:12px;color:var(--ink3);margin-right:2px}
 .bar .field.sempit{width:auto;padding:4px 8px;font-size:13px}
 
+/* ---- Penggajian: kartu nominal per jenis, dikelompokkan ----
+   Warna aksen menandai kelompok, bukan makna; diambil dari palet bersama
+   supaya tetap satu keluarga dengan aplikasi lain. */
+.pg-sakit{--pg-aksen:var(--sakit);--pg-muda:var(--sakit-muda)}
+.pg-emas{--pg-aksen:var(--emas);--pg-muda:var(--emas-muda)}
+.pg-hadir{--pg-aksen:var(--hadir);--pg-muda:var(--hadir-muda)}
+.pg-ringkas .kartu{min-width:120px}
+.pg-ringkas .kartu.pg-acuan{flex:2;min-width:220px}
+.pg-ringkas .kartu.pg-acuan b{font-size:17px}
+.pg-kelompok{margin:26px 0 0}
+.pg-kelompok-head{display:flex;align-items:center;gap:10px;margin:0 0 12px;padding-bottom:8px;
+  border-bottom:1px solid var(--line2)}
+.pg-kelompok-head h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:var(--ink2)}
+.pg-titik{width:10px;height:10px;border-radius:50%;background:var(--pg-aksen);flex:none}
+.pg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.pg-kartu{background:var(--card);border:1px solid var(--line);border-top:4px solid var(--pg-aksen);
+  border-radius:var(--r);padding:16px 18px 12px;display:flex;flex-direction:column;gap:10px;
+  box-shadow:0 1px 2px rgba(34,30,23,.04);transition:box-shadow .15s,transform .15s}
+.pg-kartu:hover{box-shadow:0 6px 18px rgba(34,30,23,.09);transform:translateY(-1px)}
+.pg-kartu.kosong{border-top-color:var(--absen)}
+.pg-kartu-atas{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.pg-kartu h3{font-size:14px;font-weight:600;line-height:1.3}
+.pg-satuan{font-size:11.5px;font-weight:600;color:var(--pg-aksen);background:var(--pg-muda);
+  padding:2px 9px;border-radius:999px;white-space:nowrap;flex:none}
+.pg-nilai{font-size:27px;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.15}
+.pg-nilai.nol{color:var(--ink3)}
+.pg-nilai.kosong{font-size:15px;font-weight:600;color:var(--absen)}
+.pg-jenjang{width:100%;font-size:12.5px;border-collapse:collapse}
+.pg-jenjang td{padding:5px 0;border-bottom:1px dashed var(--line2);background:none;color:var(--ink2)}
+.pg-jenjang td:last-child{text-align:right;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.pg-jenjang tr:last-child td{border-bottom:none}
+.pg-meta{font-size:12px;color:var(--ink3)}
+.pg-nol{color:var(--emas-teks);font-weight:600}
+.pg-berikut{font-size:12px;color:var(--emas-teks);background:var(--emas-muda);border-radius:6px;padding:7px 9px;line-height:1.4}
+.pg-penjelasan{font-size:12.5px;color:var(--ink2);margin:0;flex:1;line-height:1.45}
+.pg-aksi{display:flex;gap:6px;padding-top:10px;border-top:1px solid var(--line2)}
+
 /* Tabel ringkas untuk daftar rincian di dalam kartu: lebih rapat daripada
    tabel rekap, tanpa bingkai sendiri karena kartunya sudah membingkai. */
 table.log{font-size:13px}

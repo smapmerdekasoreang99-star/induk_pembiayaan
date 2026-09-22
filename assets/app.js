@@ -284,20 +284,30 @@ function halBeranda() {
 
 /* ----------------------------------------------- pengaturan nominal */
 function halNominal() {
-  const kelompok = [...new Set(D.jenis.filter(j => j.aktif).map(j => j.kelompok))];
+  const aktif = D.jenis.filter(j => j.aktif);
+  const kelompok = [...new Set(aktif.map(j => j.kelompok))];
   const tarifDari = kode => D.tarif.filter(t => t.kode === kode);
+  /* Tiap kelompok mendapat satu warna aksen dari palet bersama, berurutan —
+     warnanya penanda kelompok, bukan makna, jadi cukup bergiliran. */
+  const WARNA = ['sakit', 'emas', 'hadir'];
+  const warnaKelompok = k => WARNA[kelompok.indexOf(k) % WARNA.length];
+
+  const belumDiisi = aktif.filter(j => !tarifDari(j.kode).length);
+  const masihNol = aktif.filter(j => tarifDari(j.kode).length && tarifDari(j.kode).every(t => Number(t.nilai) === 0));
+  const terisi = aktif.length - belumDiisi.length - masihNol.length;
 
   const kartuJenis = j => {
     const baris = tarifDari(j.kode);
     const sejak = baris.length ? baris[0].berlaku_mulai : null;
+    const nol = baris.length && baris.every(t => Number(t.nilai) === 0);
     const isi = !baris.length
-      ? '<span class="kecil" style="color:var(--warn)">belum ada besaran yang berlaku</span>'
+      ? '<div class="pg-nilai kosong">belum diisi</div>'
       : j.berjenjang
-        ? `<table class="log"><tbody>${baris.map(t => `<tr>
-            <td class="kecil">${t.batas_min == null ? '—' : t.batas_min}${
+        ? `<table class="pg-jenjang"><tbody>${baris.map(t => `<tr>
+            <td>${t.batas_min == null ? '—' : t.batas_min}${
               t.batas_maks == null ? ' ke atas' : '–' + t.batas_maks} ${esc(j.satuan_jenjang)}</td>
-            <td style="text-align:right;font-weight:600">${rupiah(t.nilai)}</td></tr>`).join('')}</tbody></table>`
-        : `<div style="font-size:22px;font-weight:600">${rupiah(baris[0].nilai)}</div>`;
+            <td>${rupiah(t.nilai)}</td></tr>`).join('')}</tbody></table>`
+        : `<div class="pg-nilai${nol ? ' nol' : ''}">${rupiah(baris[0].nilai)}</div>`;
 
     /* Versi yang belum berlaku pada tanggal acuan. Tanpa ini, besaran yang
        baru disimpan untuk bulan depan tidak terlihat di mana pun dan tampak
@@ -309,42 +319,46 @@ function halNominal() {
       : j.berjenjang ? `${versiBerikut.length} jenjang`
       : rupiah(versiBerikut[0].nilai);
 
-    return `<div class="panel">
-      <div class="panel-head"><h3>${esc(j.nama)}</h3>
-        <div class="sp" style="flex:1"></div>
-        <div class="info">${esc(j.satuan)}</div></div>
-      <div style="padding:14px 16px">
-        ${isi}
-        ${teksBerikut ? `<p class="kecil" style="margin:10px 0 0;color:var(--warn)"><b>Versi berikutnya: ${esc(teksBerikut)}</b>,
-          berlaku mulai ${esc(tglIndo(tglBerikut))}. Belum dipakai pada tanggal acuan halaman ini
-          (${esc(tglIndo(ui.acuan))}); rekap periode sebelum tanggal itu tetap memakai besaran di atas.</p>` : ''}
-        ${j.penjelasan ? `<p class="kecil" style="margin:10px 0 0">${esc(j.penjelasan)}</p>` : ''}
-      </div>
-      <div class="foot">
-        <div class="info">${sejak ? 'berlaku sejak ' + esc(tglIndo(sejak)) : 'belum pernah diisi'}</div>
-        <div class="sp" style="flex:1"></div>
-        <button class="btn btn-sm" data-ubah="${esc(j.kode)}">Ubah besaran</button>
+    return `<article class="pg-kartu${!baris.length ? ' kosong' : ''}">
+      <div class="pg-kartu-atas"><h3>${esc(j.nama)}</h3><span class="pg-satuan">${esc(j.satuan)}</span></div>
+      ${isi}
+      <div class="pg-meta">${sejak ? 'berlaku sejak ' + esc(tglIndo(sejak)) : 'belum pernah diisi'}${
+        nol ? ' · <span class="pg-nol">masih Rp 0</span>' : ''}</div>
+      ${teksBerikut ? `<div class="pg-berikut"><b>Versi berikutnya ${esc(teksBerikut)}</b> berlaku
+        ${esc(tglIndo(tglBerikut))} — belum dipakai pada tanggal acuan ${esc(tglIndo(ui.acuan))}.</div>` : ''}
+      ${j.penjelasan ? `<p class="pg-penjelasan">${esc(j.penjelasan)}</p>` : '<p class="pg-penjelasan"></p>'}
+      <div class="pg-aksi">
+        <button class="btn btn-sm btn-p" data-ubah="${esc(j.kode)}">Ubah nominal</button>
         <button class="btn btn-sm" data-riwayat="${esc(j.kode)}">Riwayat</button>
-      </div></div>`;
+      </div></article>`;
   };
 
   $('#isi').innerHTML = `
     <div class="head"><div><h1>Penggajian</h1>
-      <p>Besaran tiap jenis pembiayaan. Mengubahnya tidak menimpa yang lama —
-         yang tersimpan adalah besaran baru beserta tanggal mulai berlakunya.</p></div>
+      <p>Nominal tiap jenis pembiayaan. Mengubahnya tidak menimpa yang lama —
+         yang tersimpan adalah nominal baru beserta tanggal mulai berlakunya.</p></div>
       <div class="sp"></div>
       <div class="mx-pilih"><label class="kecil">Berlaku pada</label>
         <input class="field" type="date" id="acuan" value="${esc(ui.acuan)}" style="width:auto"></div></div>
 
-    <div class="info-box">Halaman ini menampilkan besaran yang berlaku pada
-      <b>${esc(tglIndo(ui.acuan))}</b>. Ubah tanggalnya untuk melihat besaran yang
-      berlaku pada periode lain — itulah angka yang dipakai rekap periode tersebut.</div>
+    <div class="kartu-baris pg-ringkas">
+      <div class="kartu"><b>${aktif.length}</b><span>jenis pembiayaan</span></div>
+      <div class="kartu"><b>${terisi}</b><span>sudah bernominal</span></div>
+      <div class="kartu${masihNol.length ? ' warn' : ''}"><b>${masihNol.length}</b><span>masih Rp 0</span></div>
+      <div class="kartu${belumDiisi.length ? ' warn' : ''}"><b>${belumDiisi.length}</b><span>belum diisi</span></div>
+      <div class="kartu pg-acuan"><b>${esc(tglIndo(ui.acuan))}</b><span>tanggal acuan — rekap suatu periode memakai
+        nominal yang berlaku pada tanggal akhir periodenya</span></div>
+    </div>
 
-    ${kelompok.map(k => `
-      <h2 class="kelompok-judul" style="margin:22px 0 10px;font-size:14px;letter-spacing:.04em;
-        text-transform:uppercase;color:var(--primary)">${esc(k)}</h2>
-      ${D.jenis.filter(j => j.aktif && j.kelompok === k).map(kartuJenis).join('')}
-    `).join('')}`;
+    ${kelompok.map(k => {
+      const isiKelompok = aktif.filter(j => j.kelompok === k);
+      const kosong = isiKelompok.filter(j => !tarifDari(j.kode).length || tarifDari(j.kode).every(t => Number(t.nilai) === 0)).length;
+      return `<section class="pg-kelompok pg-${warnaKelompok(k)}">
+        <header class="pg-kelompok-head"><span class="pg-titik"></span><h2>${esc(k)}</h2>
+          <span class="kecil">${isiKelompok.length} jenis${kosong ? ` · ${kosong} belum bernominal` : ''}</span></header>
+        <div class="pg-grid">${isiKelompok.map(kartuJenis).join('')}</div>
+      </section>`;
+    }).join('')}`;
 
   $('#acuan').onchange = e => {
     ui.acuan = e.target.value || hariIniISO();
@@ -372,7 +386,7 @@ function formTarif(kode) {
       <td style="text-align:right"><button class="btn btn-sm btn-d" data-hapus-j="${i}">Hapus</button></td>
     </tr>`).join('');
 
-  bukaModal(`<h2>Ubah besaran — ${esc(j.nama)}</h2><div class="body">
+  bukaModal(`<h2>Ubah nominal — ${esc(j.nama)}</h2><div class="body">
     <p class="msg kecil">Besaran lama tidak dihapus. Yang tersimpan adalah besaran baru
       beserta tanggal mulai berlakunya, sehingga rekap periode sebelumnya tetap memakai
       angka yang lama.</p>
@@ -478,7 +492,7 @@ function dialogRiwayat(kode) {
       perVersi.get(t.berlaku_mulai).push(t);
     });
 
-    bukaModal(`<h2>Riwayat besaran — ${esc(j.nama)}</h2><div class="body">
+    bukaModal(`<h2>Riwayat nominal — ${esc(j.nama)}</h2><div class="body">
       ${perVersi.size ? [...perVersi.entries()].map(([mulai, baris]) => `
         <div class="fg penuh"><label>Berlaku mulai ${esc(tglIndo(mulai))}${
           mulai <= ui.acuan ? '' : ' <span class="kecil">(belum berlaku pada tanggal acuan)</span>'}</label>
@@ -1035,20 +1049,19 @@ const REKAP = {
     nama: 'Wali Kelas',
     fungsi: 'f_ip_honor_wali_kelas',
     judul: 'DAFTAR PENERIMAAN HONOR WALI KELAS',
-    catatan: 'Honor Bulanan FLAT per bulan untuk tiap wali kelas yang tugasnya aktif pada periode; '
+    catatan: 'Honor Wali Kelas FLAT per bulan untuk tiap wali kelas yang tugasnya aktif pada periode; '
            + 'jumlah bulan dihitung dari bulan kalender yang lebih dari setengah harinya masuk rentang. '
-           + 'Upacara dan Bimbingan Wali Kelas dihitung dari jam PER MINGGU dikali nominal, bukan jumlah '
-           + 'jam sepanjang periode — dibayarkan bulanan atas dasar jam kontrak itu. Karena itu angkanya '
-           + 'berbeda dari rekap Wali Kelas di aplikasi Kehadiran Guru, yang menghitung jam terjadwal '
-           + 'sepanjang rentang untuk menilai kehadiran. Piket meja sekolah wali kelas tidak di sini: '
-           + 'dibayar per jam jaga di daftar Piket Meja Sekolah. Baris bertanda "belum lengkap" masih '
-           + 'ada komponen yang kosong — berbeda maknanya dengan nol. Pemegang tugas Staf ditampilkan '
-           + 'dengan honor nol.',
+           + 'Upacara dan Bimbingan Wali Kelas dibayar per JAM HADIR tatap muka dalam rentang — angka '
+           + 'yang sama dengan kolom Hadir pada tab Wali Kelas di Kehadiran dan Piket dan di Rekapitulasi '
+           + 'Kehadiran aplikasi Kehadiran Guru. Wali kelas yang tidak hadir upacara tidak menerima honor '
+           + 'jam itu; HTTM, sakit, dan ijin tidak dibayar. Piket meja sekolah wali kelas tidak di sini: '
+           + 'dibayar per jam jaga di daftar Piket Meja Sekolah. Pemegang tugas Staf ditampilkan dengan '
+           + 'honor nol.',
     kolom: [
       { k: 'honor_bulanan', t: 'Honor Wali Kelas', w: 130, rp: true },
-      { k: 'jam_upacara', t: 'Jam Upacara /mg', w: 110, num: true },
+      { k: 'jam_upacara', t: 'Jam Hadir Upacara', w: 115, num: true },
       { k: 'honor_upacara', t: 'Honor Upacara', w: 125, rp: true },
-      { k: 'jam_bimbingan', t: 'Jam Bimbingan /mg', w: 120, num: true },
+      { k: 'jam_bimbingan', t: 'Jam Hadir Bimbingan', w: 125, num: true },
       { k: 'honor_bimbingan', t: 'Honor Bimbingan WK', w: 140, rp: true }
     ]
   },

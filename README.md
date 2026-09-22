@@ -69,7 +69,7 @@ tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
 | `f_ip_honor_pengganti` | jam penggantian GT / PT / Infaler |
 | `f_ip_transport_piket` | giliran jaga satu jenis piket — kolom `ukuran` berisi **jam** untuk Meja Sekolah dan Unit, **hari** untuk Parkiran, mengikuti satuan pencatatannya di Kehadiran Guru; staf dikecualikan pada meja sekolah |
 | `f_ip_transport_pembina` | pertemuan ekskul dan pembinaan, menurut jumlah siswa hadir |
-| `f_ip_honor_wali_kelas` | honor bulanan flat + komponen upacara dan bimbingan (jam per minggu); piket tidak termasuk, dibayar per jam jaga di Piket Meja Sekolah |
+| `f_ip_honor_wali_kelas` | honor bulanan flat + Upacara dan Bimbingan WK per **jam hadir** tatap muka dalam rentang (dari `f_ip_kehadiran_wali`, angka yang sama dengan rekap kehadiran); piket tidak termasuk, dibayar per jam jaga di Piket Meja Sekolah |
 | `f_ip_honor_diperbantukan` | honor bulanan flat per unit yang dipegang + transport piket unit per jam jaga, per penugasan |
 | `f_ip_honor_pembina_osis` | flat per bulan; `f_ip_bulan` menghitung bulan yang lebih dari setengah harinya masuk rentang, dipakai ketiga honor flat |
 | `f_ip_rekap_gabungan` | satu baris per penerima, kolomnya mengikuti tab: mengajar, wali, diperbantukan, piket meja, pengganti, OSIS, ekskul, Tahfidz, parkiran |
