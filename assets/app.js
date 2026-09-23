@@ -1424,11 +1424,12 @@ const REKAP = {
         nama: 'TuKerja', fungsi: 'f_ip_tunjangan_bpjs',
         arg: { p_jenis: 'ketenagakerjaan' }, saringBentuk: true, sesudah,
         judul: 'DAFTAR PENERIMAAN TUKERJA (TUNJANGAN KETENAGAKERJAAN)',
-        catatan: 'TuKerja = Tunjangan Ketenagakerjaan. FLAT per bulan untuk pemegang tugas STAF yang sudah TIGA tahun menjadi staf (TMT sebagai '
-               + 'staf di Data Induk → Data Guru) dan DISAHKAN kepala sekolah. Mulai bulan berikutnya sesudah '
-               + 'genap tiga tahun; berhenti sendiri begitu guru nonaktif atau tidak lagi memegang tugas Staf. '
+        catatan: 'TuKerja = Tunjangan Ketenagakerjaan. FLAT per bulan untuk pemegang tugas STAF yang masa kerjanya '
+               + 'sudah LIMA tahun — dari TMT di sekolah; bagi Guru Tetap Yayasan yang merangkap staf, dari TMT '
+               + 'sebagai staf (Data Induk → Data Guru) — dan DISAHKAN kepala sekolah. Mulai bulan berikutnya '
+               + 'sesudah genap lima tahun; berhenti sendiri begitu guru nonaktif atau tidak lagi memegang tugas Staf. '
                + bersama,
-        kolom: kolom('Genap 3 tahun')
+        kolom: kolom('Genap 5 tahun')
       }
     };
   })()
