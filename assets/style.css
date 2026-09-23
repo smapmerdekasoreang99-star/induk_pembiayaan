@@ -298,3 +298,10 @@ table.log th,table.log td{padding:8px 12px}
    pernah benar-benar melebar. Ditulis untuk dua macam wadah sekaligus,
    baris lentur maupun kisi. */
 .fg.penuh{flex-basis:100%;grid-column:1 / -1}
+
+/* Kartu ganda di Penggajian (TuSehat, TuKerja): nominal dari sekolah dan
+   potongan porsi guru berdampingan dalam satu kartu. */
+.pg-ganda{display:flex;gap:22px;flex-wrap:wrap}
+.pg-ganda .pg-nilai{font-size:22px}
+.pg-label{display:block;font-size:11.5px;color:var(--ink3);margin-bottom:2px}
+.pg-ganda .pg-nilai.kosong{font-size:15px}
