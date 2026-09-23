@@ -114,6 +114,7 @@ function pesanRamah(e) {
 async function api(jalur, opsi = {}) {
   const r = await fetch(KONFIG.url + jalur, {
     ...opsi,
+    cache: 'no-store',   // data selalu segar dari server, tidak pernah dari cache peramban
     headers: {
       apikey: KONFIG.anonKey,
       Authorization: 'Bearer ' + (sesi.token || KONFIG.anonKey),
@@ -225,6 +226,9 @@ function layarUtama() {
   $$('#nav button').forEach(b => b.onclick = () => {
     halaman = b.dataset.hal;
     $$('#nav button').forEach(x => x.classList.toggle('on', x === b));
+    // Pengesahan dilakukan di Data Induk; tiap kali halaman Tunjangan dibuka,
+    // daftarnya dibaca segar supaya yang baru disahkan langsung tampak.
+    if (halaman === 'tunjangan') D.tunjangan = null;
     gambar();
   });
   gambar();
