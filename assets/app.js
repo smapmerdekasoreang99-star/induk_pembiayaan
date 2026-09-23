@@ -29,7 +29,8 @@ let D = { jenis: [], tarif: [], tarifSemua: [], profil: null, rekap: null, hadir
 let halaman = 'beranda';
 let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'gabungan', ikutStaf: false,
            hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '', hadirIkutStaf: false,
-           penggantiRinci: false, ekskulKategori: '', rekapBentuk: '', tunjanganCari: '' };
+           penggantiRinci: false, ekskulKategori: '', rekapBentuk: '',
+           tunjanganTab: 'kesehatan', tunjanganCari: '', potonganSelesai: false };
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -133,6 +134,8 @@ const ambil = (tabel, query = '') => api(`/rest/v1/${tabel}?${query}`);
 const simpanBaru = (tabel, isi) =>
   api(`/rest/v1/${tabel}`, { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify(isi) });
 const buang = (tabel, syarat) => api(`/rest/v1/${tabel}?${syarat}`, { method: 'DELETE' });
+const ubah = (tabel, syarat, isi) =>
+  api(`/rest/v1/${tabel}?${syarat}`, { method: 'PATCH', body: JSON.stringify(isi) });
 /* Fungsi database dipanggil lewat RPC; f_ip_tarif menjawab "tarif apa yang
    berlaku pada tanggal ini", dan itulah dasar seluruh perhitungan. */
 const rpc = (nama, argumen) =>
@@ -512,32 +515,61 @@ function dialogRiwayat(kode) {
   });
 }
 
-/* --------------------------------------------------------- tunjangan */
-/* Penyaluran TuSehat dan TuKerja per orang: ke mana disalurkan (BPJS,
-   Simponi BNI, DPLK BJB), nomor pesertanya, dan potongan porsi guru per
-   bulan. Siapa yang BERHAK ditentukan Data Induk (kelayakan dihitung,
-   pengesahan kepala sekolah) — halaman ini hanya mengurus penyalurannya.
-   Berversi menurut tanggal berlaku, seperti besaran: bentuk bisa berganti
-   (mis. mulai ditanggung pasangan), dan rekap periode lama harus tetap
-   membaca bentuk yang berlaku waktu itu.                                 */
+/* --------------------------------------------- tunjangan dan potongan */
+/* Empat tab dalam satu halaman:
+   1–2. TuSehat dan TuKerja: penyaluran per orang (BPJS, Simponi BNI, DPLK
+        BJB), nomor peserta, NOMINAL dari sekolah dan POTONGAN porsi guru
+        per bulan. Bawaan keduanya diisi di Penggajian; angka per orang
+        yang berbeda disimpan di sini — berversi menurut tanggal berlaku,
+        seperti besaran — dan berlaku sampai diubah lagi. Yang kosong
+        mengikuti Penggajian, jadi bila bawaannya berubah, yang mengikuti
+        bawaan ikut berubah, sedangkan yang sudah ditetapkan sendiri tidak.
+        Siapa yang BERHAK ditentukan Data Induk (kelayakan dihitung,
+        pengesahan kepala sekolah) — di sini hanya penyalurannya.
+   3–4. Potongan sekolah (tabungan rutin, pinjaman ke sekolah) dan potongan
+        koperasi (iuran keanggotaan, simpanan, pinjaman koperasi): satu
+        baris satu potongan per orang, dengan bulan mulai dan bulan
+        terakhir (kosong = sampai diubah). Seorang guru boleh punya
+        beberapa sekaligus. Mengubah nominal = mengakhiri baris lama dan
+        menambah baris baru, supaya rekap bulan lalu tidak berubah.
+   Semua potongan dikurangkan dari pendapatan di Gabungan per Guru.      */
 const TUNJANGAN = { kesehatan: 'TuSehat', ketenagakerjaan: 'TuKerja' };
 const BENTUK = {
   kesehatan:       ['BPJS Kesehatan', 'Simponi BNI', 'DPLK BJB'],
   ketenagakerjaan: ['BPJS Ketenagakerjaan', 'Simponi BNI', 'DPLK BJB']
 };
+// Kode besaran di Penggajian yang menjadi bawaan nominal dan potongan.
+const KODE_TUNJANGAN = {
+  kesehatan:       { nominal: 'bpjs_kesehatan',       potongan: 'potongan_bpjs_kesehatan' },
+  ketenagakerjaan: { nominal: 'bpjs_ketenagakerjaan', potongan: 'potongan_bpjs_ketenagakerjaan' }
+};
+const TJ_TAB = {
+  kesehatan:       { nama: 'Tunjangan Kesehatan',       jenis: 'kesehatan' },
+  ketenagakerjaan: { nama: 'Tunjangan Ketenagakerjaan', jenis: 'ketenagakerjaan' },
+  sekolah:         { nama: 'Potongan',                  kelompok: 'sekolah' },
+  koperasi:        { nama: 'Potongan Koperasi',         kelompok: 'koperasi' }
+};
+const JENIS_POTONGAN = {
+  sekolah:  ['Tabungan rutin', 'Pinjaman ke sekolah', 'Lainnya'],
+  koperasi: ['Iuran keanggotaan', 'Simpanan wajib', 'Pinjaman koperasi', 'Lainnya']
+};
 
 async function muatTunjangan() {
   try {
-    const [hak, salur] = await Promise.all([
+    const [hak, salur, potongan, guru] = await Promise.all([
       ambil('v_guru_bpjs', 'select=id,nama,jenis,status,mulai,keterangan,tmt_dasar,tanggal_syarat'
                           + '&status=in.(disahkan,terhenti)&order=nama'),
-      ambil('ip_tunjangan_penyaluran', 'select=*&order=berlaku_mulai.desc,id.desc')
+      ambil('ip_tunjangan_penyaluran', 'select=*&order=berlaku_mulai.desc,id.desc'),
+      ambil('ip_potongan', 'select=*&order=berlaku_mulai.desc,id.desc'),
+      // Urutan guru menurut masa kerja, seperti di semua aplikasi.
+      ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif'
+                     + '&order=tmt_sekolah.asc.nullslast,nama.asc')
     ]);
-    D.tunjangan = { hak: hak || [], salur: salur || [], galat: null };
+    D.tunjangan = { hak: hak || [], salur: salur || [], potongan: potongan || [], guru: guru || [], galat: null };
   } catch (e) {
     // Disimpan sebagai galat, bukan dibiarkan kosong: halaman yang memuat
     // ulang terus-menerus lebih membingungkan daripada satu pesan.
-    D.tunjangan = { hak: [], salur: [], galat: e.message };
+    D.tunjangan = { hak: [], salur: [], potongan: [], guru: [], galat: e.message };
   }
 }
 
@@ -545,76 +577,200 @@ async function muatTunjangan() {
 const salurBerlaku = (guruId, jenis, tgl) =>
   D.tunjangan.salur.find(s => s.guru_id === guruId && s.jenis === jenis && s.berlaku_mulai <= tgl) || null;
 const bentukBawaan = jenis => BENTUK[jenis][0];
+// Bawaan dari Penggajian pada tanggal acuan (D.tarif dimuat untuk ui.acuan).
+const tarifBawaan = kode => { const t = D.tarif.find(x => x.kode === kode); return t ? Number(t.nilai) || 0 : 0; };
+/* Nominal dan potongan yang berlaku untuk seseorang: angka per orang bila
+   ditetapkan, selebihnya bawaan Penggajian. `khusus` menandai mana yang
+   ditetapkan sendiri, supaya di layar terlihat bedanya. */
+function angkaTunjangan(jenis, s) {
+  const k = KODE_TUNJANGAN[jenis];
+  const nominalKhusus = !!(s && s.nominal != null), potonganKhusus = !!(s && s.potongan != null);
+  return {
+    nominal: nominalKhusus ? Number(s.nominal) : tarifBawaan(k.nominal), nominalKhusus,
+    potongan: potonganKhusus ? Number(s.potongan) : tarifBawaan(k.potongan), potonganKhusus
+  };
+}
+const blnIndo = iso => /^\d{4}-\d{2}/.test(iso || '') ? `${BULAN[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : '—';
+const awalBulan = iso => (iso || '').slice(0, 7) + '-01';
+function bulanSebelum(iso) {
+  const [y, m] = iso.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+// Potongan yang masih berjalan pada bulan tertentu (mulai <= bulan <= sampai).
+const potonganAktif = (p, tgl) => p.berlaku_mulai <= awalBulan(tgl) && (!p.berlaku_sampai || p.berlaku_sampai >= awalBulan(tgl));
 
 function halTunjangan() {
   if (!D.tunjangan) { jalankan('Memuat tunjangan…', muatTunjangan); return; }
-  const { hak, salur, galat } = D.tunjangan;
-  const q = (ui.tunjanganCari || '').trim().toLowerCase();
-  const baris = hak
-    .map(h => ({ ...h, s: salurBerlaku(h.id, h.jenis, ui.acuan),
-                 versi: salur.filter(s => s.guru_id === h.id && s.jenis === h.jenis).length }))
-    .filter(h => !q || h.nama.toLowerCase().includes(q));
-  const perBentuk = {};
-  hak.forEach(h => {
-    const b = (salurBerlaku(h.id, h.jenis, ui.acuan) || {}).bentuk || bentukBawaan(h.jenis);
-    perBentuk[b] = (perBentuk[b] || 0) + 1;
-  });
-  const belumDiatur = hak.filter(h => !salurBerlaku(h.id, h.jenis, ui.acuan)).length;
-  const totalPotongan = hak.reduce((t, h) => t + Number((salurBerlaku(h.id, h.jenis, ui.acuan) || {}).potongan || 0), 0);
+  const tab = TJ_TAB[ui.tunjanganTab] ? ui.tunjanganTab : 'kesehatan';
+  const spek = TJ_TAB[tab];
+  const { galat } = D.tunjangan;
 
   $('#isi').innerHTML = `
-    <div class="head"><div><h1>Tunjangan</h1>
-      <p>Penyaluran TuSehat (Tunjangan Kesehatan) dan TuKerja (Tunjangan Ketenagakerjaan) per orang:
-         ke BPJS, Simponi BNI, atau DPLK BJB, beserta nomor peserta dan potongan porsi guru.
-         Siapa yang berhak ditentukan di Data Induk → Data Guru.</p></div>
+    <div class="head"><div><h1>Tunjangan dan Potongan</h1>
+      <p>Penyaluran TuSehat (Tunjangan Kesehatan) dan TuKerja (Tunjangan Ketenagakerjaan) per orang,
+         beserta nominal dari sekolah dan potongan porsi guru; lalu potongan lain dari pendapatan guru:
+         tabungan dan pinjaman ke sekolah, serta iuran dan pinjaman koperasi. Semuanya dikurangkan
+         di Gabungan per Guru.</p></div>
       <div class="sp"></div>
       <div class="mx-pilih">
         <label class="kecil">Berlaku pada</label>
         <input class="field" type="date" id="tjAcuan" value="${esc(ui.acuan)}" style="width:auto">
       </div></div>
 
+    <div class="bar">${Object.entries(TJ_TAB).map(([k, v]) =>
+      `<button class="chip${k === tab ? ' on' : ''}" data-tj="${k}">${esc(v.nama)}</button>`).join('')}
+    </div>
+
     ${galat ? `<div class="info-box"><b>Data tunjangan tidak terbaca.</b> ${esc(galat)}</div>` : ''}
+    <div id="tjIsi">${spek.jenis ? isiTabPenyaluran(spek.jenis) : isiTabPotongan(spek.kelompok)}</div>`;
+
+  /* Tanggal acuan juga menentukan bawaan dari Penggajian, jadi besarannya
+     dimuat ulang bersama — bukan hanya digambar ulang. */
+  $('#tjAcuan').onchange = e => {
+    if (!e.target.value) return;
+    ui.acuan = e.target.value;
+    jalankan('Memuat…', muatSemua);
+  };
+  $$('[data-tj]').forEach(b => b.onclick = () => { ui.tunjanganTab = b.dataset.tj; ui.tunjanganCari = ''; gambar(); });
+  pasangAksiTunjangan();
+}
+
+/* Penyaluran satu jenis tunjangan: satu tab untuk TuSehat, satu untuk TuKerja. */
+function isiTabPenyaluran(jenis) {
+  const { hak, salur } = D.tunjangan;
+  const q = (ui.tunjanganCari || '').trim().toLowerCase();
+  const semua = hak.filter(h => h.jenis === jenis)
+    .map(h => ({ ...h, s: salurBerlaku(h.id, jenis, ui.acuan),
+                 versi: salur.filter(s => s.guru_id === h.id && s.jenis === jenis).length }))
+    .map(h => ({ ...h, a: angkaTunjangan(jenis, h.s) }));
+  const baris = semua.filter(h => !q || h.nama.toLowerCase().includes(q));
+  const perBentuk = {};
+  semua.forEach(h => {
+    const b = (h.s || {}).bentuk || bentukBawaan(jenis);
+    perBentuk[b] = (perBentuk[b] || 0) + 1;
+  });
+  const aktif = semua.filter(h => h.status === 'disahkan');
+  const belumDiatur = aktif.filter(h => !h.s).length;
+  const totalNominal = aktif.reduce((t, h) => t + h.a.nominal, 0);
+  const totalPotongan = aktif.reduce((t, h) => t + h.a.potongan, 0);
+  const k = KODE_TUNJANGAN[jenis];
+  const sel = (nilai, khusus) => `${rupiah(nilai)}${khusus ? '' : ' <span class="kecil">(Penggajian)</span>'}`;
+
+  return `
     ${belumDiatur ? `<div class="info-box"><b>${belumDiatur} penerima belum diatur penyalurannya.</b>
-      Selama belum diatur, dianggap BPJS tanpa potongan. Ketuk <b>Atur</b> pada barisnya.</div>` : ''}
+      Selama belum diatur, dianggap ${esc(bentukBawaan(jenis))} dengan nominal dan potongan bawaan Penggajian.
+      Ketuk <b>Atur</b> pada barisnya.</div>` : ''}
 
     <div class="kartu-baris">
-      <div class="kartu"><b>${hak.length}</b><span>penerima (guru × jenis)</span></div>
+      <div class="kartu"><b>${aktif.length}</b><span>penerima ${TUNJANGAN[jenis]}</span></div>
       ${Object.entries(perBentuk).sort().map(([b, n]) => `<div class="kartu"><b>${n}</b><span>${esc(b)}</span></div>`).join('')}
+      <div class="kartu"><b>${rupiah(totalNominal)}</b><span>dari sekolah per bulan</span></div>
       <div class="kartu"><b>${rupiah(totalPotongan)}</b><span>potongan guru per bulan</span></div>
     </div>
 
-    <div class="panel"><div class="panel-head"><h3>Penyaluran yang berlaku ${esc(tglIndo(ui.acuan))}</h3>
+    <div class="panel"><div class="panel-head"><h3>${esc(TJ_TAB[jenis].nama)} — berlaku ${esc(tglIndo(ui.acuan))}</h3>
       <div class="sp" style="flex:1"></div>
       <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px"></div>
       <div class="scroll"><table><thead><tr>
-        <th>Nama</th><th style="width:90px">Tunjangan</th><th style="width:150px">Status</th>
-        <th style="width:160px">Bentuk</th><th style="width:140px">No. peserta</th>
-        <th style="width:130px" class="num">Potongan/bulan</th><th style="width:120px">Berlaku mulai</th>
-        <th style="width:90px"></th>
+        <th>Nama</th><th style="width:150px">Status</th>
+        <th style="width:160px">Bentuk</th><th style="width:130px">No. peserta</th>
+        <th style="width:150px" class="num">Dari sekolah/bulan</th>
+        <th style="width:150px" class="num">Potongan guru/bulan</th>
+        <th style="width:120px">Berlaku mulai</th>
+        <th style="width:80px"></th>
       </tr></thead><tbody>${
-        baris.length ? baris.map(h => `<tr class="${h.status === 'terhenti' ? 'mati' : ''}" data-guru="${esc(h.id)}" data-jenis="${esc(h.jenis)}">
+        baris.length ? baris.map(h => `<tr class="${h.status === 'terhenti' ? 'mati' : ''}" data-guru="${esc(h.id)}" data-jenis="${esc(jenis)}">
           <td style="font-weight:500">${esc(h.nama)}</td>
-          <td><span class="tag tag-l">${TUNJANGAN[h.jenis]}</span></td>
           <td class="kecil">${h.status === 'disahkan'
-            ? `disahkan, sejak ${h.mulai ? BULAN[Number(h.mulai.slice(5, 7)) - 1] + ' ' + h.mulai.slice(0, 4) : '—'}`
+            ? `disahkan, sejak ${blnIndo(h.mulai)}`
             : `<span style="color:var(--warn)">terhenti: ${esc(h.keterangan || '')}</span>`}</td>
-          <td>${h.s ? esc(h.s.bentuk) : `<span class="kecil">${esc(bentukBawaan(h.jenis))} (bawaan)</span>`}</td>
+          <td>${h.s ? esc(h.s.bentuk) : `<span class="kecil">${esc(bentukBawaan(jenis))} (bawaan)</span>`}</td>
           <td>${h.s && h.s.nomor_peserta ? esc(h.s.nomor_peserta) : '<span class="kecil">—</span>'}</td>
-          <td class="num">${h.s ? rupiah(h.s.potongan) : '<span class="kecil">Rp 0</span>'}</td>
+          <td class="num">${sel(h.a.nominal, h.a.nominalKhusus)}</td>
+          <td class="num">${sel(h.a.potongan, h.a.potonganKhusus)}</td>
           <td class="kecil">${h.s ? esc(tglIndo(h.s.berlaku_mulai)) : '—'}${h.versi > 1 ? ` <span class="kecil">(${h.versi} versi)</span>` : ''}</td>
           <td class="act"><button class="btn btn-sm bAtur">Atur</button></td></tr>`).join('')
         : `<tr><td colspan="8"><div class="empty"><b>Tidak ada penerima</b>
-            ${hak.length ? 'Ubah pencarian.' : 'Belum ada yang disahkan di Data Induk.'}</div></td></tr>`
+            ${semua.length ? 'Ubah pencarian.' : 'Belum ada yang disahkan di Data Induk.'}</div></td></tr>`
       }</tbody></table></div></div>
 
-    <p class="kecil">Nominal yang ditanggung sekolah adalah besaran TuSehat / TuKerja di halaman Penggajian,
-      sama untuk semua bentuk. Potongan adalah porsi guru per bulan (termasuk anggota keluarga tambahan
-      yang ditanggung guru), dicatat sebagai nominal — sistem tidak menghitung rumus BPJS. Potongan
-      dikurangkan dari total pendapatan di Gabungan per Guru. Mengubah penyaluran selalu menambah versi
-      baru dengan tanggal berlaku, supaya rekap periode lama tetap memakai bentuk yang berlaku waktu itu.</p>`;
+    <p class="kecil">Bawaan pada ${esc(tglIndo(ui.acuan))} dari Penggajian: dari sekolah ${esc(rupiah(tarifBawaan(k.nominal)))}/bulan,
+      potongan guru ${esc(rupiah(tarifBawaan(k.potongan)))}/bulan. Angka bertanda <i>(Penggajian)</i> mengikuti bawaan itu
+      dan ikut berubah bila bawaannya diubah; yang ditetapkan sendiri lewat <b>Atur</b> tetap sampai diubah lagi.
+      Potongan adalah porsi guru per bulan (termasuk anggota keluarga tambahan yang ditanggung guru), dicatat sebagai
+      nominal — sistem tidak menghitung rumus BPJS — dan dikurangkan di Gabungan per Guru. Mengubah penyaluran selalu
+      menambah versi baru dengan tanggal berlaku, supaya rekap periode lama tetap memakai angka yang berlaku waktu itu.</p>`;
+}
 
-  $('#tjAcuan').onchange = e => { if (e.target.value) { ui.acuan = e.target.value; gambar(); } };
-  $('#tjCari').oninput = e => {
+/* Potongan satu kelompok (sekolah / koperasi): satu baris satu potongan. */
+function isiTabPotongan(kelompok) {
+  const { potongan, guru } = D.tunjangan;
+  const q = (ui.tunjanganCari || '').trim().toLowerCase();
+  const namaGuru = id => (guru.find(g => g.id === id) || {}).nama || id;
+  const urut = id => { const i = guru.findIndex(g => g.id === id); return i < 0 ? 9999 : i; };
+  const bulanAcuan = awalBulan(ui.acuan);
+  const keadaan = p => potonganAktif(p, ui.acuan) ? 'berjalan'
+                     : p.berlaku_mulai > bulanAcuan ? 'nanti' : 'selesai';
+  const semua = potongan.filter(p => p.kelompok === kelompok)
+    .map(p => ({ ...p, nama: namaGuru(p.guru_id), keadaan: keadaan(p) }))
+    .sort((a, b) => urut(a.guru_id) - urut(b.guru_id) || a.nama.localeCompare(b.nama) || a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+  const berjalan = semua.filter(p => p.keadaan === 'berjalan');
+  const selesai = semua.filter(p => p.keadaan === 'selesai').length;
+  const baris = semua
+    .filter(p => ui.potonganSelesai || p.keadaan !== 'selesai')
+    .filter(p => !q || p.nama.toLowerCase().includes(q));
+  const orang = new Set(berjalan.map(p => p.guru_id)).size;
+  const total = berjalan.reduce((t, p) => t + Number(p.nominal), 0);
+  const perJenis = {};
+  berjalan.forEach(p => { perJenis[p.jenis] = (perJenis[p.jenis] || 0) + Number(p.nominal); });
+  const nama = TJ_TAB[kelompok].nama;
+
+  return `
+    <div class="kartu-baris">
+      <div class="kartu"><b>${orang}</b><span>orang dipotong</span></div>
+      <div class="kartu"><b>${berjalan.length}</b><span>potongan berjalan</span></div>
+      <div class="kartu"><b>${rupiah(total)}</b><span>${esc(nama.toLowerCase())} per bulan</span></div>
+      ${Object.entries(perJenis).sort().map(([j, n]) => `<div class="kartu"><b>${rupiah(n)}</b><span>${esc(j)}</span></div>`).join('')}
+    </div>
+
+    <div class="panel"><div class="panel-head"><h3>${esc(nama)} — bulan ${esc(blnIndo(ui.acuan))}</h3>
+      <div class="sp" style="flex:1"></div>
+      <label class="kecil" style="display:flex;align-items:center;gap:6px;margin-right:10px">
+        <input type="checkbox" id="tjSelesai" ${ui.potonganSelesai ? 'checked' : ''}> tampilkan yang sudah berakhir${selesai ? ` (${selesai})` : ''}</label>
+      <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:200px">
+      <button class="btn btn-p btn-sm" id="tjTambah" style="margin-left:10px">+ Tambah potongan</button></div>
+      <div class="scroll"><table><thead><tr>
+        <th>Nama</th><th style="width:150px">Jenis</th><th>Keterangan</th>
+        <th style="width:130px" class="num">Nominal/bulan</th>
+        <th style="width:100px">Mulai</th><th style="width:110px">Sampai</th>
+        <th style="width:150px"></th>
+      </tr></thead><tbody>${
+        baris.length ? baris.map(p => `<tr class="${p.keadaan === 'selesai' ? 'mati' : ''}" data-id="${p.id}">
+          <td style="font-weight:500">${esc(p.nama)}</td>
+          <td>${esc(p.jenis)}</td>
+          <td class="kecil">${esc(p.keterangan || '')}</td>
+          <td class="num">${rupiah(p.nominal)}</td>
+          <td class="kecil">${esc(blnIndo(p.berlaku_mulai))}${p.keadaan === 'nanti' ? ' <span class="tag tag-l">mulai nanti</span>' : ''}</td>
+          <td class="kecil">${p.berlaku_sampai ? esc(blnIndo(p.berlaku_sampai)) : 'sampai diubah'}${
+            p.keadaan === 'selesai' ? ' <span class="kecil" style="color:var(--warn)">berakhir</span>' : ''}</td>
+          <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button>${
+            p.keadaan === 'selesai' ? '' : ' <button class="btn btn-sm bAkhiriPot">Akhiri</button>'}</td></tr>`).join('')
+        : `<tr><td colspan="7"><div class="empty"><b>Tidak ada potongan</b>
+            ${semua.length ? 'Ubah pencarian atau tampilkan yang sudah berakhir.' : `Belum ada ${esc(nama.toLowerCase())} yang dicatat. Ketuk <b>Tambah potongan</b>.`}</div></td></tr>`
+      }</tbody></table></div></div>
+
+    <p class="kecil">${kelompok === 'sekolah'
+      ? 'Potongan dari pendapatan guru untuk sekolah: tabungan rutin, angsuran pinjaman ke sekolah, atau lainnya.'
+      : 'Potongan dari pendapatan guru untuk koperasi: iuran keanggotaan, simpanan wajib, atau angsuran pinjaman koperasi.'}
+      Satu baris satu potongan — seorang guru boleh punya tabungan dan pinjaman sekaligus. Nominal dipotong tiap bulan
+      dari bulan Mulai sampai bulan Sampai (kosong = sampai diubah), dan dikurangkan di Gabungan per Guru.
+      Mengubah nominal mengakhiri baris lama dan menambah baris baru, supaya rekap bulan lalu tidak berubah.</p>`;
+}
+
+function pasangAksiTunjangan() {
+  const cari = $('#tjCari');
+  if (cari) cari.oninput = e => {
     ui.tunjanganCari = e.target.value;
     clearTimeout(window._qt); window._qt = setTimeout(gambar, 200);
   };
@@ -622,6 +778,10 @@ function halTunjangan() {
     const tr = b.closest('tr');
     dialogPenyaluran(tr.dataset.guru, tr.dataset.jenis);
   });
+  if ($('#tjSelesai')) $('#tjSelesai').onchange = e => { ui.potonganSelesai = e.target.checked; gambar(); };
+  if ($('#tjTambah')) $('#tjTambah').onclick = () => dialogPotongan(TJ_TAB[ui.tunjanganTab].kelompok, null);
+  $$('.bUbahPot').forEach(b => b.onclick = () => dialogPotongan(null, Number(b.closest('tr').dataset.id)));
+  $$('.bAkhiriPot').forEach(b => b.onclick = () => dialogAkhiriPotongan(Number(b.closest('tr').dataset.id)));
 }
 
 function dialogPenyaluran(guruId, jenis) {
@@ -629,6 +789,8 @@ function dialogPenyaluran(guruId, jenis) {
   if (!h) return;
   const s = salurBerlaku(guruId, jenis, ui.acuan);
   const riwayat = D.tunjangan.salur.filter(x => x.guru_id === guruId && x.jenis === jenis);
+  const k = KODE_TUNJANGAN[jenis];
+  const bawaanNominal = tarifBawaan(k.nominal), bawaanPotongan = tarifBawaan(k.potongan);
 
   bukaModal(`<h2>Penyaluran ${TUNJANGAN[jenis]} — ${esc(h.nama)}</h2><div class="body">
     <div class="fg penuh"><label>Bentuk</label>
@@ -639,22 +801,31 @@ function dialogPenyaluran(guruId, jenis) {
     <div class="fg"><label>Nomor peserta</label>
       <input class="field" id="p-nomor" value="${esc(s ? s.nomor_peserta || '' : '')}" placeholder="nomor BPJS / rekening program">
       <div class="hint">Untuk daftar setoran ke penyalurnya.</div></div>
-    <div class="fg"><label>Potongan porsi guru per bulan</label>
-      <input class="field num" type="number" min="0" step="1000" id="p-potongan" value="${s ? Number(s.potongan) : 0}">
-      <div class="hint">Nominal yang dipotong dari pendapatan guru tiap bulan, termasuk iuran anggota keluarga tambahan.
-        Nol bila tidak ada potongan.</div></div>
     <div class="fg"><label>Berlaku mulai</label>
       <input class="field" type="date" id="p-mulai" value="${esc(awalBulanDepan())}">
       <div class="hint">Tanggal 1 suatu bulan. Rekap sebuah periode memakai penyaluran yang berlaku pada tanggal akhir
         periode itu.</div></div>
+    <div class="fg"><label>Dari sekolah per bulan</label>
+      <input class="field num" type="number" min="0" step="1000" id="p-nominal"
+        value="${s && s.nominal != null ? Number(s.nominal) : ''}" placeholder="${bawaanNominal}">
+      <div class="hint">Kosongkan untuk mengikuti Penggajian (${esc(rupiah(bawaanNominal))} pada ${esc(tglIndo(ui.acuan))}).
+        Isi bila nominal orang ini berbeda; angka itu tetap sampai diubah lagi.</div></div>
+    <div class="fg"><label>Potongan porsi guru per bulan</label>
+      <input class="field num" type="number" min="0" step="1000" id="p-potongan"
+        value="${s && s.potongan != null ? Number(s.potongan) : ''}" placeholder="${bawaanPotongan}">
+      <div class="hint">Kosongkan untuk mengikuti Penggajian (${esc(rupiah(bawaanPotongan))}). Isi bila potongan orang ini
+        berbeda, mis. menanggung anggota keluarga tambahan; nol bila tidak ada potongan.</div></div>
     <div class="fg penuh"><label>Catatan (opsional)</label>
       <input class="field" id="p-catatan" placeholder="Mis. ditanggung suami sejak Agustus; menanggung ibu">
     </div>
     ${riwayat.length ? `<div class="fg penuh"><label>Riwayat</label>
-      <table class="log"><tbody>${riwayat.map(r => `<tr>
+      <table class="log"><thead><tr><th>Mulai</th><th>Bentuk</th><th>No. peserta</th>
+        <th style="text-align:right">Dari sekolah</th><th style="text-align:right">Potongan</th><th>Catatan</th></tr></thead>
+      <tbody>${riwayat.map(r => `<tr>
         <td class="kecil">${esc(tglIndo(r.berlaku_mulai))}</td><td>${esc(r.bentuk)}</td>
         <td class="kecil">${esc(r.nomor_peserta || '')}</td>
-        <td style="text-align:right">${rupiah(r.potongan)}</td>
+        <td style="text-align:right">${r.nominal == null ? '<span class="kecil">Penggajian</span>' : rupiah(r.nominal)}</td>
+        <td style="text-align:right">${r.potongan == null ? '<span class="kecil">Penggajian</span>' : rupiah(r.potongan)}</td>
         <td class="kecil">${esc(r.catatan || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </div>
     <div class="aksi"><button class="btn" id="m-batal">Batal</button>
@@ -664,12 +835,14 @@ function dialogPenyaluran(guruId, jenis) {
   $('#m-simpan').onclick = () => {
     const mulai = $('#p-mulai').value;
     if (!mulai) { $('#p-mulai').focus(); return; }
+    const angka = id => { const v = $(id).value.trim(); return v === '' ? null : Math.max(0, Number(v) || 0); };
     const isi = {
       guru_id: guruId, jenis,
-      berlaku_mulai: mulai.slice(0, 7) + '-01',
+      berlaku_mulai: awalBulan(mulai),
       bentuk: $('#p-bentuk').value,
       nomor_peserta: $('#p-nomor').value.trim() || null,
-      potongan: Number($('#p-potongan').value) || 0,
+      nominal: angka('#p-nominal'),
+      potongan: angka('#p-potongan'),
       catatan: $('#p-catatan').value.trim() || null
     };
     tutupModal();
@@ -679,11 +852,136 @@ function dialogPenyaluran(guruId, jenis) {
         `guru_id=eq.${enc(guruId)}&jenis=eq.${enc(jenis)}&berlaku_mulai=eq.${enc(isi.berlaku_mulai)}`);
       await simpanBaru('ip_tunjangan_penyaluran', [isi]);
       const acuanPindah = isi.berlaku_mulai > ui.acuan;
-      if (acuanPindah) ui.acuan = isi.berlaku_mulai;
+      if (acuanPindah) { ui.acuan = isi.berlaku_mulai; await muatSemua(); }
       await muatTunjangan();
       D.rekap = null;   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
-      toast(`${h.nama}: ${isi.bentuk}, potongan ${rupiah(isi.potongan)}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
+      const a = angkaTunjangan(jenis, isi);
+      toast(`${h.nama}: ${isi.bentuk}, dari sekolah ${rupiah(a.nominal)}${a.nominalKhusus ? '' : ' (Penggajian)'}, `
+        + `potongan ${rupiah(a.potongan)}${a.potonganKhusus ? '' : ' (Penggajian)'}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
         + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(isi.berlaku_mulai)} supaya terlihat.` : ''));
+    });
+  };
+}
+
+/* Tambah (id kosong) atau ubah satu potongan. Mengubah nominal dengan
+   tanggal mulai yang lebih baru mengakhiri baris lama pada bulan sebelumnya
+   dan menambah baris baru; tanggal mulai yang sama menulis ulang barisnya. */
+function dialogPotongan(kelompok, id) {
+  const lama = id ? D.tunjangan.potongan.find(p => p.id === id) : null;
+  if (id && !lama) return;
+  kelompok = lama ? lama.kelompok : kelompok;
+  const { guru } = D.tunjangan;
+  const nama = TJ_TAB[kelompok].nama;
+  const jenisAda = JENIS_POTONGAN[kelompok].includes(lama ? lama.jenis : '') || !lama;
+  const pilihanJenis = [...JENIS_POTONGAN[kelompok], ...(lama && !jenisAda ? [lama.jenis] : [])];
+
+  bukaModal(`<h2>${lama ? 'Ubah' : 'Tambah'} ${esc(nama.toLowerCase())}${lama ? ' — ' + esc((guru.find(g => g.id === lama.guru_id) || {}).nama || lama.guru_id) : ''}</h2>
+    <div class="body">
+    ${lama ? '' : `<div class="fg penuh"><label>Guru / staf <span style="color:var(--danger)">*</span></label>
+      <select class="field" id="q-guru"><option value="">— pilih —</option>${guru.map(g =>
+        `<option value="${esc(g.id)}">${esc(g.nama)}</option>`).join('')}</select>
+      <div class="hint">Guru dan staf aktif menurut Data Induk, urut masa kerja.</div></div>`}
+    <div class="fg"><label>Jenis</label>
+      <select class="field" id="q-jenis">${pilihanJenis.map(j =>
+        `<option value="${esc(j)}" ${lama && lama.jenis === j ? 'selected' : ''}>${esc(j)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Nominal per bulan <span style="color:var(--danger)">*</span></label>
+      <input class="field num" type="number" min="0" step="1000" id="q-nominal" value="${lama ? Number(lama.nominal) : ''}">
+      <div class="hint">Dipotong tiap bulan dari pendapatan di Gabungan per Guru.</div></div>
+    <div class="fg"><label>Mulai bulan <span style="color:var(--danger)">*</span></label>
+      <input class="field" type="date" id="q-mulai" value="${esc(lama ? lama.berlaku_mulai : awalBulanDepan())}">
+      <div class="hint">${lama
+        ? 'Tanggal yang lebih baru dari mulai semula mengakhiri baris lama pada bulan sebelumnya dan menyimpan nominal baru sejak tanggal ini — rekap bulan sebelumnya tidak berubah. Tanggal yang sama atau lebih awal menulis ulang baris ini.'
+        : 'Tanggal 1 suatu bulan; bawaannya bulan depan.'}</div></div>
+    <div class="fg"><label>Sampai bulan (opsional)</label>
+      <input class="field" type="date" id="q-sampai" value="${esc(lama && lama.berlaku_sampai ? lama.berlaku_sampai : '')}">
+      <div class="hint">Bulan terakhir yang masih dipotong, mis. angsuran terakhir pinjaman. Kosongkan bila berjalan sampai diubah.</div></div>
+    <div class="fg penuh"><label>Keterangan (opsional)</label>
+      <input class="field" id="q-ket" value="${esc(lama ? lama.keterangan || '' : '')}" placeholder="Mis. pinjaman Rp 6.000.000, 12 angsuran">
+    </div>
+    </div>
+    <div class="aksi">${lama ? '<button class="btn btn-d" id="m-hapus">Hapus</button><div class="sp" style="flex:1"></div>' : ''}
+      <button class="btn" id="m-batal">Batal</button>
+      <button class="btn btn-p" id="m-simpan">Simpan</button></div>`, true);
+
+  $('#m-batal').onclick = tutupModal;
+  if ($('#m-hapus')) $('#m-hapus').onclick = () => {
+    if (!confirm('Hapus potongan ini seluruhnya? Untuk menghentikan potongan yang memang pernah berjalan, pakai Akhiri — supaya rekap bulan lalu tetap benar.')) return;
+    tutupModal();
+    jalankan('Menghapus…', async () => {
+      await buang('ip_potongan', `id=eq.${lama.id}`);
+      await muatTunjangan();
+      D.rekap = null;
+      toast('Potongan dihapus.');
+    });
+  };
+  $('#m-simpan').onclick = () => {
+    const guruId = lama ? lama.guru_id : $('#q-guru').value;
+    if (!guruId) { $('#q-guru').focus(); return; }
+    const nominalTeks = $('#q-nominal').value.trim();
+    if (nominalTeks === '') { $('#q-nominal').focus(); return; }
+    const mulaiTeks = $('#q-mulai').value;
+    if (!mulaiTeks) { $('#q-mulai').focus(); return; }
+    const mulai = awalBulan(mulaiTeks);
+    const sampai = $('#q-sampai').value ? awalBulan($('#q-sampai').value) : null;
+    if (sampai && sampai < mulai) { toast('Bulan Sampai mendahului bulan Mulai.', true); return; }
+    const isi = {
+      guru_id: guruId, kelompok,
+      jenis: $('#q-jenis').value,
+      nominal: Math.max(0, Number(nominalTeks) || 0),
+      berlaku_mulai: mulai, berlaku_sampai: sampai,
+      keterangan: $('#q-ket').value.trim() || null
+    };
+    const namaGuru = (guru.find(g => g.id === guruId) || {}).nama || guruId;
+    tutupModal();
+    jalankan('Menyimpan…', async () => {
+      if (lama && mulai > lama.berlaku_mulai) {
+        // Versi baru: baris lama berakhir pada bulan sebelum mulai yang baru.
+        await ubah('ip_potongan', `id=eq.${lama.id}`, { berlaku_sampai: bulanSebelum(mulai) });
+        await simpanBaru('ip_potongan', [isi]);
+      } else if (lama) {
+        await ubah('ip_potongan', `id=eq.${lama.id}`, isi);
+      } else {
+        await simpanBaru('ip_potongan', [isi]);
+      }
+      const acuanPindah = mulai > ui.acuan;
+      if (acuanPindah) { ui.acuan = mulai; await muatSemua(); }
+      await muatTunjangan();
+      D.rekap = null;
+      toast(`${namaGuru}: ${isi.jenis} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
+        + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
+        + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(mulai)} supaya terlihat.` : ''));
+    });
+  };
+}
+
+/* Mengakhiri potongan: menetapkan bulan terakhirnya, barisnya tetap ada. */
+function dialogAkhiriPotongan(id) {
+  const p = D.tunjangan.potongan.find(x => x.id === id);
+  if (!p) return;
+  const namaGuru = (D.tunjangan.guru.find(g => g.id === p.guru_id) || {}).nama || p.guru_id;
+  const bawaan = awalBulan(ui.acuan) >= p.berlaku_mulai ? awalBulan(ui.acuan) : p.berlaku_mulai;
+
+  bukaModal(`<h2>Akhiri potongan — ${esc(namaGuru)}</h2><div class="body">
+    <p class="msg kecil">${esc(p.jenis)} ${esc(rupiah(p.nominal))}/bulan, mulai ${esc(blnIndo(p.berlaku_mulai))}.
+      Barisnya tetap tersimpan sebagai riwayat; yang ditetapkan hanya bulan terakhirnya.</p>
+    <div class="fg"><label>Bulan terakhir dipotong <span style="color:var(--danger)">*</span></label>
+      <input class="field" type="date" id="q-sampai" value="${esc(bawaan)}">
+      <div class="hint">Bulan ini masih dipotong; mulai bulan berikutnya tidak lagi.</div></div>
+    </div>
+    <div class="aksi"><button class="btn" id="m-batal">Batal</button>
+      <button class="btn btn-p" id="m-simpan">Akhiri</button></div>`);
+
+  $('#m-batal').onclick = tutupModal;
+  $('#m-simpan').onclick = () => {
+    if (!$('#q-sampai').value) { $('#q-sampai').focus(); return; }
+    const sampai = awalBulan($('#q-sampai').value);
+    if (sampai < p.berlaku_mulai) { toast('Bulan terakhir mendahului bulan mulai.', true); return; }
+    tutupModal();
+    jalankan('Menyimpan…', async () => {
+      await ubah('ip_potongan', `id=eq.${p.id}`, { berlaku_sampai: sampai });
+      await muatTunjangan();
+      D.rekap = null;
+      toast(`${namaGuru}: ${p.jenis} berakhir ${blnIndo(sampai)}.`);
     });
   };
 }
@@ -1225,11 +1523,14 @@ const REKAP = {
       { k: 'bpjs', t: 'TuSehat', w: 120, rp: true },
       { k: 'bpjs_tk', t: 'TuKerja', w: 120, rp: true }
     ],
-    /* Sesudah kolom Jumlah: potongan porsi guru untuk BPJS (dicatat di
-       halaman Tunjangan) dan yang benar-benar diterima. Jumlah tetap
-       seluruh penerimaan, supaya sama dengan tab rinciannya. */
+    /* Sesudah kolom Jumlah: tiga potongan dari pendapatan guru (porsi guru
+       BPJS, sekolah, koperasi — semuanya dicatat di halaman Tunjangan dan
+       Potongan) dan yang benar-benar diterima. Jumlah tetap seluruh
+       penerimaan, supaya sama dengan tab rinciannya. */
     sesudah: [
-      { k: 'potongan', t: 'Potongan BPJS', w: 130, rp: true },
+      { k: 'potongan_bpjs', t: 'Pot. BPJS', w: 120, rp: true },
+      { k: 'potongan_sekolah', t: 'Pot. Sekolah', w: 120, rp: true },
+      { k: 'potongan_koperasi', t: 'Pot. Koperasi', w: 120, rp: true },
       { k: 'bersih', t: 'Diterima', w: 140, rp: true }
     ]
   },
@@ -1432,6 +1733,40 @@ const REKAP = {
         kolom: kolom('Genap 5 tahun')
       }
     };
+  })(),
+  /* Potongan sekolah dan koperasi: bukan penerimaan, tetapi daftar yang
+     disetorkan bendahara (ke kas sekolah, ke koperasi), jadi diunduh dari
+     sini dengan tanda tangan. Satu baris satu potongan yang berjalan dalam
+     periode; `potongan: true` mengganti sebutan penerima/dibayarkan. */
+  ...(() => {
+    const kolom = [
+      { k: 'jenis', t: 'Jenis', w: 140, jumlah: false },
+      { k: 'keterangan', t: 'Keterangan', w: 180, jumlah: false },
+      { k: 'berlaku_mulai', t: 'Mulai', w: 90, jumlah: false, html: b => esc(blnIndo(b.berlaku_mulai)) },
+      { k: 'berlaku_sampai', t: 'Sampai', w: 100, jumlah: false,
+        html: b => b.berlaku_sampai ? esc(blnIndo(b.berlaku_sampai)) : '<span class="kecil">sampai diubah</span>' },
+      { k: 'bulan', t: 'Bulan', w: 70, num: true },
+      { k: 'nominal', t: 'Nominal/bulan', w: 120, rp: true, jumlah: false }
+    ];
+    const bersama = 'Nominal per bulan dikalikan bulan yang dipotong dalam rentang (bulan kalender yang lebih dari '
+                  + 'setengah harinya masuk rentang, sejak bulan Mulai sampai bulan Sampai). Dicatat di halaman '
+                  + 'Tunjangan dan Potongan; dikurangkan dari pendapatan di Gabungan per Guru.';
+    return {
+      potongan_sekolah: {
+        nama: 'Potongan', fungsi: 'f_ip_potongan', arg: { p_kelompok: 'sekolah' }, potongan: true,
+        judul: 'DAFTAR POTONGAN SEKOLAH',
+        catatan: 'Potongan dari pendapatan guru untuk sekolah: tabungan rutin, angsuran pinjaman ke sekolah, '
+               + 'atau lainnya. ' + bersama,
+        kolom
+      },
+      potongan_koperasi: {
+        nama: 'Potongan Koperasi', fungsi: 'f_ip_potongan', arg: { p_kelompok: 'koperasi' }, potongan: true,
+        judul: 'DAFTAR POTONGAN KOPERASI',
+        catatan: 'Potongan dari pendapatan guru untuk koperasi: iuran keanggotaan, simpanan wajib, atau '
+               + 'angsuran pinjaman koperasi. ' + bersama,
+        kolom
+      }
+    };
   })()
 };
 
@@ -1498,7 +1833,7 @@ function halRekap() {
   // Jumlah nol padahal ada jam/hari tercatat berarti tarifnya belum diisi —
   // keadaan yang harus dikatakan, bukan ditampilkan sebagai Rp 0 begitu saja.
   const adaKegiatan = (baris || []).some(r => spek.kolom.some(k => k.num && Number(r[k.k]) > 0));
-  const tarifKosong = baris && baris.length && adaKegiatan && !(total.jumlah > 0);
+  const tarifKosong = !spek.potongan && baris && baris.length && adaKegiatan && !(total.jumlah > 0);
 
   $('#isi').innerHTML = `
     <div class="head"><div><h1>Honor dan Transpor</h1>
@@ -1521,8 +1856,8 @@ function halRekap() {
       Pilih periodenya lalu ketuk Hitung.</div></div>` : `
 
     <div class="kartu-baris">
-      <div class="kartu"><b>${baris.length}</b><span>penerima</span></div>
-      <div class="kartu"><b>${rupiah(total.jumlah || 0)}</b><span>jumlah dibayarkan</span></div>
+      <div class="kartu"><b>${baris.length}</b><span>${spek.potongan ? 'potongan' : 'penerima'}</span></div>
+      <div class="kartu"><b>${rupiah(total.jumlah || 0)}</b><span>${spek.potongan ? 'jumlah dipotong' : 'jumlah dibayarkan'}</span></div>
     </div>
 
     ${tarifKosong ? `<div class="info-box"><b>Kegiatannya tercatat, tetapi jumlahnya Rp 0.</b>

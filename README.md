@@ -52,14 +52,18 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 | Beranda | ✅ | Ringkasan kesiapan dan dari mana tiap angka datang |
 | Kehadiran dan Piket | ✅ | Kehadiran yang menjadi dasar pembiayaan, persis seperti di aplikasi asalnya: dari Kehadiran Guru tab Kehadiran Guru, Guru Pengganti, Wali Kelas, Piket Meja Sekolah, Piket Guru Diperbantukan, Piket Parkiran, Kehadiran Staf (tanpa Hari Libur); dari Absensi Ekskul tab Per kegiatan, Per pertemuan, Per pembina (tanpa Per siswa). Kehadiran Guru, Wali Kelas, dan Piket Meja Sekolah menyembunyikan pemegang tugas Staf secara bawaan, dengan saklar untuk menampilkannya. Tiap tab bisa diunduh xlsx |
 | Penggajian | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku (dulu bernama Pengaturan Nominal) |
-| Tunjangan | ✅ | Penyaluran TuSehat dan TuKerja per orang: BPJS, Simponi BNI, atau DPLK BJB, nomor peserta, dan potongan porsi guru per bulan; berversi menurut tanggal berlaku. Siapa yang berhak ditentukan Data Induk |
-| Honor dan Transpor | ✅ | Disusun per penerima: Gabungan per Guru, Guru Mengajar, Wali Kelas (honor bulanan + Upacara + Bimbingan), Guru Diperbantukan (honor bulanan + transport piket unit, per unit), Piket Meja Sekolah, Guru Pengganti, Pembina Ekskul, Pembimbing Tahfidz, Piket Parkiran, TuSehat dan TuKerja (Tunjangan Kesehatan dan Tunjangan Ketenagakerjaan, flat per bulan bagi yang disahkan di Data Induk; aturan Staf tidak berlaku) — selebihnya daftar bertanda tangan xlsx |
+| Tunjangan dan Potongan | ✅ | Empat tab. **Tunjangan Kesehatan** dan **Tunjangan Ketenagakerjaan**: penyaluran TuSehat / TuKerja per orang (BPJS, Simponi BNI, atau DPLK BJB), nomor peserta, nominal dari sekolah dan potongan porsi guru per bulan — bawaan keduanya dari Penggajian, boleh ditetapkan per orang dan tetap sampai diubah lagi; berversi menurut tanggal berlaku; siapa yang berhak ditentukan Data Induk. **Potongan** (tabungan rutin, pinjaman ke sekolah, lainnya) dan **Potongan Koperasi** (iuran keanggotaan, simpanan wajib, pinjaman koperasi): satu baris satu potongan per orang dengan bulan mulai dan bulan terakhir; mengubah nominal mengakhiri baris lama dan menambah baris baru |
+| Honor dan Transpor | ✅ | Disusun per penerima: Gabungan per Guru (dengan potongan BPJS, sekolah, koperasi, dan diterima bersih), Guru Mengajar, Wali Kelas (honor bulanan + Upacara + Bimbingan), Guru Diperbantukan (honor bulanan + transport piket unit, per unit), Piket Meja Sekolah, Guru Pengganti, Pembina Ekskul, Pembimbing Tahfidz, Piket Parkiran, TuSehat dan TuKerja (Tunjangan Kesehatan dan Tunjangan Ketenagakerjaan, per bulan bagi yang disahkan di Data Induk; aturan Staf tidak berlaku), Potongan dan Potongan Koperasi (daftar setoran) — selebihnya daftar bertanda tangan xlsx |
 | Identitas Dokumen | ✅ | Kop dokumen, baca saja dari Data Induk |
 
 ## Tabel yang dipakai
 
-**Milik sendiri:** `ip_jenis_tarif` (jenis pembiayaan dan satuannya), `ip_tunjangan_penyaluran` (penyaluran TuSehat/TuKerja per orang, berversi),
-`ip_tarif` (besaran berversi).
+**Milik sendiri:** `ip_jenis_tarif` (jenis pembiayaan dan satuannya),
+`ip_tarif` (besaran berversi, termasuk bawaan nominal dan potongan TuSehat/TuKerja),
+`ip_tunjangan_penyaluran` (penyaluran TuSehat/TuKerja per orang, berversi; kolom
+`nominal` dan `potongan` kosong = mengikuti Penggajian), `ip_potongan` (potongan
+sekolah dan koperasi per orang, satu baris satu potongan dengan `berlaku_mulai`
+dan `berlaku_sampai`).
 
 **Perhitungan ada di database, bukan di aplikasi.** Lima fungsi yang melayani
 tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
@@ -72,8 +76,9 @@ tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
 | `f_ip_transport_pembina` | pertemuan ekskul dan pembinaan, menurut jumlah siswa hadir |
 | `f_ip_honor_wali_kelas` | honor bulanan flat + Upacara dan Bimbingan WK per **jam hadir** tatap muka dalam rentang (dari `f_ip_kehadiran_wali`, angka yang sama dengan rekap kehadiran); piket tidak termasuk, dibayar per jam jaga di Piket Meja Sekolah |
 | `f_ip_honor_diperbantukan` | honor bulanan flat per unit yang dipegang + transport piket unit per jam jaga, per penugasan |
-| `f_ip_tunjangan_bpjs` | TuSehat / TuKerja menurut `p_jenis`: flat per bulan sejak bulan mulai pengesahan, hanya yang disahkan di Data Induk dan masih memenuhi syarat; membawa bentuk penyaluran, nomor peserta, dan potongan porsi guru dari `ip_tunjangan_penyaluran` yang berlaku pada akhir periode |
-| `f_ip_rekap_gabungan` | satu baris per penerima, kolomnya mengikuti tab: mengajar, wali, diperbantukan, piket meja, pengganti, ekskul, Tahfidz, parkiran, TuSehat, TuKerja, lalu potongan porsi guru dan diterima bersih (jumlah dikurangi potongan) |
+| `f_ip_tunjangan_bpjs` | TuSehat / TuKerja menurut `p_jenis`: nominal per bulan sejak bulan mulai pengesahan, hanya yang disahkan di Data Induk dan masih memenuhi syarat; membawa bentuk penyaluran, nomor peserta, nominal dan potongan porsi guru dari `ip_tunjangan_penyaluran` yang berlaku pada akhir periode — bila kosong, bawaan Penggajian (`bpjs_*` dan `potongan_bpjs_*`) |
+| `f_ip_potongan` | potongan satu kelompok (`p_kelompok`: sekolah / koperasi) dalam rentang: satu baris satu potongan yang berjalan, nominal per bulan × bulan yang dipotong (dihitung seperti `f_ip_bulan`) |
+| `f_ip_rekap_gabungan` | satu baris per penerima, kolomnya mengikuti tab: mengajar, wali, diperbantukan, piket meja, pengganti, ekskul, Tahfidz, parkiran, TuSehat, TuKerja, lalu potongan BPJS, sekolah, koperasi, dan diterima bersih (jumlah dikurangi seluruh potongan) |
 
 Semuanya mengambil periode sebagai argumen (`f_ip_transport_piket` ditambah
 `p_jenis`) dan mengambil tarif
