@@ -1043,7 +1043,8 @@ const REKAP = {
       { k: 'ekskul', t: 'Transpor Pemb. Ekskul', w: 145, rp: true },
       { k: 'tahfidz', t: 'Transpor Pemb. Tahfidz', w: 150, rp: true },
       { k: 'parkiran', t: 'Transpor Parkiran', w: 130, rp: true },
-      { k: 'bpjs', t: 'Tunjangan BPJS', w: 130, rp: true }
+      { k: 'bpjs', t: 'Tunj. BPJS Kesehatan', w: 140, rp: true },
+      { k: 'bpjs_tk', t: 'Tunj. BPJS Ketenagakerjaan', w: 165, rp: true }
     ]
   },
   mengajar: {
@@ -1215,28 +1216,48 @@ const REKAP = {
       { k: 'tarif', t: 'Nominal/hari', w: 110, rp: true, jumlah: false }
     ]
   },
-  /* Tunjangan kesejahteraan, bukan honor atas pekerjaan: aturan Staf tidak
-     berlaku. Siapa yang berhak ditentukan Data Induk (kelayakan dihitung,
-     pengesahan kepala sekolah); di sini hanya dikalikan bulan dan nominal. */
-  bpjs: {
-    nama: 'BPJS Kesehatan',
-    fungsi: 'f_ip_tunjangan_bpjs',
-    judul: 'DAFTAR PENERIMAAN TUNJANGAN BPJS KESEHATAN',
-    catatan: 'FLAT per bulan untuk guru yang masa kerjanya di sekolah ini sudah lima tahun, bukan Guru '
-           + 'Tidak Tetap (Dapodik menginduk di sekolah ini), dan DISAHKAN kepala sekolah di Data Induk → '
-           + 'Data Guru. Tunjangan mulai bulan berikutnya sesudah genap lima tahun; jumlah bulan dihitung '
-           + 'dari bulan kalender yang LEBIH DARI SETENGAH harinya masuk rentang, sejak bulan mulai. '
-           + 'Berhenti sendiri begitu guru nonaktif atau menjadi Guru Tidak Tetap — tidak perlu dicabut. '
-           + 'Aturan Staf tidak berlaku: ini tunjangan kesejahteraan, bukan honor pekerjaan tambahan.',
-    kolom: [
-      { k: 'genap_lima_tahun', t: 'Genap 5 tahun', w: 110, jumlah: false, html: b => esc(tglIndo(b.genap_lima_tahun)) },
+  /* Dua tunjangan BPJS dari satu fungsi dengan argumen jenis, seperti
+     transport piket. Tunjangan kesejahteraan, bukan honor atas pekerjaan:
+     aturan Staf tidak berlaku. Siapa yang berhak ditentukan Data Induk
+     (kelayakan dihitung, pengesahan kepala sekolah); di sini hanya
+     dikalikan bulan dan nominal. */
+  ...(() => {
+    const bersama = 'Jumlah bulan dihitung dari bulan kalender yang LEBIH DARI SETENGAH harinya masuk '
+                  + 'rentang, sejak bulan mulai. Tidak perlu dicabut bila syaratnya gugur: pembayaran '
+                  + 'berhenti sendiri. Aturan Staf tidak berlaku: ini tunjangan kesejahteraan, bukan honor '
+                  + 'pekerjaan tambahan.';
+    const kolom = syarat => [
+      { k: 'tmt_dasar', t: 'TMT', w: 100, jumlah: false, html: b => esc(tglIndo(b.tmt_dasar)) },
+      { k: 'tanggal_syarat', t: syarat, w: 110, jumlah: false, html: b => esc(tglIndo(b.tanggal_syarat)) },
       { k: 'mulai', t: 'Mulai', w: 90, jumlah: false,
         html: b => b.mulai ? `${BULAN[Number(b.mulai.slice(5, 7)) - 1]} ${b.mulai.slice(0, 4)}` : '—' },
       { k: 'disahkan_oleh', t: 'Disahkan oleh', w: 140, jumlah: false },
       { k: 'bulan', t: 'Bulan', w: 70, num: true },
       { k: 'tarif', t: 'Nominal/bulan', w: 120, rp: true, jumlah: false }
-    ]
-  }
+    ];
+    return {
+      bpjs_kesehatan: {
+        nama: 'BPJS Kesehatan', fungsi: 'f_ip_tunjangan_bpjs',
+        arg: { p_jenis: 'kesehatan' },
+        judul: 'DAFTAR PENERIMAAN TUNJANGAN BPJS KESEHATAN',
+        catatan: 'FLAT per bulan untuk guru yang masa kerjanya di sekolah ini sudah LIMA tahun (TMT di '
+               + 'sekolah ini), bukan Guru Tidak Tetap (Dapodik menginduk di sekolah ini), dan DISAHKAN '
+               + 'kepala sekolah di Data Induk → Data Guru. Mulai bulan berikutnya sesudah genap lima tahun; '
+               + 'berhenti sendiri begitu guru nonaktif atau menjadi Guru Tidak Tetap. ' + bersama,
+        kolom: kolom('Genap 5 tahun')
+      },
+      bpjs_ketenagakerjaan: {
+        nama: 'BPJS Ketenagakerjaan', fungsi: 'f_ip_tunjangan_bpjs',
+        arg: { p_jenis: 'ketenagakerjaan' },
+        judul: 'DAFTAR PENERIMAAN TUNJANGAN BPJS KETENAGAKERJAAN',
+        catatan: 'FLAT per bulan untuk pemegang tugas STAF yang sudah TIGA tahun menjadi staf (TMT sebagai '
+               + 'staf di Data Induk → Data Guru) dan DISAHKAN kepala sekolah. Mulai bulan berikutnya sesudah '
+               + 'genap tiga tahun; berhenti sendiri begitu guru nonaktif atau tidak lagi memegang tugas Staf. '
+               + bersama,
+        kolom: kolom('Genap 3 tahun')
+      }
+    };
+  })()
 };
 
 

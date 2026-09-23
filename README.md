@@ -52,7 +52,7 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 | Beranda | ✅ | Ringkasan kesiapan dan dari mana tiap angka datang |
 | Kehadiran dan Piket | ✅ | Kehadiran yang menjadi dasar pembiayaan, persis seperti di aplikasi asalnya: dari Kehadiran Guru tab Kehadiran Guru, Guru Pengganti, Wali Kelas, Piket Meja Sekolah, Piket Guru Diperbantukan, Piket Parkiran, Kehadiran Staf (tanpa Hari Libur); dari Absensi Ekskul tab Per kegiatan, Per pertemuan, Per pembina (tanpa Per siswa). Kehadiran Guru, Wali Kelas, dan Piket Meja Sekolah menyembunyikan pemegang tugas Staf secara bawaan, dengan saklar untuk menampilkannya. Tiap tab bisa diunduh xlsx |
 | Penggajian | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku (dulu bernama Pengaturan Nominal) |
-| Honor dan Transpor | ✅ | Disusun per penerima: Gabungan per Guru, Guru Mengajar, Wali Kelas (honor bulanan + Upacara + Bimbingan), Guru Diperbantukan (honor bulanan + transport piket unit, per unit), Piket Meja Sekolah, Guru Pengganti, Pembina OSIS (unduhannya **kuitansi** perorangan berkop, ditandatangani Kepala Sekolah, Bendahara, penerima), Pembina Ekskul, Pembimbing Tahfidz, Piket Parkiran, BPJS Kesehatan (tunjangan flat per bulan bagi guru yang disahkan di Data Induk; aturan Staf tidak berlaku) — selebihnya daftar bertanda tangan xlsx |
+| Honor dan Transpor | ✅ | Disusun per penerima: Gabungan per Guru, Guru Mengajar, Wali Kelas (honor bulanan + Upacara + Bimbingan), Guru Diperbantukan (honor bulanan + transport piket unit, per unit), Piket Meja Sekolah, Guru Pengganti, Pembina OSIS (unduhannya **kuitansi** perorangan berkop, ditandatangani Kepala Sekolah, Bendahara, penerima), Pembina Ekskul, Pembimbing Tahfidz, Piket Parkiran, BPJS Kesehatan dan BPJS Ketenagakerjaan (tunjangan flat per bulan bagi yang disahkan di Data Induk; aturan Staf tidak berlaku) — selebihnya daftar bertanda tangan xlsx |
 | Identitas Dokumen | ✅ | Kop dokumen, baca saja dari Data Induk |
 
 ## Tabel yang dipakai
@@ -72,8 +72,8 @@ tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
 | `f_ip_honor_wali_kelas` | honor bulanan flat + Upacara dan Bimbingan WK per **jam hadir** tatap muka dalam rentang (dari `f_ip_kehadiran_wali`, angka yang sama dengan rekap kehadiran); piket tidak termasuk, dibayar per jam jaga di Piket Meja Sekolah |
 | `f_ip_honor_diperbantukan` | honor bulanan flat per unit yang dipegang + transport piket unit per jam jaga, per penugasan |
 | `f_ip_honor_pembina_osis` | flat per bulan; `f_ip_bulan` menghitung bulan yang lebih dari setengah harinya masuk rentang, dipakai ketiga honor flat |
-| `f_ip_tunjangan_bpjs` | tunjangan BPJS Kesehatan flat per bulan sejak bulan mulai pengesahan; hanya guru yang disahkan di Data Induk dan masih memenuhi syarat saat dihitung (`v_guru_bpjs`: aktif, bukan Guru Tidak Tetap, TMT sekolah 5 tahun) |
-| `f_ip_rekap_gabungan` | satu baris per penerima, kolomnya mengikuti tab: mengajar, wali, diperbantukan, piket meja, pengganti, OSIS, ekskul, Tahfidz, parkiran, BPJS |
+| `f_ip_tunjangan_bpjs` | tunjangan BPJS flat per bulan sejak bulan mulai pengesahan, argumen `p_jenis` kesehatan (guru: aktif, bukan Guru Tidak Tetap, TMT sekolah 5 tahun) atau ketenagakerjaan (pemegang tugas Staf, TMT staf 3 tahun); hanya yang disahkan di Data Induk dan masih memenuhi syarat saat dihitung (`v_guru_bpjs`) |
+| `f_ip_rekap_gabungan` | satu baris per penerima, kolomnya mengikuti tab: mengajar, wali, diperbantukan, piket meja, pengganti, OSIS, ekskul, Tahfidz, parkiran, BPJS Kesehatan, BPJS Ketenagakerjaan |
 
 Semuanya mengambil periode sebagai argumen (`f_ip_transport_piket` ditambah
 `p_jenis`) dan mengambil tarif
