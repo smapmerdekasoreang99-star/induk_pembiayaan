@@ -29,7 +29,7 @@ let D = { jenis: [], tarif: [], tarifSemua: [], profil: null, rekap: null, hadir
 let halaman = 'beranda';
 let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'gabungan', ikutStaf: false,
            hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '', hadirIkutStaf: false,
-           penggantiRinci: false, ekskulKategori: '' };
+           penggantiRinci: false, ekskulKategori: '', rekapBentuk: '', tunjanganCari: '' };
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -232,7 +232,7 @@ function layarUtama() {
 
 function gambar() {
   if (!$('#isi')) return;
-  ({ beranda: halBeranda, hadir: halHadir, nominal: halNominal,
+  ({ beranda: halBeranda, hadir: halHadir, nominal: halNominal, tunjangan: halTunjangan,
      rekap: halRekap, identitas: halIdentitas }[halaman] || halBeranda)();
 }
 
@@ -506,6 +506,182 @@ function dialogRiwayat(kode) {
       <div class="aksi"><button class="btn" id="m-batal">Tutup</button></div>`, true);
     $('#m-batal').onclick = tutupModal;
   });
+}
+
+/* --------------------------------------------------------- tunjangan */
+/* Penyaluran TuSehat dan TuKerja per orang: ke mana disalurkan (BPJS,
+   Simponi BNI, DPLK BJB), nomor pesertanya, dan potongan porsi guru per
+   bulan. Siapa yang BERHAK ditentukan Data Induk (kelayakan dihitung,
+   pengesahan kepala sekolah) — halaman ini hanya mengurus penyalurannya.
+   Berversi menurut tanggal berlaku, seperti besaran: bentuk bisa berganti
+   (mis. mulai ditanggung pasangan), dan rekap periode lama harus tetap
+   membaca bentuk yang berlaku waktu itu.                                 */
+const TUNJANGAN = { kesehatan: 'TuSehat', ketenagakerjaan: 'TuKerja' };
+const BENTUK = {
+  kesehatan:       ['BPJS Kesehatan', 'Simponi BNI', 'DPLK BJB'],
+  ketenagakerjaan: ['BPJS Ketenagakerjaan', 'Simponi BNI', 'DPLK BJB']
+};
+
+async function muatTunjangan() {
+  try {
+    const [hak, salur] = await Promise.all([
+      ambil('v_guru_bpjs', 'select=id,nama,jenis,status,mulai,keterangan,tmt_dasar,tanggal_syarat'
+                          + '&status=in.(disahkan,terhenti)&order=nama'),
+      ambil('ip_tunjangan_penyaluran', 'select=*&order=berlaku_mulai.desc,id.desc')
+    ]);
+    D.tunjangan = { hak: hak || [], salur: salur || [], galat: null };
+  } catch (e) {
+    // Disimpan sebagai galat, bukan dibiarkan kosong: halaman yang memuat
+    // ulang terus-menerus lebih membingungkan daripada satu pesan.
+    D.tunjangan = { hak: [], salur: [], galat: e.message };
+  }
+}
+
+// Penyaluran yang berlaku pada tanggal tertentu (baris terakhir yang <= tanggal).
+const salurBerlaku = (guruId, jenis, tgl) =>
+  D.tunjangan.salur.find(s => s.guru_id === guruId && s.jenis === jenis && s.berlaku_mulai <= tgl) || null;
+const bentukBawaan = jenis => BENTUK[jenis][0];
+
+function halTunjangan() {
+  if (!D.tunjangan) { jalankan('Memuat tunjangan…', muatTunjangan); return; }
+  const { hak, salur, galat } = D.tunjangan;
+  const q = (ui.tunjanganCari || '').trim().toLowerCase();
+  const baris = hak
+    .map(h => ({ ...h, s: salurBerlaku(h.id, h.jenis, ui.acuan),
+                 versi: salur.filter(s => s.guru_id === h.id && s.jenis === h.jenis).length }))
+    .filter(h => !q || h.nama.toLowerCase().includes(q));
+  const perBentuk = {};
+  hak.forEach(h => {
+    const b = (salurBerlaku(h.id, h.jenis, ui.acuan) || {}).bentuk || bentukBawaan(h.jenis);
+    perBentuk[b] = (perBentuk[b] || 0) + 1;
+  });
+  const belumDiatur = hak.filter(h => !salurBerlaku(h.id, h.jenis, ui.acuan)).length;
+  const totalPotongan = hak.reduce((t, h) => t + Number((salurBerlaku(h.id, h.jenis, ui.acuan) || {}).potongan || 0), 0);
+
+  $('#isi').innerHTML = `
+    <div class="head"><div><h1>Tunjangan</h1>
+      <p>Penyaluran TuSehat (Tunjangan Kesehatan) dan TuKerja (Tunjangan Ketenagakerjaan) per orang:
+         ke BPJS, Simponi BNI, atau DPLK BJB, beserta nomor peserta dan potongan porsi guru.
+         Siapa yang berhak ditentukan di Data Induk → Data Guru.</p></div>
+      <div class="sp"></div>
+      <div class="mx-pilih">
+        <label class="kecil">Berlaku pada</label>
+        <input class="field" type="date" id="tjAcuan" value="${esc(ui.acuan)}" style="width:auto">
+      </div></div>
+
+    ${galat ? `<div class="info-box"><b>Data tunjangan tidak terbaca.</b> ${esc(galat)}</div>` : ''}
+    ${belumDiatur ? `<div class="info-box"><b>${belumDiatur} penerima belum diatur penyalurannya.</b>
+      Selama belum diatur, dianggap BPJS tanpa potongan. Ketuk <b>Atur</b> pada barisnya.</div>` : ''}
+
+    <div class="kartu-baris">
+      <div class="kartu"><b>${hak.length}</b><span>penerima (guru × jenis)</span></div>
+      ${Object.entries(perBentuk).sort().map(([b, n]) => `<div class="kartu"><b>${n}</b><span>${esc(b)}</span></div>`).join('')}
+      <div class="kartu"><b>${rupiah(totalPotongan)}</b><span>potongan guru per bulan</span></div>
+    </div>
+
+    <div class="panel"><div class="panel-head"><h3>Penyaluran yang berlaku ${esc(tglIndo(ui.acuan))}</h3>
+      <div class="sp" style="flex:1"></div>
+      <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px"></div>
+      <div class="scroll"><table><thead><tr>
+        <th>Nama</th><th style="width:90px">Tunjangan</th><th style="width:150px">Status</th>
+        <th style="width:160px">Bentuk</th><th style="width:140px">No. peserta</th>
+        <th style="width:130px" class="num">Potongan/bulan</th><th style="width:120px">Berlaku mulai</th>
+        <th style="width:90px"></th>
+      </tr></thead><tbody>${
+        baris.length ? baris.map(h => `<tr class="${h.status === 'terhenti' ? 'mati' : ''}" data-guru="${esc(h.id)}" data-jenis="${esc(h.jenis)}">
+          <td style="font-weight:500">${esc(h.nama)}</td>
+          <td><span class="tag tag-l">${TUNJANGAN[h.jenis]}</span></td>
+          <td class="kecil">${h.status === 'disahkan'
+            ? `disahkan, sejak ${h.mulai ? BULAN[Number(h.mulai.slice(5, 7)) - 1] + ' ' + h.mulai.slice(0, 4) : '—'}`
+            : `<span style="color:var(--warn)">terhenti: ${esc(h.keterangan || '')}</span>`}</td>
+          <td>${h.s ? esc(h.s.bentuk) : `<span class="kecil">${esc(bentukBawaan(h.jenis))} (bawaan)</span>`}</td>
+          <td>${h.s && h.s.nomor_peserta ? esc(h.s.nomor_peserta) : '<span class="kecil">—</span>'}</td>
+          <td class="num">${h.s ? rupiah(h.s.potongan) : '<span class="kecil">Rp 0</span>'}</td>
+          <td class="kecil">${h.s ? esc(tglIndo(h.s.berlaku_mulai)) : '—'}${h.versi > 1 ? ` <span class="kecil">(${h.versi} versi)</span>` : ''}</td>
+          <td class="act"><button class="btn btn-sm bAtur">Atur</button></td></tr>`).join('')
+        : `<tr><td colspan="8"><div class="empty"><b>Tidak ada penerima</b>
+            ${hak.length ? 'Ubah pencarian.' : 'Belum ada yang disahkan di Data Induk.'}</div></td></tr>`
+      }</tbody></table></div></div>
+
+    <p class="kecil">Nominal yang ditanggung sekolah adalah besaran TuSehat / TuKerja di halaman Penggajian,
+      sama untuk semua bentuk. Potongan adalah porsi guru per bulan (termasuk anggota keluarga tambahan
+      yang ditanggung guru), dicatat sebagai nominal — sistem tidak menghitung rumus BPJS. Potongan
+      dikurangkan dari total pendapatan di Gabungan per Guru. Mengubah penyaluran selalu menambah versi
+      baru dengan tanggal berlaku, supaya rekap periode lama tetap memakai bentuk yang berlaku waktu itu.</p>`;
+
+  $('#tjAcuan').onchange = e => { if (e.target.value) { ui.acuan = e.target.value; gambar(); } };
+  $('#tjCari').oninput = e => {
+    ui.tunjanganCari = e.target.value;
+    clearTimeout(window._qt); window._qt = setTimeout(gambar, 200);
+  };
+  $$('.bAtur').forEach(b => b.onclick = () => {
+    const tr = b.closest('tr');
+    dialogPenyaluran(tr.dataset.guru, tr.dataset.jenis);
+  });
+}
+
+function dialogPenyaluran(guruId, jenis) {
+  const h = D.tunjangan.hak.find(x => x.id === guruId && x.jenis === jenis);
+  if (!h) return;
+  const s = salurBerlaku(guruId, jenis, ui.acuan);
+  const riwayat = D.tunjangan.salur.filter(x => x.guru_id === guruId && x.jenis === jenis);
+
+  bukaModal(`<h2>Penyaluran ${TUNJANGAN[jenis]} — ${esc(h.nama)}</h2><div class="body">
+    <div class="fg penuh"><label>Bentuk</label>
+      <select class="field" id="p-bentuk">${BENTUK[jenis].map(b =>
+        `<option value="${esc(b)}" ${(s ? s.bentuk : bentukBawaan(jenis)) === b ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>
+      <div class="hint">BPJS bila ikut program BPJS; Simponi BNI atau DPLK BJB bila haknya dialihkan ke tabungan hari tua
+        (mis. sudah ditanggung pasangan).</div></div>
+    <div class="fg"><label>Nomor peserta</label>
+      <input class="field" id="p-nomor" value="${esc(s ? s.nomor_peserta || '' : '')}" placeholder="nomor BPJS / rekening program">
+      <div class="hint">Untuk daftar setoran ke penyalurnya.</div></div>
+    <div class="fg"><label>Potongan porsi guru per bulan</label>
+      <input class="field num" type="number" min="0" step="1000" id="p-potongan" value="${s ? Number(s.potongan) : 0}">
+      <div class="hint">Nominal yang dipotong dari pendapatan guru tiap bulan, termasuk iuran anggota keluarga tambahan.
+        Nol bila tidak ada potongan.</div></div>
+    <div class="fg"><label>Berlaku mulai</label>
+      <input class="field" type="date" id="p-mulai" value="${esc(awalBulanDepan())}">
+      <div class="hint">Tanggal 1 suatu bulan. Rekap sebuah periode memakai penyaluran yang berlaku pada tanggal akhir
+        periode itu.</div></div>
+    <div class="fg penuh"><label>Catatan (opsional)</label>
+      <input class="field" id="p-catatan" placeholder="Mis. ditanggung suami sejak Agustus; menanggung ibu">
+    </div>
+    ${riwayat.length ? `<div class="fg penuh"><label>Riwayat</label>
+      <table class="log"><tbody>${riwayat.map(r => `<tr>
+        <td class="kecil">${esc(tglIndo(r.berlaku_mulai))}</td><td>${esc(r.bentuk)}</td>
+        <td class="kecil">${esc(r.nomor_peserta || '')}</td>
+        <td style="text-align:right">${rupiah(r.potongan)}</td>
+        <td class="kecil">${esc(r.catatan || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
+    </div>
+    <div class="aksi"><button class="btn" id="m-batal">Batal</button>
+      <button class="btn btn-p" id="m-simpan">Simpan sebagai versi baru</button></div>`, true);
+
+  $('#m-batal').onclick = tutupModal;
+  $('#m-simpan').onclick = () => {
+    const mulai = $('#p-mulai').value;
+    if (!mulai) { $('#p-mulai').focus(); return; }
+    const isi = {
+      guru_id: guruId, jenis,
+      berlaku_mulai: mulai.slice(0, 7) + '-01',
+      bentuk: $('#p-bentuk').value,
+      nomor_peserta: $('#p-nomor').value.trim() || null,
+      potongan: Number($('#p-potongan').value) || 0,
+      catatan: $('#p-catatan').value.trim() || null
+    };
+    tutupModal();
+    jalankan('Menyimpan…', async () => {
+      // Versi dengan tanggal berlaku yang sama ditulis ulang, seperti besaran.
+      await buang('ip_tunjangan_penyaluran',
+        `guru_id=eq.${enc(guruId)}&jenis=eq.${enc(jenis)}&berlaku_mulai=eq.${enc(isi.berlaku_mulai)}`);
+      await simpanBaru('ip_tunjangan_penyaluran', [isi]);
+      const acuanPindah = isi.berlaku_mulai > ui.acuan;
+      if (acuanPindah) ui.acuan = isi.berlaku_mulai;
+      await muatTunjangan();
+      D.rekap = null;   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
+      toast(`${h.nama}: ${isi.bentuk}, potongan ${rupiah(isi.potongan)}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
+        + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(isi.berlaku_mulai)} supaya terlihat.` : ''));
+    });
+  };
 }
 
 /* ------------------------------------------------ kehadiran dan piket */
@@ -1039,12 +1215,18 @@ const REKAP = {
       { k: 'diperbantukan', t: 'Honor Diperbantukan', w: 140, rp: true },
       { k: 'piket_meja', t: 'Transpor Piket Meja', w: 135, rp: true, s: 'piket_meja_s' },
       { k: 'pengganti', t: 'Transpor Pengganti', w: 135, rp: true },
-      { k: 'osis', t: 'Honor Pembina OSIS', w: 140, rp: true },
       { k: 'ekskul', t: 'Transpor Pemb. Ekskul', w: 145, rp: true },
       { k: 'tahfidz', t: 'Transpor Pemb. Tahfidz', w: 150, rp: true },
       { k: 'parkiran', t: 'Transpor Parkiran', w: 130, rp: true },
-      { k: 'bpjs', t: 'TuSehat', w: 140, rp: true },
-      { k: 'bpjs_tk', t: 'TuKerja', w: 165, rp: true }
+      { k: 'bpjs', t: 'TuSehat', w: 120, rp: true },
+      { k: 'bpjs_tk', t: 'TuKerja', w: 120, rp: true }
+    ],
+    /* Sesudah kolom Jumlah: potongan porsi guru untuk BPJS (dicatat di
+       halaman Tunjangan) dan yang benar-benar diterima. Jumlah tetap
+       seluruh penerimaan, supaya sama dengan tab rinciannya. */
+    sesudah: [
+      { k: 'potongan', t: 'Potongan BPJS', w: 130, rp: true },
+      { k: 'bersih', t: 'Diterima', w: 140, rp: true }
     ]
   },
   mengajar: {
@@ -1144,31 +1326,14 @@ const REKAP = {
       { k: 'jam_total', t: 'Jam', w: 60, num: true }
     ]
   },
-  /* Satu-satunya pembiayaan yang tidak dihitung per kejadian, dan
-     penerimanya seorang — karena itu unduhannya berbentuk KUITANSI, bukan
-     daftar bertanda tangan. */
-  osis: {
-    nama: 'Pembina OSIS',
-    fungsi: 'f_ip_honor_pembina_osis',
-    judul: 'DAFTAR PENERIMAAN HONOR PEMBINA OSIS',
-    kuitansi: 'Honor Pembina OSIS',
-    catatan: 'FLAT per bulan, tidak bergantung jumlah pertemuan — haknya melekat pada tugas '
-           + '"Pembina OSIS" yang aktif di Data Induk → Tugas Guru. Jumlah bulan dihitung dari '
-           + 'bulan kalender yang LEBIH DARI SETENGAH harinya masuk rentang tanggal, karena '
-           + 'periode pembayaran memang jarang tepat tanggal 1 sampai akhir bulan. Akibatnya '
-           + 'rentang setengah bulan menghasilkan nol bulan: itu disengaja, supaya sebulan yang '
-           + 'dipotong dua tidak terbayar dua kali tanpa ada yang menyadari. Unduhannya kuitansi '
-           + 'perorangan berkop sekolah, ditandatangani Kepala Sekolah, Bendahara, dan penerima.',
-    kolom: [
-      { k: 'bulan', t: 'Bulan', w: 80, num: true },
-      { k: 'tarif', t: 'Nominal/bulan', w: 120, rp: true, jumlah: false }
-    ]
-  },
+  /* Honor Pembina OSIS dihapus 23 September 2026: pembinaan OSIS berada
+     dalam jadwal kerja pembinanya. Kegiatannya tetap dicatat di Absensi
+     Ekskul (kategori Pembinaan Kesiswaan), hanya tidak dihonor. */
   ...(() => {
     /* Transport pembina dibaca dari satu fungsi, lalu dipecah dua tab
        menurut jenis tarifnya: Internal/Eksternal untuk ekstrakurikuler,
        Imtaq untuk pembimbing Tahfidz. Pembina OSIS tidak pernah ada di
-       sini — honornya flat per bulan, tab tersendiri. */
+       sini — pembinaan OSIS tidak dihonor. */
     const dasar = 'Besaran tiap pertemuan ditentukan jumlah siswa yang hadir pada pertemuan itu, '
                 + 'jadi dihitung per pertemuan lalu dijumlahkan — bukan dari rata-rata kehadiran, '
                 + 'yang akan memberi hasil berbeda. Yang dibayar hanya pertemuan yang benar-benar '
@@ -1231,14 +1396,19 @@ const REKAP = {
       { k: 'tanggal_syarat', t: syarat, w: 110, jumlah: false, html: b => esc(tglIndo(b.tanggal_syarat)) },
       { k: 'mulai', t: 'Mulai', w: 90, jumlah: false,
         html: b => b.mulai ? `${BULAN[Number(b.mulai.slice(5, 7)) - 1]} ${b.mulai.slice(0, 4)}` : '—' },
-      { k: 'disahkan_oleh', t: 'Disahkan oleh', w: 140, jumlah: false },
+      { k: 'bentuk', t: 'Bentuk', w: 130, jumlah: false },
+      { k: 'nomor_peserta', t: 'No. peserta', w: 120, jumlah: false },
       { k: 'bulan', t: 'Bulan', w: 70, num: true },
       { k: 'tarif', t: 'Nominal/bulan', w: 120, rp: true, jumlah: false }
     ];
+    /* Setoran ke BPJS, BNI, dan BJB berupa tiga daftar berbeda, jadi tab ini
+       bisa disaring per bentuk sebelum diunduh. Potongan porsi guru ikut
+       ditampilkan sesudah Jumlah: Jumlah adalah yang ditanggung sekolah. */
+    const sesudah = [{ k: 'potongan', t: 'Potongan guru', w: 130, rp: true }];
     return {
       bpjs_kesehatan: {
         nama: 'TuSehat', fungsi: 'f_ip_tunjangan_bpjs',
-        arg: { p_jenis: 'kesehatan' },
+        arg: { p_jenis: 'kesehatan' }, saringBentuk: true, sesudah,
         judul: 'DAFTAR PENERIMAAN TUSEHAT (TUNJANGAN KESEHATAN)',
         catatan: 'TuSehat = Tunjangan Kesehatan. FLAT per bulan untuk guru yang masa kerjanya di sekolah ini sudah LIMA tahun (TMT di '
                + 'sekolah ini), bukan Guru Tidak Tetap (Dapodik menginduk di sekolah ini), dan DISAHKAN '
@@ -1248,7 +1418,7 @@ const REKAP = {
       },
       bpjs_ketenagakerjaan: {
         nama: 'TuKerja', fungsi: 'f_ip_tunjangan_bpjs',
-        arg: { p_jenis: 'ketenagakerjaan' },
+        arg: { p_jenis: 'ketenagakerjaan' }, saringBentuk: true, sesudah,
         judul: 'DAFTAR PENERIMAAN TUKERJA (TUNJANGAN KETENAGAKERJAAN)',
         catatan: 'TuKerja = Tunjangan Ketenagakerjaan. FLAT per bulan untuk pemegang tugas STAF yang sudah TIGA tahun menjadi staf (TMT sebagai '
                + 'staf di Data Induk → Data Guru) dan DISAHKAN kepala sekolah. Mulai bulan berikutnya sesudah '
@@ -1284,11 +1454,18 @@ function halRekap() {
   const punyaStaf = semua && semua.some(r => 'staf' in r);
   // Staf yang toh menerima sesuatu (mis. transpor parkiran) bukan baris yang digugurkan.
   const digugurkan = r => r.staf && !r.mengajar_dibayar && !(Number(r.jumlah) > 0);
-  const baris = !semua ? null : (ui.ikutStaf || !punyaStaf ? semua : semua.filter(r => !digugurkan(r)));
+  // Tab yang bisa disaring per bentuk penyaluran (TuSehat, TuKerja).
+  const bentukAda = spek.saringBentuk && semua ? [...new Set(semua.map(r => r.bentuk).filter(Boolean))].sort() : [];
+  const bentukPilih = bentukAda.includes(ui.rekapBentuk) ? ui.rekapBentuk : '';
+  const baris = !semua ? null : (ui.ikutStaf || !punyaStaf ? semua : semua.filter(r => !digugurkan(r)))
+    .filter(r => !bentukPilih || r.bentuk === bentukPilih);
   const jumlahStaf = punyaStaf ? semua.filter(digugurkan).length : 0;
   const fp = baris ? baris.filter(r => r.fingerprint).length : 0;
+  const sesudah = spek.sesudah || [];   // kolom yang berdiri SESUDAH Jumlah (potongan, diterima)
 
-  const kunciJumlah = ['jumlah', ...spek.kolom.filter(k => k.jumlah !== false && (k.num || k.rp)).map(k => k.k)];
+  const kunciJumlah = ['jumlah',
+    ...spek.kolom.filter(k => k.jumlah !== false && (k.num || k.rp)).map(k => k.k),
+    ...sesudah.map(k => k.k)];
   /* Baris staf yang tidak dibayar TIDAK ikut dijumlahkan, walaupun sedang
      ditampilkan: komponennya adalah angka "seandainya guru biasa" untuk
      analisis, bukan yang dibayarkan. Total harus tetap sama dengan gabungan. */
@@ -1362,6 +1539,10 @@ function halRekap() {
     <div class="panel"><div class="panel-head"><h3>${esc(spek.nama)}</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div>
+      ${spek.saringBentuk ? `<select class="field" id="rBentuk" style="width:auto;margin-left:10px">
+        <option value="">Semua bentuk</option>
+        ${bentukAda.map(b => `<option value="${esc(b)}" ${b === bentukPilih ? 'selected' : ''}>${esc(b)}</option>`).join('')}
+      </select>` : ''}
       <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh (xlsx)'}</button></div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
         seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
@@ -1370,6 +1551,7 @@ function halRekap() {
         <th class="lekat">Nama</th>
         ${spek.kolom.map(k => `<th style="width:${k.w}px" class="${k.num || k.rp ? 'num' : ''}">${esc(k.t)}</th>`).join('')}
         <th style="width:125px" class="num">Jumlah</th>
+        ${sesudah.map(k => `<th style="width:${k.w}px" class="num">${esc(k.t)}</th>`).join('')}
       </tr></thead><tbody>${
         baris.length ? baris.map((b, i) => `<tr>
           <td class="num lekat-no">${i + 1}</td>
@@ -1380,15 +1562,17 @@ function halRekap() {
           ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}${
             k.s && Number(b[k.s]) > 0 ? kecilRp(b[k.s]) : ''}</td>`).join('')}
           <td class="num" style="font-weight:600">${rupiah(b.jumlah)}${
-            b.seandainya != null && Number(b.seandainya) !== Number(b.jumlah) ? kecilRp(b.seandainya) : ''}</td></tr>`).join('')
-        : `<tr><td colspan="${spek.kolom.length + 3}"><div class="empty"><b>Tidak ada penerima</b>
+            b.seandainya != null && Number(b.seandainya) !== Number(b.jumlah) ? kecilRp(b.seandainya) : ''}</td>${
+          sesudah.map(k => `<td class="num" style="${k.k === 'bersih' ? 'font-weight:600' : ''}">${rupiah(b[k.k])}</td>`).join('')}</tr>`).join('')
+        : `<tr><td colspan="${spek.kolom.length + 3 + sesudah.length}"><div class="empty"><b>Tidak ada penerima</b>
             Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
       }</tbody>
       ${baris.length ? `<tfoot><tr>
         <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td>
         ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}" style="font-weight:600">${
           k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) + kecilTotal(k.k) : (total[k.k] || 0)}</td>`).join('')}
-        <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}${kecilTotal('jumlah')}</td></tr></tfoot>` : ''}
+        <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}${kecilTotal('jumlah')}</td>${
+        sesudah.map(k => `<td class="num" style="font-weight:700">${rupiah(total[k.k] || 0)}</td>`).join('')}</tr></tfoot>` : ''}
       </table></div>
       <div class="foot"><div class="info">Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>
 
@@ -1406,6 +1590,7 @@ function halRekap() {
     jalankan('Menghitung…', muatRekap);
   });
   if ($('#rStaf')) $('#rStaf').onclick = () => { ui.ikutStaf = !ui.ikutStaf; gambar(); };
+  if ($('#rBentuk')) $('#rBentuk').onchange = e => { ui.rekapBentuk = e.target.value; gambar(); };
   if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…',
     () => spek.kuitansi ? unduhKuitansi(spek, baris) : unduhRekap(spek, baris, total));
 }
@@ -1484,11 +1669,15 @@ async function unduhRekap(spek, baris, total) {
   });
   const F = 'Calibri';
   const kolom = spek.kolom;
-  const KOL = kolom.length + 4;      // No, Nama, …kolom…, Jumlah, Tanda tangan
+  const sesudah = spek.sesudah || [];  // kolom sesudah Jumlah (potongan, diterima)
+  const KOL = kolom.length + 4 + sesudah.length;   // No, Nama, …kolom…, Jumlah, …sesudah…, Tanda tangan
+  const kolTtd = KOL;
 
   ws.columns = [{ width: 5 }, { width: 30 },
                 ...kolom.map(k => ({ width: Math.max(9, Math.round(k.w / 8)) })),
-                { width: 15 }, { width: 22 }];
+                { width: 15 },
+                ...sesudah.map(k => ({ width: Math.max(9, Math.round(k.w / 8)) })),
+                { width: 22 }];
   ws.views = [{ showGridLines: false }];
   const p = D.profil || {};
 
@@ -1504,7 +1693,8 @@ async function unduhRekap(spek, baris, total) {
   });
 
   let r = baris1;
-  kepalaExcel(ws, r, ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), 'JUMLAH', 'TANDA TANGAN'], F);
+  kepalaExcel(ws, r, ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), 'JUMLAH',
+                      ...sesudah.map(k => k.t.toUpperCase()), 'TANDA TANGAN'], F);
   r += 1;
 
   const sel = penulisSel(ws, F);
@@ -1519,7 +1709,8 @@ async function unduhRekap(spek, baris, total) {
       else sel(r, 3 + j, v == null ? '—' : String(v), { rata: 'center' });
     });
     sel(r, kolom.length + 3, Number(b.jumlah) || 0, { fmt: RP, tebal: true });
-    sel(r, kolom.length + 4, `${i + 1}. ……………………`);
+    sesudah.forEach((k, j) => sel(r, kolom.length + 4 + j, Number(b[k.k]) || 0, { fmt: RP, tebal: k.k === 'bersih' }));
+    sel(r, kolTtd, `${i + 1}. ……………………`);
     ws.getRow(r).height = 26;
     r += 1;
   });
@@ -1532,7 +1723,8 @@ async function unduhRekap(spek, baris, total) {
     else sel(r, 3 + j, total[k.k] || 0, { rata: 'center', tebal: true, abu: true });
   });
   sel(r, kolom.length + 3, total.jumlah || 0, { fmt: RP, tebal: true, abu: true });
-  sel(r, kolom.length + 4, '', { abu: true });
+  sesudah.forEach((k, j) => sel(r, kolom.length + 4 + j, total[k.k] || 0, { fmt: RP, tebal: true, abu: true }));
+  sel(r, kolTtd, '', { abu: true });
   r += 1;
 
   ws.getCell(r, 1).value = 'Terbilang:';
