@@ -1243,7 +1243,10 @@ function halRekap() {
   const fp = baris ? baris.filter(r => r.fingerprint).length : 0;
 
   const kunciJumlah = ['jumlah', ...spek.kolom.filter(k => k.jumlah !== false && (k.num || k.rp)).map(k => k.k)];
-  const total = (baris || []).reduce((t, r) => {
+  /* Baris staf yang tidak dibayar TIDAK ikut dijumlahkan, walaupun sedang
+     ditampilkan: komponennya adalah angka "seandainya guru biasa" untuk
+     analisis, bukan yang dibayarkan. Total harus tetap sama dengan gabungan. */
+  const total = (baris || []).filter(r => !digugurkan(r)).reduce((t, r) => {
     for (const k of kunciJumlah) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
     return t;
   }, {});
@@ -1284,9 +1287,10 @@ function halRekap() {
     ${jumlahStaf ? `<div class="info-box"><b>${jumlahStaf} pemegang tugas Staf berhonor nol
       ${ui.ikutStaf ? 'ikut ditampilkan' : 'disembunyikan'}.</b>
       Tugas Staf menggugurkan honor tambahan: jam kerjanya sudah dihitung lewat fingerprint,
-      jadi membayarnya lagi berarti dua kali. Angkanya memang nol di fungsi penghitung, bukan
-      sekadar disembunyikan. Staf yang jam mengajarnya dinyatakan di luar tupoksi di Data Induk
-      tetap tampil dan dibayar honor serta transport berdirinya.
+      jadi membayarnya lagi berarti dua kali. Bila ditampilkan, komponen pada baris staf adalah
+      angka <b>seandainya ia guru biasa</b> — dihitung dari kehadiran yang sama, untuk analisis —
+      dan Jumlahnya tetap Rp 0 serta tidak masuk total maupun gabungan. Staf yang jam mengajarnya
+      dinyatakan di luar tupoksi di Data Induk tetap tampil sebagai baris yang dibayar.
       <button class="btn btn-sm" id="rStaf" style="margin-left:8px">${
         ui.ikutStaf ? 'Kecualikan lagi' : 'Tampilkan juga'}</button></div>` : ''}
     ${fp ? `<div class="info-box"><b>${fp} guru berinsentif fingerprint.</b>
@@ -1312,7 +1316,9 @@ function halRekap() {
             b.belum_lengkap ? ' <span class="kecil" style="color:var(--warn)">belum lengkap</span>' : ''}${
             'masa_kerja' in b && b.masa_kerja == null ? ' <span class="kecil" style="color:var(--warn)">TMT kosong</span>' : ''}</td>
           ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}</td>`).join('')}
-          <td class="num" style="font-weight:600">${rupiah(b.jumlah)}</td></tr>`).join('')
+          <td class="num" style="font-weight:600">${rupiah(b.jumlah)}${
+            digugurkan(b) && b.seandainya != null
+              ? `<div class="kecil" style="font-weight:400">seandainya ${esc(rupiah(b.seandainya))}</div>` : ''}</td></tr>`).join('')
         : `<tr><td colspan="${spek.kolom.length + 3}"><div class="empty"><b>Tidak ada penerima</b>
             Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
       }</tbody>
@@ -1443,7 +1449,7 @@ async function unduhRekap(spek, baris, total) {
 
   baris.forEach((b, i) => {
     sel(r, 1, i + 1, { rata: 'center' });
-    sel(r, 2, b.nama);
+    sel(r, 2, b.nama + (b.staf && b.seandainya != null ? ' (Staf — seandainya ' + rupiah(b.seandainya) + ')' : ''));
     kolom.forEach((k, j) => {
       const v = b[k.k];
       if (k.rp) sel(r, 3 + j, Number(v) || 0, { fmt: RP });
@@ -1474,7 +1480,10 @@ async function unduhRekap(spek, baris, total) {
   ws.getCell(r, 2).font = { name: F, size: 10, italic: true };
   r += 2;
 
-  ws.getCell(r, 2).value = 'Keterangan: ' + spek.catatan;
+  ws.getCell(r, 2).value = 'Keterangan: ' + spek.catatan
+    + (baris.some(b => b.seandainya != null)
+        ? ' Baris bertanda Staf: Jumlah nol dan tidak masuk total; komponennya angka seandainya dibayar seperti guru biasa, untuk analisis.'
+        : '');
   ws.getCell(r, 2).font = { name: F, size: 8, italic: true };
   ws.mergeCells(r, 2, r, KOL);
   ws.getRow(r).height = 24;
