@@ -1222,12 +1222,12 @@ const REKAP = {
     nama: 'BPJS Kesehatan',
     fungsi: 'f_ip_tunjangan_bpjs',
     judul: 'DAFTAR PENERIMAAN TUNJANGAN BPJS KESEHATAN',
-    catatan: 'FLAT per bulan untuk guru yang masa kerjanya di sekolah ini sudah lima tahun, menginduk di '
-           + 'Dapodik sekolah ini, dan DISAHKAN kepala sekolah di Data Induk → Data Guru. Tunjangan mulai '
-           + 'bulan berikutnya sesudah genap lima tahun; jumlah bulan dihitung dari bulan kalender yang '
-           + 'LEBIH DARI SETENGAH harinya masuk rentang, sejak bulan mulai. Berhenti sendiri begitu guru '
-           + 'nonaktif atau tidak lagi menginduk di Dapodik — tidak perlu dicabut. Aturan Staf tidak '
-           + 'berlaku: ini tunjangan kesejahteraan, bukan honor pekerjaan tambahan.',
+    catatan: 'FLAT per bulan untuk guru yang masa kerjanya di sekolah ini sudah lima tahun, bukan Guru '
+           + 'Tidak Tetap (Dapodik menginduk di sekolah ini), dan DISAHKAN kepala sekolah di Data Induk → '
+           + 'Data Guru. Tunjangan mulai bulan berikutnya sesudah genap lima tahun; jumlah bulan dihitung '
+           + 'dari bulan kalender yang LEBIH DARI SETENGAH harinya masuk rentang, sejak bulan mulai. '
+           + 'Berhenti sendiri begitu guru nonaktif atau menjadi Guru Tidak Tetap — tidak perlu dicabut. '
+           + 'Aturan Staf tidak berlaku: ini tunjangan kesejahteraan, bukan honor pekerjaan tambahan.',
     kolom: [
       { k: 'genap_lima_tahun', t: 'Genap 5 tahun', w: 110, jumlah: false, html: b => esc(tglIndo(b.genap_lima_tahun)) },
       { k: 'mulai', t: 'Mulai', w: 90, jumlah: false,

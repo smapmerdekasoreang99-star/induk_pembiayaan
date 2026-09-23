@@ -72,7 +72,7 @@ tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
 | `f_ip_honor_wali_kelas` | honor bulanan flat + Upacara dan Bimbingan WK per **jam hadir** tatap muka dalam rentang (dari `f_ip_kehadiran_wali`, angka yang sama dengan rekap kehadiran); piket tidak termasuk, dibayar per jam jaga di Piket Meja Sekolah |
 | `f_ip_honor_diperbantukan` | honor bulanan flat per unit yang dipegang + transport piket unit per jam jaga, per penugasan |
 | `f_ip_honor_pembina_osis` | flat per bulan; `f_ip_bulan` menghitung bulan yang lebih dari setengah harinya masuk rentang, dipakai ketiga honor flat |
-| `f_ip_tunjangan_bpjs` | tunjangan BPJS Kesehatan flat per bulan sejak bulan mulai pengesahan; hanya guru yang disahkan di Data Induk dan masih memenuhi syarat (`v_guru_bpjs`) saat dihitung |
+| `f_ip_tunjangan_bpjs` | tunjangan BPJS Kesehatan flat per bulan sejak bulan mulai pengesahan; hanya guru yang disahkan di Data Induk dan masih memenuhi syarat saat dihitung (`v_guru_bpjs`: aktif, bukan Guru Tidak Tetap, TMT sekolah 5 tahun) |
 | `f_ip_rekap_gabungan` | satu baris per penerima, kolomnya mengikuti tab: mengajar, wali, diperbantukan, piket meja, pengganti, OSIS, ekskul, Tahfidz, parkiran, BPJS |
 
 Semuanya mengambil periode sebagai argumen (`f_ip_transport_piket` ditambah
