@@ -1043,8 +1043,8 @@ const REKAP = {
       { k: 'ekskul', t: 'Transpor Pemb. Ekskul', w: 145, rp: true },
       { k: 'tahfidz', t: 'Transpor Pemb. Tahfidz', w: 150, rp: true },
       { k: 'parkiran', t: 'Transpor Parkiran', w: 130, rp: true },
-      { k: 'bpjs', t: 'Tunj. BPJS Kesehatan', w: 140, rp: true },
-      { k: 'bpjs_tk', t: 'Tunj. BPJS Ketenagakerjaan', w: 165, rp: true }
+      { k: 'bpjs', t: 'Tunj. TuSehat', w: 140, rp: true },
+      { k: 'bpjs_tk', t: 'Tunj. TuKerja', w: 165, rp: true }
     ]
   },
   mengajar: {
@@ -1237,9 +1237,9 @@ const REKAP = {
     ];
     return {
       bpjs_kesehatan: {
-        nama: 'BPJS Kesehatan', fungsi: 'f_ip_tunjangan_bpjs',
+        nama: 'TuSehat', fungsi: 'f_ip_tunjangan_bpjs',
         arg: { p_jenis: 'kesehatan' },
-        judul: 'DAFTAR PENERIMAAN TUNJANGAN BPJS KESEHATAN',
+        judul: 'DAFTAR PENERIMAAN TUNJANGAN TUSEHAT',
         catatan: 'FLAT per bulan untuk guru yang masa kerjanya di sekolah ini sudah LIMA tahun (TMT di '
                + 'sekolah ini), bukan Guru Tidak Tetap (Dapodik menginduk di sekolah ini), dan DISAHKAN '
                + 'kepala sekolah di Data Induk → Data Guru. Mulai bulan berikutnya sesudah genap lima tahun; '
@@ -1247,9 +1247,9 @@ const REKAP = {
         kolom: kolom('Genap 5 tahun')
       },
       bpjs_ketenagakerjaan: {
-        nama: 'BPJS Ketenagakerjaan', fungsi: 'f_ip_tunjangan_bpjs',
+        nama: 'TuKerja', fungsi: 'f_ip_tunjangan_bpjs',
         arg: { p_jenis: 'ketenagakerjaan' },
-        judul: 'DAFTAR PENERIMAAN TUNJANGAN BPJS KETENAGAKERJAAN',
+        judul: 'DAFTAR PENERIMAAN TUNJANGAN TUKERJA',
         catatan: 'FLAT per bulan untuk pemegang tugas STAF yang sudah TIGA tahun menjadi staf (TMT sebagai '
                + 'staf di Data Induk → Data Guru) dan DISAHKAN kepala sekolah. Mulai bulan berikutnya sesudah '
                + 'genap tiga tahun; berhenti sendiri begitu guru nonaktif atau tidak lagi memegang tugas Staf. '
