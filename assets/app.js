@@ -1033,10 +1033,11 @@ const REKAP = {
            + 'Yang tidak menerima apa pun pada periode ini tidak dicetak.',
     kolom: [
       { k: 'jenis_orang', t: 'Jenis', w: 120, jumlah: false },
-      { k: 'mengajar', t: 'Honor Mengajar', w: 130, rp: true },
-      { k: 'wali', t: 'Honor Wali Kelas', w: 130, rp: true },
+      // s = kolom nominal seandainya (staf), ditampilkan kecil di bawah angka yang dibayar.
+      { k: 'mengajar', t: 'Honor Mengajar', w: 130, rp: true, s: 'mengajar_s' },
+      { k: 'wali', t: 'Honor Wali Kelas', w: 130, rp: true, s: 'wali_s' },
       { k: 'diperbantukan', t: 'Honor Diperbantukan', w: 140, rp: true },
-      { k: 'piket_meja', t: 'Transpor Piket Meja', w: 135, rp: true },
+      { k: 'piket_meja', t: 'Transpor Piket Meja', w: 135, rp: true, s: 'piket_meja_s' },
       { k: 'pengganti', t: 'Transpor Pengganti', w: 135, rp: true },
       { k: 'osis', t: 'Honor Pembina OSIS', w: 140, rp: true },
       { k: 'ekskul', t: 'Transpor Pemb. Ekskul', w: 145, rp: true },
@@ -1237,7 +1238,8 @@ function halRekap() {
      yang benar-benar nol; staf yang jam mengajarnya dinyatakan di luar
      tupoksi (mengajar_dibayar) tetap tampil karena memang dibayar. */
   const punyaStaf = semua && semua.some(r => 'staf' in r);
-  const digugurkan = r => r.staf && !r.mengajar_dibayar;
+  // Staf yang toh menerima sesuatu (mis. transpor parkiran) bukan baris yang digugurkan.
+  const digugurkan = r => r.staf && !r.mengajar_dibayar && !(Number(r.jumlah) > 0);
   const baris = !semua ? null : (ui.ikutStaf || !punyaStaf ? semua : semua.filter(r => !digugurkan(r)));
   const jumlahStaf = punyaStaf ? semua.filter(digugurkan).length : 0;
   const fp = baris ? baris.filter(r => r.fingerprint).length : 0;
@@ -1250,6 +1252,22 @@ function halRekap() {
     for (const k of kunciJumlah) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
     return t;
   }, {});
+
+  /* Nominal seandainya — angka kecil di bawah angka yang dibayar. Per baris:
+     kolom `s` (gabungan) atau kolom `seandainya`. Per total: jumlah semua
+     baris yang ditampilkan seolah staf ikut dibayar, ditampilkan hanya bila
+     berbeda dari yang dibayarkan. Kata "seandainya" sengaja tidak ditulis;
+     ukuran hurufnya yang menandai. */
+  const kecilRp = v => `<div class="kecil" style="font-weight:400">${esc(rupiah(v))}</div>`;
+  const hip = (baris || []).reduce((t, r) => {
+    for (const k of spek.kolom) {
+      if (!k.rp || k.jumlah === false) continue;
+      t[k.k] = (t[k.k] || 0) + (Number(r[k.k]) || 0) + (k.s ? (Number(r[k.s]) || 0) : 0);
+    }
+    t.jumlah = (t.jumlah || 0) + (r.seandainya != null ? Number(r.seandainya) : (Number(r.jumlah) || 0));
+    return t;
+  }, {});
+  const kecilTotal = k => (hip[k] || 0) !== (total[k] || 0) ? kecilRp(hip[k] || 0) : '';
 
   // Jumlah nol padahal ada jam/hari tercatat berarti tarifnya belum diisi —
   // keadaan yang harus dikatakan, bukan ditampilkan sebagai Rp 0 begitu saja.
@@ -1315,18 +1333,18 @@ function halRekap() {
             b.staf ? ` <span class="tag tag-l">${b.mengajar_dibayar ? 'Staf · di luar tupoksi' : 'Staf'}</span>` : ''}${
             b.belum_lengkap ? ' <span class="kecil" style="color:var(--warn)">belum lengkap</span>' : ''}${
             'masa_kerja' in b && b.masa_kerja == null ? ' <span class="kecil" style="color:var(--warn)">TMT kosong</span>' : ''}</td>
-          ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}</td>`).join('')}
+          ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}${
+            k.s && Number(b[k.s]) > 0 ? kecilRp(b[k.s]) : ''}</td>`).join('')}
           <td class="num" style="font-weight:600">${rupiah(b.jumlah)}${
-            digugurkan(b) && b.seandainya != null
-              ? `<div class="kecil" style="font-weight:400">seandainya ${esc(rupiah(b.seandainya))}</div>` : ''}</td></tr>`).join('')
+            b.seandainya != null && Number(b.seandainya) !== Number(b.jumlah) ? kecilRp(b.seandainya) : ''}</td></tr>`).join('')
         : `<tr><td colspan="${spek.kolom.length + 3}"><div class="empty"><b>Tidak ada penerima</b>
             Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
       }</tbody>
       ${baris.length ? `<tfoot><tr>
         <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td>
         ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}" style="font-weight:600">${
-          k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) : (total[k.k] || 0)}</td>`).join('')}
-        <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}</td></tr></tfoot>` : ''}
+          k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) + kecilTotal(k.k) : (total[k.k] || 0)}</td>`).join('')}
+        <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}${kecilTotal('jumlah')}</td></tr></tfoot>` : ''}
       </table></div>
       <div class="foot"><div class="info">Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>
 
