@@ -192,11 +192,24 @@ table.rekap tfoot td{background:var(--emas-kabut);border-top:2px solid var(--lin
 /* Nomor dan nama dibekukan di kiri — tanpa ini, angka di kolom kanan
    kehilangan konteks siapa pemiliknya saat digulir. Keduanya harus sticky;
    kalau hanya namanya, kolom nomor akan menyelinap di bawahnya. */
-table.rekap th.lekat-no,table.rekap td.lekat-no{position:sticky;left:0;z-index:2;background:var(--card)}
+/* Lebar kolom nomor DIKUNCI tepat 40 px (termasuk paddingnya), karena
+   kolom nama dibekukan pada left:40px. Bila kolom nomor lebih sempit dari
+   itu — tata letak otomatis boleh menyempitkannya — tersisa celah beberapa
+   piksel di antara keduanya, dan isi sel yang sedang digulir mengintip di
+   celah itu. Bayangan selebar 2 px di sisi kiri kolom nama menutup sisa
+   pembulatan setengah piksel. */
+table.rekap th.lekat-no,table.rekap td.lekat-no{position:sticky;left:0;z-index:2;background:var(--card);
+  width:40px;min-width:40px;max-width:40px;box-sizing:border-box;padding-left:6px;padding-right:6px}
 table.rekap th.lekat,table.rekap td.lekat{position:sticky;left:40px;z-index:2;background:var(--card);
-  box-shadow:1px 0 0 var(--line)}
+  box-shadow:1px 0 0 var(--line),-2px 0 0 var(--card)}
 table.rekap thead th.lekat,table.rekap thead th.lekat-no{z-index:4;background:var(--emas-kabut)}
+table.rekap thead th.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
 table.rekap tfoot td.lekat,table.rekap tfoot td.lekat-no{background:var(--emas-kabut)}
+table.rekap tfoot td.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
+/* Baris yang disorot (hover) ikut mengganti latar kedua kolom beku, supaya
+   sorotannya tidak terputus di kolom yang dibekukan. */
+table.rekap tbody tr:hover td.lekat-no,table.rekap tbody tr:hover td.lekat{background:var(--emas-kabut)}
+table.rekap tbody tr:hover td.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
 .gulir-petunjuk{font-size:12px;color:var(--ink3);padding:8px 16px 0}
 
 /* ---- Kehadiran dan Piket ----
