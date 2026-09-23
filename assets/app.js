@@ -753,42 +753,47 @@ const keadaanPotongan = (p, tgl) => potonganAktif(p, tgl) ? 'berjalan'
   : p.berlaku_mulai > awalBulan(tgl) ? 'nanti' : 'selesai';
 
 /* Potongan satu kelompok (koperasi / lain-lain): MATRIKS SEMUA GURU aktif
-   urut masa kerja, satu baris satu orang, nominal bawaan Rp 0 — seperti tab
-   tunjangan. Nominalnya jumlah potongan yang berjalan pada bulan acuan;
-   rinciannya (tabungan, pinjaman, …) diatur lewat tombol Atur. */
+   urut masa kerja. Tiap orang satu BARIS UTAMA — nominal per bulan
+   seluruhnya; di koperasi juga iuran keanggotaan dan tombol Anggota /
+   Non-Anggota — lalu satu BARIS CICILAN di bawahnya untuk tiap potongan lain
+   yang berjalan atau akan mulai (pinjaman, tabungan, simpanan), dengan
+   Mulai, Sampai, Ubah, dan Akhiri. Tombol Cicilan menambah baris baru;
+   yang sudah berakhir hanya di riwayat. */
 function isiTabPotongan(kelompok) {
   const { potongan, guru } = D.tunjangan;
   const q = (ui.tunjanganCari || '').trim().toLowerCase();
   const milik = potongan.filter(p => p.kelompok === kelompok);
   const bulanAcuan = awalBulan(ui.acuan);
   const iuran = iuranBawaan(kelompok);
+  const koperasi = kelompok === 'koperasi';
   const semua = guru.map(g => {
     const punya = milik.filter(p => p.guru_id === g.id).map(p => ({ ...p, keadaan: keadaanPotongan(p, ui.acuan) }));
     const berjalan = punya.filter(p => p.keadaan === 'berjalan');
-    // Iuran bawaan berlaku selama tidak ada baris Iuran keanggotaan miliknya sendiri.
-    const pakaiBawaan = kelompok === 'koperasi' && !berjalan.some(p => p.jenis === IURAN_KOPERASI);
-    const tercatat = berjalan.reduce((t, p) => t + Number(p.nominal), 0);
-    // Baris yang bulan acuan adalah bulan terakhirnya: bulan depan tidak dipotong lagi.
-    const terakhir = berjalan.filter(p => p.berlaku_sampai === bulanAcuan);
-    const mulaiAda = berjalan.map(p => p.berlaku_mulai).sort();
-    const sampaiAda = berjalan.map(p => p.berlaku_sampai);
-    return { ...g, punya, berjalan, pakaiBawaan, terakhir,
-             nominal: tercatat + (pakaiBawaan ? iuran : 0),
-             bulanDepan: tercatat - terakhir.reduce((t, p) => t + Number(p.nominal), 0) + (pakaiBawaan ? iuran : 0),
-             mulai: mulaiAda.length ? mulaiAda[0] : null,
-             // Sampai: bulan terakhir bila SEMUA yang tercatat bertanggal akhir; bawaan iuran tidak berakhir.
-             sampai: berjalan.length && sampaiAda.every(Boolean) && !(pakaiBawaan && iuran > 0)
-               ? sampaiAda.sort().slice(-1)[0] : null,
-             nanti: punya.filter(p => p.keadaan === 'nanti').length };
+    // Iuran keanggotaan: baris milik sendiri menggantikan bawaan Penggajian;
+    // Non-Anggota = baris iuran bernominal nol.
+    const iuranSendiri = koperasi ? berjalan.find(p => p.jenis === IURAN_KOPERASI) : null;
+    const iuranOrang = koperasi ? (iuranSendiri ? Number(iuranSendiri.nominal) : iuran) : 0;
+    const anggota = !koperasi || !iuranSendiri || Number(iuranSendiri.nominal) > 0;
+    // Cicilan: potongan selain iuran, yang berjalan atau akan mulai.
+    const cicilan = punya.filter(p => !(koperasi && p.jenis === IURAN_KOPERASI) && p.keadaan !== 'selesai')
+      .sort((a, b) => a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+    const cicilanJalan = cicilan.filter(p => p.keadaan === 'berjalan');
+    // Cicilan yang bulan acuan adalah bulan terakhirnya: bulan depan tidak dipotong lagi.
+    const terakhir = cicilanJalan.filter(p => p.berlaku_sampai === bulanAcuan);
+    const nominal = iuranOrang + cicilanJalan.reduce((t, p) => t + Number(p.nominal), 0);
+    return { ...g, iuranSendiri, iuranOrang, anggota, cicilan, cicilanJalan, terakhir, nominal,
+             bulanDepan: nominal - terakhir.reduce((t, p) => t + Number(p.nominal), 0),
+             selesai: punya.filter(p => p.keadaan === 'selesai').length };
   });
   const baris = semua.filter(g => !q || g.nama.toLowerCase().includes(q));
   const dipotong = semua.filter(g => g.nominal > 0);
   const total = dipotong.reduce((t, g) => t + g.nominal, 0);
   const perJenis = {};
   semua.forEach(g => {
-    g.berjalan.forEach(p => { perJenis[p.jenis] = (perJenis[p.jenis] || 0) + Number(p.nominal); });
-    if (g.pakaiBawaan && iuran > 0) perJenis[IURAN_KOPERASI] = (perJenis[IURAN_KOPERASI] || 0) + iuran;
+    g.cicilanJalan.forEach(p => { perJenis[p.jenis] = (perJenis[p.jenis] || 0) + Number(p.nominal); });
+    if (g.iuranOrang > 0) perJenis[IURAN_KOPERASI] = (perJenis[IURAN_KOPERASI] || 0) + g.iuranOrang;
   });
+  const nonAnggota = koperasi ? semua.filter(g => !g.anggota).length : 0;
   const bulanTerakhir = semua.filter(g => g.terakhir.length).length;
   const nama = TJ_TAB[kelompok].nama;
   const selesaiTag = '<span class="kecil" style="color:var(--warn);font-weight:600">bulan terakhir</span>';
@@ -805,6 +810,7 @@ function isiTabPotongan(kelompok) {
 
     <div class="kartu-baris">
       <div class="kartu"><b>${semua.length}</b><span>guru / staf aktif</span></div>
+      ${koperasi ? `<div class="kartu"><b>${semua.length - nonAnggota}</b><span>anggota koperasi</span></div>` : ''}
       <div class="kartu"><b>${dipotong.length}</b><span>orang dipotong</span></div>
       <div class="kartu"><b>${rupiah(total)}</b><span>${esc(nama.toLowerCase())} per bulan</span></div>
       ${Object.entries(perJenis).sort().map(([j, n]) => `<div class="kartu"><b>${rupiah(n)}</b><span>${esc(j)}</span></div>`).join('')}
@@ -816,27 +822,36 @@ function isiTabPotongan(kelompok) {
       <div class="scroll"><table><thead><tr>
         <th style="width:40px" class="num">No</th><th>Nama</th><th style="width:100px">TMT</th>
         <th>Rincian</th>
-        <th style="width:95px">Mulai</th><th style="width:130px">Sampai</th>
         <th style="width:140px" class="num">Nominal/bulan</th>
-        <th style="width:80px"></th>
+        <th style="width:95px">Mulai</th><th style="width:130px">Sampai</th>
+        <th style="width:${koperasi ? 200 : 150}px"></th>
       </tr></thead><tbody>${
         baris.length ? baris.map((g, i) => `<tr data-guru="${esc(g.id)}" data-kelompok="${esc(kelompok)}">
           <td class="num kecil">${i + 1}</td>
           <td style="font-weight:500">${esc(g.nama)}</td>
           <td class="kecil">${esc(tglIndo(g.tmt_sekolah))}</td>
-          <td class="kecil">${[
-              ...(g.pakaiBawaan && iuran > 0 ? [`${esc(IURAN_KOPERASI)} ${esc(rupiah(iuran))} (Penggajian)`] : []),
-              ...g.berjalan.map(p => `${esc(p.jenis)} ${esc(rupiah(p.nominal))}${
-                p.berlaku_sampai ? ` s.d. ${esc(blnIndo(p.berlaku_sampai))}` : ''}${
-                p.berlaku_sampai === bulanAcuan ? ' ' + selesaiTag : ''}`)
-            ].join(' · ') || '—'}${g.nanti ? ` <span class="tag tag-l">${g.nanti} mulai nanti</span>` : ''}</td>
-          <td class="kecil">${g.mulai ? esc(blnIndo(g.mulai)) : '—'}</td>
-          <td class="kecil">${g.terakhir.length ? selesaiTag
-            : g.sampai ? esc(blnIndo(g.sampai))
-            : g.nominal > 0 ? 'sampai diubah' : '—'}</td>
+          <td class="kecil">${koperasi
+            ? (g.anggota
+                ? `${esc(IURAN_KOPERASI)} ${esc(rupiah(g.iuranOrang))}${g.iuranSendiri ? '' : ' (Penggajian)'}`
+                : '<span style="color:var(--warn)">bukan anggota koperasi</span>')
+            : (g.cicilanJalan.length ? `${g.cicilanJalan.length} potongan berjalan` : '—')}${
+            g.selesai ? ` · <a href="#" class="kecil bRiwayatPot">riwayat (${g.selesai})</a>` : ''}</td>
           <td class="num"${g.nominal ? ' style="font-weight:600"' : ''}>${g.nominal ? rupiah(g.nominal) : '<span class="kecil">Rp 0</span>'}${
             g.terakhir.length ? `<div class="kecil" style="font-weight:400;color:var(--warn)">bulan depan ${esc(rupiah(g.bulanDepan))}</div>` : ''}</td>
-          <td class="act"><button class="btn btn-sm bAturPot">Atur</button></td></tr>`).join('')
+          <td class="kecil">—</td>
+          <td class="kecil">${g.iuranOrang > 0 ? 'sampai diubah' : '—'}</td>
+          <td class="act">${koperasi ? `<button class="btn btn-sm bAnggota${g.anggota ? '' : ' btn-d'}">${
+              g.anggota ? 'Anggota' : 'Non-Anggota'}</button> ` : ''}<button class="btn btn-sm bCicilan">Cicilan</button></td></tr>${
+          g.cicilan.map(p => `<tr class="cicilan" data-id="${p.id}" data-kelompok="${esc(kelompok)}" data-guru="${esc(g.id)}">
+          <td></td>
+          <td class="kecil">↳ ${esc(p.jenis)}</td>
+          <td></td>
+          <td class="kecil">${esc(p.keterangan || '')}${p.keadaan === 'nanti' ? ' <span class="tag tag-l">mulai nanti</span>' : ''}</td>
+          <td class="num">${rupiah(p.nominal)}</td>
+          <td class="kecil">${esc(blnIndo(p.berlaku_mulai))}</td>
+          <td class="kecil">${p.berlaku_sampai ? esc(blnIndo(p.berlaku_sampai)) : 'sampai diubah'}${
+            p.berlaku_sampai === bulanAcuan ? ' ' + selesaiTag : ''}</td>
+          <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button> <button class="btn btn-sm bAkhiriPot">Akhiri</button></td></tr>`).join('')}`).join('')
         : `<tr><td colspan="8"><div class="empty"><b>Tidak ada guru</b>
             ${semua.length ? 'Ubah pencarian.' : 'Belum ada guru aktif di Data Induk.'}</div></td></tr>`
       }</tbody></table></div></div>
@@ -845,14 +860,39 @@ function isiTabPotongan(kelompok) {
       ? 'Potongan lain-lain dari pendapatan guru: tabungan rutin, angsuran pinjaman ke sekolah, atau lainnya. '
         + 'Semua guru dan staf aktif tercantum, urut masa kerja, dengan nominal bawaan Rp 0.'
       : `Potongan dari pendapatan guru untuk koperasi. Iuran keanggotaan bawaannya ${esc(rupiah(iuran))}/bulan dari Penggajian
-        untuk semua guru dan staf aktif; orang yang iurannya berbeda atau bukan anggota diatur dengan menambah potongan
-        berjenis Iuran keanggotaan (nol bila bukan anggota) — baris itu menggantikan bawaan selama berlaku. Simpanan wajib
-        dan angsuran pinjaman ditambahkan di atas iuran.`}
-      Ketuk <b>Atur</b> untuk menambah potongan — seorang guru boleh punya beberapa sekaligus — atau mengubah dan
-      mengakhirinya. Kolom Mulai dan Sampai membantu mencatat cicilan: nominal dipotong tiap bulan dari bulan Mulai
-      sampai bulan Sampai (kosong = sampai diubah). Pada bulan terakhir barisnya bertanda, dan bulan berikutnya potongan
-      itu berhenti sendiri. Semuanya dikurangkan di Gabungan per Guru; mengubah nominal mengakhiri baris lama dan
-      menambah baris baru, supaya rekap bulan lalu tidak berubah.</p>`;
+        untuk semua anggota. Tombol <b>Anggota</b> menjadikan orang itu bukan anggota sejak bulan acuan (iurannya Rp 0),
+        dan tombol <b>Non-Anggota</b> mengembalikannya menjadi anggota; bulan-bulan sebelumnya tidak berubah. Iuran seseorang
+        yang berbeda dari bawaan dicatat lewat Cicilan berjenis Iuran keanggotaan.`}
+      Tombol <b>Cicilan</b> menambah satu baris di bawah nama: nominal per bulan, jenisnya (pinjaman, tabungan, atau lainnya),
+      bulan Mulai, dan bulan Sampai — dipotong tiap bulan dalam rentang itu (Sampai kosong = sampai diubah). Pada bulan
+      terakhir barisnya bertanda dan bulan berikutnya berhenti sendiri. Semuanya dikurangkan di Gabungan per Guru; mengubah
+      nominal mengakhiri baris lama dan menambah baris baru, supaya rekap bulan lalu tidak berubah.</p>`;
+}
+
+/* Anggota ↔ Non-Anggota koperasi sejak bulan acuan. Non-anggota disimpan
+   sebagai baris Iuran keanggotaan bernominal nol milik orang itu, yang
+   menggantikan bawaan Penggajian. Baris iuran yang sedang berlaku (nol atau
+   nominal sendiri) diakhiri pada bulan sebelumnya — atau dihapus bila belum
+   mulai — supaya bulan-bulan lalu tidak berubah. */
+function ubahKeanggotaan(guruId, jadiAnggota) {
+  const g = D.tunjangan.guru.find(x => x.id === guruId);
+  if (!g) return;
+  const bulanAcuan = awalBulan(ui.acuan);
+  const iuranRows = D.tunjangan.potongan.filter(p => p.kelompok === 'koperasi' && p.guru_id === guruId
+    && p.jenis === IURAN_KOPERASI && (!p.berlaku_sampai || p.berlaku_sampai >= bulanAcuan));
+  jalankan('Menyimpan…', async () => {
+    for (const p of iuranRows) {
+      if (p.berlaku_mulai < bulanAcuan) await ubah('ip_potongan', `id=eq.${p.id}`, { berlaku_sampai: bulanSebelum(bulanAcuan) });
+      else await buang('ip_potongan', `id=eq.${p.id}`);
+    }
+    if (!jadiAnggota) await simpanBaru('ip_potongan', [{
+      guru_id: guruId, kelompok: 'koperasi', jenis: IURAN_KOPERASI, nominal: 0,
+      berlaku_mulai: bulanAcuan, berlaku_sampai: null, keterangan: 'Bukan anggota koperasi'
+    }]);
+    await muatTunjangan();
+    D.rekap = null;
+    toast(`${g.nama}: ${jadiAnggota ? 'anggota koperasi, iuran mengikuti Penggajian' : 'bukan anggota koperasi, iuran Rp 0'} sejak ${blnIndo(bulanAcuan)}.`);
+  });
 }
 
 function pasangAksiTunjangan() {
@@ -865,10 +905,24 @@ function pasangAksiTunjangan() {
     const tr = b.closest('tr');
     dialogPenyaluran(tr.dataset.guru, tr.dataset.jenis);
   });
-  $$('.bAturPot').forEach(b => b.onclick = () => {
+  $$('.bRiwayatPot').forEach(b => b.onclick = e => {
+    e.preventDefault();
     const tr = b.closest('tr');
     dialogAturPotongan(tr.dataset.kelompok, tr.dataset.guru);
   });
+  $$('.bCicilan').forEach(b => b.onclick = () => {
+    const tr = b.closest('tr');
+    dialogPotongan(tr.dataset.kelompok, null, tr.dataset.guru);
+  });
+  $$('.bAnggota').forEach(b => b.onclick = () => {
+    const tr = b.closest('tr');
+    ubahKeanggotaan(tr.dataset.guru, b.classList.contains('btn-d'));   // Non-Anggota → jadi anggota
+  });
+  $$('#isi .bUbahPot').forEach(b => b.onclick = () => {
+    const tr = b.closest('tr');
+    dialogPotongan(tr.dataset.kelompok, Number(tr.dataset.id), tr.dataset.guru);
+  });
+  $$('#isi .bAkhiriPot').forEach(b => b.onclick = () => dialogAkhiriPotongan(Number(b.closest('tr').dataset.id)));
 }
 
 function dialogPenyaluran(guruId, jenis) {

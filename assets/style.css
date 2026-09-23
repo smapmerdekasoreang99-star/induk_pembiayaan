@@ -305,3 +305,6 @@ table.log th,table.log td{padding:8px 12px}
 .pg-ganda .pg-nilai{font-size:22px}
 .pg-label{display:block;font-size:11.5px;color:var(--ink3);margin-bottom:2px}
 .pg-ganda .pg-nilai.kosong{font-size:15px}
+
+/* Baris cicilan di matriks potongan: anak dari baris nama di atasnya. */
+tr.cicilan td{background:var(--kertas-3);border-top:0;padding-top:5px;padding-bottom:5px}
