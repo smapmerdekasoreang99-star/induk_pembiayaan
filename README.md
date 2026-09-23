@@ -50,7 +50,7 @@ Akunnya juga harus dibuat di Supabase → Authentication → Users.
 | Halaman | Keadaan | Isinya |
 |---|---|---|
 | Beranda | ✅ | Ringkasan kesiapan dan dari mana tiap angka datang |
-| Kehadiran dan Piket | ✅ | Kehadiran yang menjadi dasar pembiayaan, persis seperti di aplikasi asalnya: dari Kehadiran Guru tab Kehadiran Guru, Guru Pengganti, Wali Kelas, Piket (tanpa Hari Libur); dari Absensi Ekskul tab Per kegiatan, Per pertemuan, Per pembina (tanpa Per siswa). Tiap tab bisa diunduh xlsx |
+| Kehadiran dan Piket | ✅ | Kehadiran yang menjadi dasar pembiayaan, persis seperti di aplikasi asalnya: dari Kehadiran Guru tab Kehadiran Guru, Guru Pengganti, Wali Kelas, Piket Meja Sekolah, Piket Guru Diperbantukan, Piket Parkiran, Kehadiran Staf (tanpa Hari Libur); dari Absensi Ekskul tab Per kegiatan, Per pertemuan, Per pembina (tanpa Per siswa). Kehadiran Guru, Wali Kelas, dan Piket Meja Sekolah menyembunyikan pemegang tugas Staf secara bawaan, dengan saklar untuk menampilkannya. Tiap tab bisa diunduh xlsx |
 | Penggajian | ✅ | Besaran tiap jenis pembiayaan, berversi menurut tanggal berlaku (dulu bernama Pengaturan Nominal) |
 | Honor dan Transpor | ✅ | Disusun per penerima: Gabungan per Guru, Guru Mengajar, Wali Kelas (honor bulanan + Upacara + Bimbingan), Guru Diperbantukan (honor bulanan + transport piket unit, per unit), Piket Meja Sekolah, Guru Pengganti, Pembina OSIS (unduhannya **kuitansi** perorangan berkop, ditandatangani Kepala Sekolah, Bendahara, penerima), Pembina Ekskul, Pembimbing Tahfidz, Piket Parkiran — selebihnya daftar bertanda tangan xlsx |
 | Identitas Dokumen | ✅ | Kop dokumen, baca saja dari Data Induk |

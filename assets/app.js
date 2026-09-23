@@ -28,7 +28,7 @@ let sesi = { token: '', email: '', nama: '' };
 let D = { jenis: [], tarif: [], tarifSemua: [], profil: null, rekap: null, hadir: null, galat: {} };
 let halaman = 'beranda';
 let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'gabungan', ikutStaf: false,
-           hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '',
+           hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '', hadirIkutStaf: false,
            penggantiRinci: false, ekskulKategori: '' };
 
 /* ---------------------------------------------------------------- util */
@@ -525,7 +525,9 @@ const HADIR_TAB = {
   kehadiran: { nama: 'Kehadiran Guru', asal: 'guru' },
   pengganti: { nama: 'Guru Pengganti', asal: 'guru' },
   wali:      { nama: 'Wali Kelas',     asal: 'guru' },
-  piket:     { nama: 'Piket',          asal: 'guru' },
+  piket_meja:     { nama: 'Piket Meja Sekolah',      asal: 'guru' },
+  piket_unit:     { nama: 'Piket Guru Diperbantukan', asal: 'guru' },
+  piket_parkiran: { nama: 'Piket Parkiran',          asal: 'guru' },
   staf:      { nama: 'Kehadiran Staf', asal: 'guru' },
   kegiatan:  { nama: 'Per kegiatan',   asal: 'ekskul' },
   pertemuan: { nama: 'Per pertemuan',  asal: 'ekskul' },
@@ -583,18 +585,24 @@ async function muatHadir() {
 function susunTabHadir(tab, h) {
   const q = ui.hadirSaring.trim().toLowerCase();
   const saring = baris => baris.filter(r => !q || String(r.nama || '').toLowerCase().includes(q));
+  /* Pemegang tugas Staf disembunyikan secara bawaan pada rekap yang menjadi
+     dasar honor tambahan (kehadiran guru, wali kelas, piket meja sekolah) —
+     sama seperti Guru Mengajar di Honor dan Transpor. Kehadirannya tetap
+     tercatat dan bisa ditampilkan lewat saklar di atas tabel. */
+  const tanpaStaf = baris => ui.hadirIkutStaf ? baris : baris.filter(r => !r.staf);
   const periode = `${tglPanjang(h.awal)} – ${tglPanjang(h.akhir)}`;
   const angka = (k, t, w, f) => ({ k, t, w: w || 70, num: true, f });
   const kolPersen = (k, t) => ({ k, t: t || '% Kehadiran', w: 100, num: true, html: r => selPersen(r[k]), f: fmtPersen, fmt: '0.00' });
 
   if (tab === 'kehadiran') {
-    const baris = saring(h.kehadiran);
+    const baris = saring(tanpaStaf(h.kehadiran));
     const total = jumlahkan(baris, ['kontrak', 'terjadwal', 'hadir_tm', 'httm', 'st', 'it', 'tk']);
     total.hadir = Math.round(bobotHadir(total) * 100) / 100;
     total.persen = persenDari(total.hadir, total.terjadwal);
     total.nama = `Total (${baris.length} guru)`;
     return {
       cari: 'Saring nama guru…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
+      stafDisembunyikan: h.kehadiran.filter(r => r.staf).length,
       kolom: [
         { k: 'nama', t: 'Guru', lekat: true },
         // (+n) = jam Tugas Tambahan per minggu, sama seperti di Honor Mengajar.
@@ -660,12 +668,13 @@ function susunTabHadir(tab, h) {
   }
 
   if (tab === 'wali') {
-    const baris = saring(h.wali);
+    const baris = saring(tanpaStaf(h.wali));
     const total = jumlahkan(baris, ['terjadwal_upacara', 'hadir_upacara', 'terjadwal_bimbingan', 'hadir_bimbingan', 'terjadwal', 'hadir']);
     total.persen = persenDari(total.hadir, total.terjadwal);
     total.nama = `Total (${baris.length} wali kelas)`;
     return {
       cari: 'Saring nama wali kelas…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
+      stafDisembunyikan: h.wali.filter(r => r.staf).length,
       kelompok: [{ n: 1 }, { t: 'Upacara (jam)', n: 2 }, { t: 'Bimbingan WK (jam)', n: 2 }, { n: 1 }],
       kolom: [
         { k: 'nama', t: 'Wali Kelas', lekat: true },
@@ -685,33 +694,42 @@ function susunTabHadir(tab, h) {
     };
   }
 
-  if (tab === 'piket') {
-    const baris = h.piket.map(r => ({ ...r,
-      meja_persen: persenDari(r.meja_jaga, r.meja_terjadwal),
-      unit_persen: persenDari(r.unit_jaga, r.unit_terjadwal),
-      parkiran_persen: persenDari(r.parkiran_jaga, r.parkiran_terjadwal) }));
-    const total = jumlahkan(baris, ['meja_terjadwal', 'meja_jaga', 'unit_terjadwal', 'unit_jaga',
-                                    'parkiran_terjadwal', 'parkiran_jaga', 'catatan']);
-    for (const j of ['meja', 'unit', 'parkiran']) total[j + '_persen'] = persenDari(total[j + '_jaga'], total[j + '_terjadwal']);
+  if (tab === 'piket_meja' || tab === 'piket_unit' || tab === 'piket_parkiran') {
+    /* Tiga jenis piket, tiga tab, dari satu fungsi database. Satuannya
+       mengikuti jadwalnya: JAM untuk meja sekolah dan unit, HARI untuk
+       parkiran. Hanya meja sekolah yang punya saklar staf: di situlah tugas
+       Staf menggugurkan transportnya; petugas parkiran justru staf. */
+    const J = {
+      piket_meja: { p: 'meja', nama: 'Meja Sekolah', satuan: 'jam', staf: true, ttd: 'kurikulum',
+        kosong: 'Belum ada jadwal maupun catatan piket meja sekolah pada rentang ini. Dicatat di Kehadiran Guru → Pelaksanaan Piket.' },
+      piket_unit: { p: 'unit', nama: 'Guru Diperbantukan', satuan: 'jam', staf: false, ttd: 'kurikulum',
+        kosong: 'Belum ada jadwal maupun catatan piket unit pada rentang ini. Jadwal unitnya di Data Induk → Jadwal Piket, pelaksanaannya di Kehadiran Guru → Pelaksanaan Piket.' },
+      piket_parkiran: { p: 'parkiran', nama: 'Parkiran', satuan: 'hari', staf: false, ttd: 'kesiswaan',
+        kosong: 'Belum ada jadwal maupun catatan piket parkiran pada rentang ini. Rosternya di Data Induk → Jadwal Piket.' }
+    }[tab];
+    const semua = h.piket
+      .filter(r => Number(r[J.p + '_terjadwal']) > 0 || Number(r[J.p + '_jaga']) > 0)
+      .map(r => ({ ...r, terjadwal: r[J.p + '_terjadwal'], jaga: r[J.p + '_jaga'],
+                   persen: persenDari(r[J.p + '_jaga'], r[J.p + '_terjadwal']) }));
+    const baris = saring(J.staf ? tanpaStaf(semua) : semua);
+    const total = jumlahkan(baris, ['terjadwal', 'jaga']);
+    total.persen = persenDari(total.jaga, total.terjadwal);
     total.nama = `Total (${baris.length} petugas)`;
     return {
-      ringkas: `${periode} · ${total.catatan} catatan pelaksanaan`,
-      kelompok: [{ n: 1 }, { t: 'Meja Sekolah (jam)', n: 3 }, { t: 'Unit (jam)', n: 3 }, { t: 'Parkiran (hari)', n: 3 }],
+      cari: 'Saring nama petugas…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
+      stafDisembunyikan: J.staf ? semua.filter(r => r.staf).length : null,
       kolom: [
         { k: 'nama', t: 'Nama', lekat: true },
-        angka('meja_terjadwal', 'Terjadwal', 85), angka('meja_jaga', 'Jaga', 60), kolPersen('meja_persen'),
-        angka('unit_terjadwal', 'Terjadwal', 85), angka('unit_jaga', 'Jaga', 60), kolPersen('unit_persen'),
-        angka('parkiran_terjadwal', 'Terjadwal', 85), angka('parkiran_jaga', 'Jaga', 60), kolPersen('parkiran_persen')
+        angka('terjadwal', `Terjadwal (${J.satuan})`, 115), angka('jaga', `Jaga (${J.satuan})`, 90), kolPersen('persen')
       ],
-      baris, total,
-      kosong: 'Belum ada catatan pelaksanaan piket pada rentang tanggal ini. Diisi di Kehadiran Guru → Pelaksanaan Piket.',
-      catatan: 'Satuannya mengikuti jadwalnya: Meja Sekolah dan Unit dihitung per JAM pelajaran, Parkiran '
-             + 'per HARI jaga — parkiran memang bukan jam pelajaran, melainkan sekali jaga sesudah bel '
-             + 'pulang. "Terjadwal" dihitung dari jadwal piket pada hari kerja dalam rentang ini, di luar '
-             + 'hari libur; "Jaga" adalah yang benar-benar dijalankan; "% Kehadiran" = Jaga ÷ Terjadwal. '
-             + 'Piket tidak mengenal pengganti, jadi selisih antara keduanya berarti petugasnya tidak '
-             + 'hadir, atau gilirannya belum dicatat. Nilai rupiahnya ada di Honor dan Transpor.',
-      judul: 'REKAP PELAKSANAAN PIKET', berkas: 'Rekap Pelaksanaan Piket', ttd: 'kurikulum'
+      baris, total, kosong: J.kosong,
+      catatan: `Piket ${J.nama} dihitung per ${J.satuan === 'jam' ? 'JAM pelajaran' : 'HARI jaga'}`
+             + (J.p === 'parkiran' ? ' — parkiran memang bukan jam pelajaran, melainkan sekali jaga sesudah bel pulang.' : '.')
+             + ' "Terjadwal" dihitung dari jadwal piket pada hari kerja dalam rentang ini, di luar hari libur; '
+             + '"Jaga" adalah yang benar-benar dijalankan; "% Kehadiran" = Jaga ÷ Terjadwal. Piket tidak mengenal '
+             + 'pengganti, jadi selisih antara keduanya berarti petugasnya tidak hadir, atau gilirannya belum '
+             + 'dicatat. Nilai rupiahnya ada di Honor dan Transpor.',
+      judul: `REKAP PELAKSANAAN PIKET ${J.nama.toUpperCase()}`, berkas: `Rekap Piket ${J.nama}`, ttd: J.ttd
     };
   }
 
@@ -894,9 +912,11 @@ function tabelHadir(isi) {
   }
   const lebar = isi.kolom.length + (nomor ? 1 : 0);
   const sel = (k, isiSel, tebal) => `<td class="${k.num ? 'num' : ''}${k.lekat ? ' lekat nama' : ''}"${tebal ? ' style="font-weight:600"' : ''}>${isiSel}</td>`;
+  // Pemegang tugas Staf diberi penanda pada kolom nama, seperti di Honor dan Transpor.
+  const tagStaf = (b, k) => k.lekat && b.staf ? ' <span class="tag tag-l">Staf</span>' : '';
   const badan = isi.baris.length ? isi.baris.map((b, i) => `<tr${isi.barisKelas ? ` class="${isi.barisKelas(b)}"` : ''}>
       ${nomor ? `<td class="num lekat-no">${i + 1}</td>` : ''}
-      ${isi.kolom.map(k => sel(k, selHadir(b, k), k.lekat)).join('')}</tr>`).join('')
+      ${isi.kolom.map(k => sel(k, selHadir(b, k) + tagStaf(b, k), k.lekat)).join('')}</tr>`).join('')
     : `<tr><td colspan="${lebar}"><div class="empty"><b>Tidak ada data</b>${esc(isi.kosong || '')}</div></td></tr>`;
   const kaki = isi.total && isi.baris.length ? `<tfoot><tr>
       ${nomor ? '<td class="num lekat-no"></td>' : ''}
@@ -941,6 +961,12 @@ function halHadir() {
     ${!h ? `<div class="panel"><div class="empty"><b>Belum dihitung</b>
       Pilih periodenya lalu ketuk Hitung.</div></div>` : `
     ${isi.ringkasan || ''}
+    ${isi.stafDisembunyikan ? `<div class="info-box"><b>${isi.stafDisembunyikan} pemegang tugas Staf
+      ${ui.hadirIkutStaf ? 'ikut ditampilkan' : 'disembunyikan'}.</b>
+      Tugas Staf menggugurkan honor tambahan, jadi rekap ini bawaannya hanya menampilkan yang
+      berhak honor. Kehadiran stafnya tetap tercatat di aplikasi asalnya dan bisa ditampilkan.
+      <button class="btn btn-sm" id="hStaf" style="margin-left:8px">${
+        ui.hadirIkutStaf ? 'Kecualikan lagi' : 'Tampilkan juga'}</button></div>` : ''}
     <div class="panel"><div class="panel-head"><h3>${esc(spek.nama)}</h3>
       ${isi.pilihan ? `<div class="pg">${isi.pilihan.map(([k, t]) =>
         `<button data-pilih="${k}" class="${(k === 'rinci') === ui.penggantiRinci ? 'on' : ''}">${esc(t)}</button>`).join('')}</div>` : ''}
@@ -975,6 +1001,7 @@ function halHadir() {
     if (!D.hadir) jalankan('Memuat kehadiran…', muatHadir); else gambar();
   });
   $$('[data-pilih]').forEach(b => b.onclick = () => { ui.penggantiRinci = b.dataset.pilih === 'rinci'; gambar(); });
+  if ($('#hStaf')) $('#hStaf').onclick = () => { ui.hadirIkutStaf = !ui.hadirIkutStaf; gambar(); };
   if ($('#hKategori')) $('#hKategori').onchange = e => { ui.ekskulKategori = e.target.value; gambar(); };
   // Menyaring nama menggambar ulang tabelnya saja, supaya kotak isiannya tidak kehilangan fokus.
   if ($('#hCari')) $('#hCari').oninput = e => {
