@@ -2091,7 +2091,7 @@ function halRekap() {
         <option value="">Semua bentuk</option>
         ${bentukAda.map(b => `<option value="${esc(b)}" ${b === bentukPilih ? 'selected' : ''}>${esc(b)}</option>`).join('')}
       </select>` : ''}
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh (xlsx)'}</button>${
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh Format (xlsx)'}</button>${
         spek.struk ? '<button class="btn btn-sm" id="rStruk" style="margin-left:6px">Unduh struk (docx)</button>' : ''}</div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
         seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
@@ -2101,6 +2101,7 @@ function halRekap() {
         ${spek.kolom.map(k => `<th style="width:${k.w}px" class="${k.num || k.rp ? 'num' : ''}">${esc(k.t)}</th>`).join('')}
         <th style="width:125px" class="num">Jumlah</th>
         ${sesudah.map(k => `<th style="width:${k.w}px" class="num">${esc(k.t)}</th>`).join('')}
+        ${spek.struk ? '<th style="width:70px"></th>' : ''}
       </tr></thead><tbody>${
         baris.length ? baris.map((b, i) => `<tr>
           <td class="num lekat-no">${i + 1}</td>
@@ -2112,8 +2113,9 @@ function halRekap() {
             k.s && Number(b[k.s]) > 0 ? kecilRp(b[k.s]) : ''}</td>`).join('')}
           <td class="num" style="font-weight:600">${rupiah(b.jumlah)}${
             b.seandainya != null && Number(b.seandainya) !== Number(b.jumlah) ? kecilRp(b.seandainya) : ''}</td>${
-          sesudah.map(k => `<td class="num" style="${k.k === 'bersih' ? 'font-weight:600' : ''}">${rupiah(b[k.k])}</td>`).join('')}</tr>`).join('')
-        : `<tr><td colspan="${spek.kolom.length + 3 + sesudah.length}"><div class="empty"><b>Tidak ada penerima</b>
+          sesudah.map(k => `<td class="num" style="${k.k === 'bersih' ? 'font-weight:600' : ''}">${rupiah(b[k.k])}</td>`).join('')}${
+          spek.struk ? `<td>${adaStruk(b) ? `<button class="btn btn-sm" data-struk="${i}" title="Unduh struk gaji ${esc(b.nama)} (docx)">Struk</button>` : ''}</td>` : ''}</tr>`).join('')
+        : `<tr><td colspan="${spek.kolom.length + 3 + sesudah.length + (spek.struk ? 1 : 0)}"><div class="empty"><b>Tidak ada penerima</b>
             Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
       }</tbody>
       ${baris.length ? `<tfoot><tr>
@@ -2121,7 +2123,8 @@ function halRekap() {
         ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}" style="font-weight:600">${
           k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) + kecilTotal(k.k) : (total[k.k] || 0)}</td>`).join('')}
         <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}${kecilTotal('jumlah')}</td>${
-        sesudah.map(k => `<td class="num" style="font-weight:700">${rupiah(total[k.k] || 0)}</td>`).join('')}</tr></tfoot>` : ''}
+        sesudah.map(k => `<td class="num" style="font-weight:700">${rupiah(total[k.k] || 0)}</td>`).join('')}${
+        spek.struk ? '<td></td>' : ''}</tr></tfoot>` : ''}
       </table></div>
       <div class="foot"><div class="info">Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>
 
@@ -2142,7 +2145,10 @@ function halRekap() {
   if ($('#rBentuk')) $('#rBentuk').onchange = e => { ui.rekapBentuk = e.target.value; gambar(); };
   if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…',
     () => spek.kuitansi ? unduhKuitansi(spek, baris) : unduhRekap(spek, baris, total));
-  if ($('#rStruk')) $('#rStruk').onclick = () => jalankan('Menyiapkan struk…', () => unduhStruk(baris));
+  if ($('#rStruk')) $('#rStruk').onclick = () => dialogPilihStruk(baris);
+  // Struk satu orang: baris yang sama, berkasnya hanya memuat struk itu (sisi kanan halaman kosong).
+  $$('[data-struk]').forEach(el => el.onclick = () =>
+    jalankan('Menyiapkan struk…', () => unduhStruk([baris[Number(el.dataset.struk)]])));
 }
 
 /* ----------------------------------------------------------- excel */
@@ -2454,7 +2460,8 @@ function judulPeriodeRekap() {
    seandainya, bukan yang dibayarkan. */
 async function rincianStruk() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
-  const [mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek, jadwal, mapel] = await Promise.all([
+  const [mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek, jadwal, mapel,
+         hadirGuru, hadirWali, hadirPiket] = await Promise.all([
     rpc('f_ip_honor_mengajar', arg),
     rpc('f_ip_honor_wali_kelas', arg),
     rpc('f_ip_honor_diperbantukan', arg),
@@ -2468,7 +2475,13 @@ async function rincianStruk() {
     rpc('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
     // Mata pelajaran hanya pelengkap; kegagalannya tidak menggagalkan struk.
     ambil('jadwal_kbm', 'select=guru_id,mapel_id').catch(() => []),
-    ambil('mapel', 'select=id,nama_mapel').catch(() => [])
+    ambil('mapel', 'select=id,nama_mapel').catch(() => []),
+    // Persentase kehadiran untuk struk — fungsi yang sama dengan halaman
+    // Kehadiran dan Piket, supaya angkanya tidak berbeda. Pelengkap: bila
+    // gagal, struk tetap terbit tanpa persentase.
+    rpc('f_ip_kehadiran_guru', arg).catch(() => []),
+    rpc('f_ip_kehadiran_wali', arg).catch(() => []),
+    rpc('f_ip_pelaksanaan_piket', arg).catch(() => [])
   ]);
   const R = {};
   const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [] });
@@ -2488,6 +2501,21 @@ async function rincianStruk() {
   (kop || []).forEach(b => orang(b.guru_id).koperasi.push(b));
   (sek || []).forEach(b => orang(b.guru_id).sekolah.push(b));
 
+  /* Persentase kehadiran per orang: mengajar dan wali kelas sudah dihitung
+     fungsi databasenya (berbobot: HTTM 100% · ST 20% · IT 10%); piket
+     dihitung Jaga ÷ Terjadwal seperti di tab Piket. Null bila tidak ada
+     yang terjadwal, dan struk tidak mencetaknya. Transport pembina ekskul
+     dan tahfidz tidak punya jadwal pembanding per pembina di rekap ini,
+     jadi tidak berpersentase. */
+  (hadirGuru || []).forEach(b => { orang(b.guru_id).persenMengajar = b.persen; });
+  (hadirWali || []).forEach(b => { orang(b.guru_id).persenWali = b.persen; });
+  (hadirPiket || []).forEach(b => {
+    const o = orang(b.guru_id);
+    o.persenMeja = persenDari(b.meja_jaga, b.meja_terjadwal);
+    o.persenUnit = persenDari(b.unit_jaga, b.unit_terjadwal);
+    o.persenParkir = persenDari(b.parkiran_jaga, b.parkiran_terjadwal);
+  });
+
   // Mata pelajaran dari jadwal KBM, tanpa Upacara dan Bimbingan Wali Kelas
   // (M08, M25) — sama dengan yang dikecualikan f_ip_honor_mengajar.
   const namaMapel = Object.fromEntries((mapel || []).map(m => [m.id, m.nama_mapel]));
@@ -2501,8 +2529,71 @@ async function rincianStruk() {
   return { R, dibayar };
 }
 
+// Yang mendapat struk: menerima sesuatu atau ada potongannya pada periode ini.
+const adaStruk = b => Number(b.jumlah) > 0 || Number(b.potongan) > 0;
+
+/* Tombol Unduh struk di kepala panel: pilih penerimanya lebih dulu — semua,
+   atau sebagian lewat kotak centang — supaya bendahara yang hanya perlu
+   mencetak ulang beberapa struk tidak harus mengunduh satu berkas penuh.
+   Daftarnya urut seperti tabel; yang tidak menerima apa pun tidak muncul. */
+function dialogPilihStruk(baris) {
+  const calon = (baris || []).filter(adaStruk);
+  if (!calon.length) { toast('Tidak ada penerima pada periode ini.', true); return; }
+  const pilih = new Set(calon.map((_, i) => i));   // bawaan: semua terpilih
+
+  bukaModal(`<h2>Unduh struk — pilih penerima</h2><div class="body">
+    <p class="msg kecil">Centang yang struknya akan diunduh. Semua yang dicentang masuk ke satu berkas Word,
+      dua struk sehalaman; bila hanya satu, sisi kanan halamannya dikosongkan.</p>
+    <input class="field" id="ps-cari" placeholder="Saring nama…" autocomplete="off" style="margin-bottom:8px">
+    <label class="pilih-semua"><input type="checkbox" id="ps-semua"> <span id="ps-semua-teks"></span></label>
+    <div class="pilih-daftar" id="ps-daftar">${calon.map((b, i) => `
+      <label data-nama="${esc(String(b.nama || '').toLowerCase())}"><input type="checkbox" data-i="${i}" checked>
+        <span class="nama">${esc(b.nama)}${b.jenis_orang ? ` <span class="kecil">${esc(b.jenis_orang)}</span>` : ''}</span>
+        <span class="kecil">${esc(rupiah(b.bersih != null ? b.bersih : b.jumlah))}</span></label>`).join('')}</div>
+    </div>
+    <div class="aksi"><button class="btn" id="m-batal">Batal</button>
+      <button class="btn btn-p" id="m-unduh"></button></div>`);
+
+  const kotak = $$('#ps-daftar input[type=checkbox]');
+  const segarkan = () => {
+    const tampak = kotak.filter(k => k.closest('label').style.display !== 'none');
+    const terpilihTampak = tampak.filter(k => pilih.has(Number(k.dataset.i))).length;
+    $('#ps-semua').checked = tampak.length > 0 && terpilihTampak === tampak.length;
+    $('#ps-semua').indeterminate = terpilihTampak > 0 && terpilihTampak < tampak.length;
+    $('#ps-semua-teks').textContent = tampak.length === calon.length
+      ? `Pilih semua (${calon.length} penerima)` : `Pilih semua yang tampil (${tampak.length})`;
+    $('#m-unduh').textContent = pilih.size ? `Unduh ${pilih.size} struk` : 'Unduh struk';
+    $('#m-unduh').disabled = !pilih.size;
+  };
+  kotak.forEach(k => k.onchange = () => { pilih[k.checked ? 'add' : 'delete'](Number(k.dataset.i)); segarkan(); });
+  $('#ps-semua').onchange = e => {
+    kotak.filter(k => k.closest('label').style.display !== 'none').forEach(k => {
+      k.checked = e.target.checked;
+      pilih[k.checked ? 'add' : 'delete'](Number(k.dataset.i));
+    });
+    segarkan();
+  };
+  $('#ps-cari').oninput = e => {
+    const q = e.target.value.trim().toLowerCase();
+    $$('#ps-daftar label').forEach(l => { l.style.display = !q || l.dataset.nama.includes(q) ? '' : 'none'; });
+    segarkan();
+  };
+  $('#m-batal').onclick = tutupModal;
+  $('#m-unduh').onclick = () => {
+    const terpilih = calon.filter((_, i) => pilih.has(i));
+    if (!terpilih.length) return;
+    tutupModal();
+    jalankan('Menyiapkan struk…', () => unduhStruk(terpilih));
+  };
+  segarkan();
+  $('#ps-cari').focus();
+}
+
+/* `baris` boleh seluruh tabel (tombol Unduh struk di kepala panel) atau satu
+   orang saja (tombol Struk pada barisnya): susunan halamannya sama, hanya
+   sisi kanannya kosong dan nama berkasnya memuat nama penerima. */
 async function unduhStruk(baris) {
-  const penerima = (baris || []).filter(b => Number(b.jumlah) > 0 || Number(b.potongan) > 0);
+  const penerima = (baris || []).filter(adaStruk);
   if (!penerima.length) throw new Error('Tidak ada penerima pada periode ini.');
   const [docx, { R, dibayar }, logo] = await Promise.all([muatDocx(), rincianStruk(), ambilLogo()]);
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, PageBreak,
@@ -2540,19 +2631,30 @@ async function unduhStruk(baris) {
 
   const LEBAR = 7500;
   const KOL = [360, 2900, 2340, 400, 1500];   // No | Uraian | Keterangan | Rp | Nominal
-  const rowHeader = (kode, judul) => new TableRow({ children: [
+  /* "(kehadiran 95,25%)" — persentasenya tebal, sisanya mengikuti gaya
+     teks di sekitarnya. Kosong bila persentasenya tidak ada. */
+  const runPersen = (persen, o = {}) => persen == null ? [] : [
+    run('(kehadiran ', o), run(fmtPersen(persen), { ...o, bold: true }), run(')', o)
+  ];
+  /* Kepala bagian. Bila ada persentase kehadiran, judulnya menempati kolom
+     Uraian dan persentasenya sejajar kolom Keterangan di bawahnya. */
+  const rowHeader = (kode, judul, persen) => new TableRow({ children: [
     sel(teks(kode, { bold: true, color: NAVY }), KOL[0], { shade: BIRU, borders: bawah }),
-    sel(teks(judul, { bold: true, color: NAVY }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4, shade: BIRU, borders: bawah })
+    ...(persen == null
+      ? [sel(teks(judul, { bold: true, color: NAVY }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4, shade: BIRU, borders: bawah })]
+      : [sel(teks(judul, { bold: true, color: NAVY }), KOL[1], { shade: BIRU, borders: bawah }),
+         sel(par(runPersen(persen, { color: NAVY })), KOL[2] + KOL[3] + KOL[4], { span: 3, shade: BIRU, borders: bawah })])
   ]});
   const rowInfo = (label, isi) => new TableRow({ children: [
     sel(teks(''), KOL[0]),
     sel(teks(label, { color: KELABU }), KOL[1]),
     sel(teks(': ' + isi, { color: KELABU }), KOL[2] + KOL[3] + KOL[4], { span: 3 })
   ]});
-  const rowItem = (no, uraian, ket, nominal) => new TableRow({ children: [
+  const rowItem = (no, uraian, ket, nominal, persen) => new TableRow({ children: [
     sel(teks(no + '.', { align: AlignmentType.RIGHT }), KOL[0]),
     sel(teks(uraian), KOL[1]),
-    sel(teks(ket || '', { color: KELABU, italics: true }), KOL[2]),
+    sel(par([run(ket || '', { color: KELABU, italics: true }),
+             ...(ket ? [run(' ', { color: KELABU, italics: true }), ...runPersen(persen, { color: KELABU, italics: true })] : [])]), KOL[2]),
     sel(teks('Rp'), KOL[3]),
     sel(teks(angka(nominal), { align: AlignmentType.RIGHT }), KOL[4])
   ]});
@@ -2594,7 +2696,7 @@ async function unduhStruk(baris) {
 
     if (A > 0 || m) {
       const k = kode();
-      bagian.push(rowHeader(k, 'PENDAPATAN SEBAGAI GURU'));
+      bagian.push(rowHeader(k, 'PENDAPATAN SEBAGAI GURU', r.persenMengajar));
       if (r.mapel) bagian.push(rowInfo('Mata Pelajaran', r.mapel));
       const jam = m ? `${m.jam_dibayar} jam/minggu` : '';
       bagian.push(rowItem(1, 'Honor Mengajar', jam, m ? m.honor_guru : 0));
@@ -2605,7 +2707,7 @@ async function unduhStruk(baris) {
     }
     if (B > 0 || w) {
       const k = kode();
-      bagian.push(rowHeader(k, 'HONOR WALI KELAS'));
+      bagian.push(rowHeader(k, 'HONOR WALI KELAS', r.persenWali));
       bagian.push(rowItem(1, 'Honor Wali Kelas', w ? `${w.bulan} bulan` : '', w ? w.honor_bulanan : 0));
       bagian.push(rowItem(2, 'Honor Upacara', w ? `${w.jam_upacara} jam hadir` : '', w ? w.honor_upacara : 0));
       bagian.push(rowItem(3, 'Honor Bimbingan Wali Kelas', w ? `${w.jam_bimbingan} jam hadir` : '', w ? w.honor_bimbingan : 0));
@@ -2613,7 +2715,7 @@ async function unduhStruk(baris) {
     }
     if (C > 0 || diper.length) {
       const k = kode();
-      bagian.push(rowHeader(k, 'HONOR GURU DIPERBANTUKAN'));
+      bagian.push(rowHeader(k, 'HONOR GURU DIPERBANTUKAN', r.persenUnit));
       bagian.push(rowItem(1, 'Honor Diperbantukan', diper.map(x => x.unit).filter(Boolean).join(', '), jml(diper, 'honor')));
       bagian.push(rowItem(2, 'Transpor Piket Unit', `${jml(diper, 'jam_jaga')} jam jaga`, jml(diper, 'transport')));
       bagian.push(rowJumlah(`Jumlah ${k}`, C));
@@ -2622,11 +2724,11 @@ async function unduhStruk(baris) {
       const k = kode();
       const pg = r.pengganti;
       bagian.push(rowHeader(k, 'TRANSPOR DAN KOMPENSASI LAIN'));
-      bagian.push(rowItem(1, 'Transpor Piket Meja Sekolah', meja ? `${meja.ukuran} jam jaga` : '', b.piket_meja));
+      bagian.push(rowItem(1, 'Transpor Piket Meja Sekolah', meja ? `${meja.ukuran} jam jaga` : '', b.piket_meja, meja ? r.persenMeja : null));
       bagian.push(rowItem(2, 'Transpor Guru Pengganti', pg ? `GT ${pg.jam_gt} · PT ${pg.jam_pt} · Inf ${pg.jam_inf} jam` : '', b.pengganti));
       bagian.push(rowItem(3, 'Transpor Pembina Ekstrakurikuler', ekskul.length ? `${jml(ekskul, 'pertemuan')} pertemuan` : '', b.ekskul));
       bagian.push(rowItem(4, 'Transpor Pembimbing Tahfidz', tahfidz.length ? `${jml(tahfidz, 'pertemuan')} pertemuan` : '', b.tahfidz));
-      bagian.push(rowItem(5, 'Kompensasi Piket Parkiran', r.parkir ? `${r.parkir.ukuran} hari jaga` : '', b.parkiran));
+      bagian.push(rowItem(5, 'Kompensasi Piket Parkiran', r.parkir ? `${r.parkir.ukuran} hari jaga` : '', b.parkiran, r.parkir ? r.persenParkir : null));
       bagian.push(rowJumlah(`Jumlah ${k}`, D_));
     }
     if (E > 0) {
@@ -2735,9 +2837,11 @@ async function unduhStruk(baris) {
   const blob = await Packer.toBlob(doc);
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `Struk Gaji ${ui.rekapAwal} sd ${ui.rekapAkhir}.docx`;
+  const satu = penerima.length === 1 ? penerima[0] : null;
+  const namaBerkas = satu ? ' ' + String(satu.nama || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() : '';
+  a.download = `Struk Gaji${namaBerkas} ${ui.rekapAwal} sd ${ui.rekapAkhir}.docx`;
   document.body.appendChild(a); a.click(); a.remove();
-  toast(`${penerima.length} struk diunduh`);
+  toast(satu ? `Struk ${satu.nama} diunduh` : `${penerima.length} struk diunduh`);
 }
 
 /* Penulis Excel halaman Kehadiran dan Piket: memakai daftar kolom yang sama
