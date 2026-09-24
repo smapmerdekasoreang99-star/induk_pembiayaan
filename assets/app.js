@@ -1705,6 +1705,7 @@ const REKAP = {
   gabungan: {
     nama: 'Gabungan per Guru',
     fungsi: 'f_ip_rekap_gabungan',
+    struk: true,   // tombol Unduh struk (docx): struk gaji per penerima, lihat unduhStruk
     judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA',
     catatan: 'Menjumlahkan seluruh jenis pembiayaan menjadi satu baris per orang, kolomnya mengikuti '
            + 'tab di halaman ini. Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris '
@@ -2090,7 +2091,8 @@ function halRekap() {
         <option value="">Semua bentuk</option>
         ${bentukAda.map(b => `<option value="${esc(b)}" ${b === bentukPilih ? 'selected' : ''}>${esc(b)}</option>`).join('')}
       </select>` : ''}
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh (xlsx)'}</button></div>
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh (xlsx)'}</button>${
+        spek.struk ? '<button class="btn btn-sm" id="rStruk" style="margin-left:6px">Unduh struk (docx)</button>' : ''}</div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
         seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
       <div class="scroll"><table class="rekap"><thead><tr>
@@ -2140,6 +2142,7 @@ function halRekap() {
   if ($('#rBentuk')) $('#rBentuk').onchange = e => { ui.rekapBentuk = e.target.value; gambar(); };
   if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…',
     () => spek.kuitansi ? unduhKuitansi(spek, baris) : unduhRekap(spek, baris, total));
+  if ($('#rStruk')) $('#rStruk').onclick = () => jalankan('Menyiapkan struk…', () => unduhStruk(baris));
 }
 
 /* ----------------------------------------------------------- excel */
@@ -2416,6 +2419,325 @@ async function unduhKuitansi(spek, baris) {
   });
 
   await simpanBuku(wb, `Kuitansi ${spek.kuitansi} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
+}
+
+/* ----------------------------------------------------------- struk gaji */
+/* Struk gaji per penerima dalam satu berkas Word: dua struk per halaman A4
+   mendatar, susunannya mengikuti dokumen/Struk_Gaji.docx. Angka tiap bagian
+   diambil dari fungsi rincian yang sama dengan tab-tab di halaman ini, dan
+   subtotal serta diterima bersihnya dari Gabungan per Guru — sehingga struk
+   tidak pernah berbeda dari daftar pembayarannya. Pembuat berkasnya (docx)
+   dimuat hanya saat diperlukan, seperti ExcelJS. */
+async function muatDocx() {
+  if (window.docx) return window.docx;
+  await new Promise((selesai, gagal) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/docx@9.7.2/dist/index.iife.js';
+    sc.onload = selesai;
+    sc.onerror = () => gagal(new Error('Pembuat Word gagal dimuat. Periksa sambungan internet.'));
+    document.head.appendChild(sc);
+  });
+  return window.docx;
+}
+
+/* Nama periode untuk kotak di kop: "Agustus 2026" bila satu bulan penuh,
+   selebihnya rentang tanggalnya. */
+function judulPeriodeRekap() {
+  const l = labelPeriodeRekap();
+  return l.startsWith('bulan ') ? l.slice(6) : `${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`;
+}
+
+/* Kumpulkan rincian semua tab, dikelompokkan per orang. Kunci orangnya sama
+   dengan orang_id di Gabungan per Guru: guru_id, atau 'PB:' + pembina_id
+   untuk pelatih dari luar. Baris yang jumlahnya nol (staf yang honornya
+   digugurkan) komponennya ikut dinolkan — kolom komponennya berisi angka
+   seandainya, bukan yang dibayarkan. */
+async function rincianStruk() {
+  const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
+  const [mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek, jadwal, mapel] = await Promise.all([
+    rpc('f_ip_honor_mengajar', arg),
+    rpc('f_ip_honor_wali_kelas', arg),
+    rpc('f_ip_honor_diperbantukan', arg),
+    rpc('f_ip_transport_piket', { ...arg, p_jenis: 'Meja Sekolah' }),
+    rpc('f_ip_honor_pengganti', arg),
+    rpc('f_ip_transport_pembina', arg),
+    rpc('f_ip_transport_piket', { ...arg, p_jenis: 'Parkiran' }),
+    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
+    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
+    rpc('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
+    rpc('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
+    // Mata pelajaran hanya pelengkap; kegagalannya tidak menggagalkan struk.
+    ambil('jadwal_kbm', 'select=guru_id,mapel_id').catch(() => []),
+    ambil('mapel', 'select=id,nama_mapel').catch(() => [])
+  ]);
+  const R = {};
+  const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [] });
+  const dibayar = b => Number(b.jumlah) > 0;
+  (mengajar || []).forEach(b => { orang(b.guru_id).mengajar = b; });
+  (wali || []).forEach(b => { orang(b.guru_id).wali = b; });
+  (diper || []).forEach(b => orang(b.guru_id).diper.push(b));
+  (meja || []).forEach(b => { orang(b.guru_id).meja = b; });
+  (pengganti || []).forEach(b => { orang(b.guru_id).pengganti = b; });
+  (pembina || []).forEach(b => {
+    const o = orang(b.guru_id || 'PB:' + b.pembina_id);
+    (b.jenis === 'Imtaq' ? o.tahfidz : o.ekskul).push(b);
+  });
+  (parkir || []).forEach(b => { orang(b.guru_id).parkir = b; });
+  (sehat || []).forEach(b => { orang(b.guru_id).sehat = b; });
+  (kerja || []).forEach(b => { orang(b.guru_id).kerja = b; });
+  (kop || []).forEach(b => orang(b.guru_id).koperasi.push(b));
+  (sek || []).forEach(b => orang(b.guru_id).sekolah.push(b));
+
+  // Mata pelajaran dari jadwal KBM, tanpa Upacara dan Bimbingan Wali Kelas
+  // (M08, M25) — sama dengan yang dikecualikan f_ip_honor_mengajar.
+  const namaMapel = Object.fromEntries((mapel || []).map(m => [m.id, m.nama_mapel]));
+  const mapelGuru = {};
+  (jadwal || []).forEach(j => {
+    if (j.mapel_id === 'M08' || j.mapel_id === 'M25' || !namaMapel[j.mapel_id]) return;
+    (mapelGuru[j.guru_id] = mapelGuru[j.guru_id] || new Set()).add(namaMapel[j.mapel_id]);
+  });
+  Object.keys(mapelGuru).forEach(id => { orang(id).mapel = [...mapelGuru[id]].join(', '); });
+
+  return { R, dibayar };
+}
+
+async function unduhStruk(baris) {
+  const penerima = (baris || []).filter(b => Number(b.jumlah) > 0 || Number(b.potongan) > 0);
+  if (!penerima.length) throw new Error('Tidak ada penerima pada periode ini.');
+  const [docx, { R, dibayar }, logo] = await Promise.all([muatDocx(), rincianStruk(), ambilLogo()]);
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, PageBreak,
+          WidthType, AlignmentType, BorderStyle, ShadingType, VerticalAlign, PageOrientation, TableLayoutType } = docx;
+
+  const F = 'Calibri';
+  const NAVY = '1F3864', ABU = 'F2F2F2', BIRU = 'E9EEF6', HIJAU = 'E2EFDA', HIJAU_TUA = '375623', KELABU = '595959', GARIS = 'BFBFBF';
+  const angka = n => Number(n || 0).toLocaleString('id-ID');
+  const tanpa = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const polos = { top: tanpa, bottom: tanpa, left: tanpa, right: tanpa };
+  const tipis = { style: BorderStyle.SINGLE, size: 4, color: GARIS };
+  const bawah = { top: tanpa, bottom: tipis, left: tanpa, right: tanpa };
+  const garisKop = { top: tanpa, left: tanpa, right: tanpa, bottom: { style: BorderStyle.SINGLE, size: 12, color: NAVY } };
+
+  const run = (t, o = {}) => new TextRun({ text: t, font: F, size: o.size || 16, bold: o.bold, italics: o.italics, color: o.color });
+  const par = (isi, o = {}) => new Paragraph({
+    alignment: o.align || AlignmentType.LEFT,
+    spacing: { before: o.before || 0, after: o.after || 0, line: 216 },
+    children: Array.isArray(isi) ? isi : [isi]
+  });
+  const teks = (t, o = {}) => par(run(t, o), o);
+  const sel = (isi, w, o = {}) => new TableCell({
+    width: { size: w, type: WidthType.DXA },
+    columnSpan: o.span,
+    borders: o.borders || polos,
+    shading: o.shade ? { fill: o.shade, type: ShadingType.CLEAR, color: 'auto' } : undefined,
+    verticalAlign: o.valign || VerticalAlign.CENTER,
+    margins: { top: o.mt ?? 14, bottom: o.mb ?? 14, left: o.ml ?? 60, right: o.mr ?? 60 },
+    children: Array.isArray(isi) ? isi : [isi]
+  });
+  const tabel = (lebar, rows) => new Table({
+    width: { size: lebar.reduce((a, b) => a + b, 0), type: WidthType.DXA },
+    columnWidths: lebar, layout: TableLayoutType.FIXED, borders: polos, rows
+  });
+
+  const LEBAR = 7500;
+  const KOL = [360, 2900, 2340, 400, 1500];   // No | Uraian | Keterangan | Rp | Nominal
+  const rowHeader = (kode, judul) => new TableRow({ children: [
+    sel(teks(kode, { bold: true, color: NAVY }), KOL[0], { shade: BIRU, borders: bawah }),
+    sel(teks(judul, { bold: true, color: NAVY }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4, shade: BIRU, borders: bawah })
+  ]});
+  const rowInfo = (label, isi) => new TableRow({ children: [
+    sel(teks(''), KOL[0]),
+    sel(teks(label, { color: KELABU }), KOL[1]),
+    sel(teks(': ' + isi, { color: KELABU }), KOL[2] + KOL[3] + KOL[4], { span: 3 })
+  ]});
+  const rowItem = (no, uraian, ket, nominal) => new TableRow({ children: [
+    sel(teks(no + '.', { align: AlignmentType.RIGHT }), KOL[0]),
+    sel(teks(uraian), KOL[1]),
+    sel(teks(ket || '', { color: KELABU, italics: true }), KOL[2]),
+    sel(teks('Rp'), KOL[3]),
+    sel(teks(angka(nominal), { align: AlignmentType.RIGHT }), KOL[4])
+  ]});
+  const rowJumlah = (label, nominal, o = {}) => new TableRow({ children: [
+    sel(teks(''), KOL[0], { shade: o.shade || ABU, borders: bawah }),
+    sel(teks(label, { bold: true, italics: !o.tebal, color: o.color }), KOL[1] + KOL[2], { span: 2, shade: o.shade || ABU, borders: bawah }),
+    sel(teks('Rp', { bold: true, color: o.color }), KOL[3], { shade: o.shade || ABU, borders: bawah }),
+    sel(teks(angka(nominal), { bold: true, align: AlignmentType.RIGHT, color: o.color }), KOL[4], { shade: o.shade || ABU, borders: bawah })
+  ]});
+
+  const p = D.profil || {};
+  const periode = judulPeriodeRekap();
+  const tanggal = tglIndo(ui.rekapAkhir);
+  const kota = p.kota || 'Soreang';
+  const alamat = [p.alamat, p.kota, p.npsn ? 'NPSN ' + p.npsn : ''].filter(Boolean).join('  ·  ');
+  const dataLogo = logo && logo.buffer ? new Uint8Array(logo.buffer) : null;
+
+  /* Satu struk. Bagian yang tidak ada isinya (nominal maupun kegiatannya
+     nol) tidak dicetak, supaya struk pelatih dari luar atau staf tidak
+     dipenuhi baris Rp 0; Potongan dan Penerimaan Bersih selalu ada. */
+  function buatStruk(b) {
+    const r = R[b.orang_id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [] };
+    const m = r.mengajar && dibayar(r.mengajar) ? r.mengajar : null;
+    const w = r.wali && dibayar(r.wali) ? r.wali : null;
+    const meja = r.meja && dibayar(r.meja) ? r.meja : null;
+    const diper = r.diper.filter(dibayar);
+    const ekskul = r.ekskul.filter(dibayar), tahfidz = r.tahfidz.filter(dibayar);
+    const jml = (arr, k) => arr.reduce((t, x) => t + (Number(x[k]) || 0), 0);
+    const masaKerja = b.tmt_sekolah
+      ? Math.max(0, Math.floor((new Date(ui.rekapAkhir) - new Date(b.tmt_sekolah)) / (365.25 * 86400000))) + ' tahun'
+      : '—';
+
+    const bagian = [];
+    const A = Number(b.mengajar) || 0, B = Number(b.wali) || 0, C = Number(b.diperbantukan) || 0;
+    const D_ = ['piket_meja', 'pengganti', 'ekskul', 'tahfidz', 'parkiran'].reduce((t, k) => t + (Number(b[k]) || 0), 0);
+    const E = (Number(b.bpjs) || 0) + (Number(b.bpjs_tk) || 0);
+    let huruf = 0;
+    const kode = () => String.fromCharCode(65 + huruf++);   // A, B, C, … hanya untuk bagian yang dicetak
+
+    if (A > 0 || m) {
+      const k = kode();
+      bagian.push(rowHeader(k, 'PENDAPATAN SEBAGAI GURU'));
+      if (r.mapel) bagian.push(rowInfo('Mata Pelajaran', r.mapel));
+      const jam = m ? `${m.jam_dibayar} jam/minggu` : '';
+      bagian.push(rowItem(1, 'Honor Mengajar', jam, m ? m.honor_guru : 0));
+      bagian.push(rowItem(2, 'Transpor Berdiri', jam, m ? m.transport : 0));
+      bagian.push(rowItem(3, 'Insentif Tatap Muka', m ? `${m.jam_tm} jam hadir` : '', m ? m.insentif : 0));
+      bagian.push(rowItem(4, 'Konsumsi Kedatangan', m ? `${m.hari_datang} hari hadir` : '', m ? m.konsumsi : 0));
+      bagian.push(rowJumlah(`Jumlah ${k}`, A));
+    }
+    if (B > 0 || w) {
+      const k = kode();
+      bagian.push(rowHeader(k, 'HONOR WALI KELAS'));
+      bagian.push(rowItem(1, 'Honor Wali Kelas', w ? `${w.bulan} bulan` : '', w ? w.honor_bulanan : 0));
+      bagian.push(rowItem(2, 'Honor Upacara', w ? `${w.jam_upacara} jam hadir` : '', w ? w.honor_upacara : 0));
+      bagian.push(rowItem(3, 'Honor Bimbingan Wali Kelas', w ? `${w.jam_bimbingan} jam hadir` : '', w ? w.honor_bimbingan : 0));
+      bagian.push(rowJumlah(`Jumlah ${k}`, B));
+    }
+    if (C > 0 || diper.length) {
+      const k = kode();
+      bagian.push(rowHeader(k, 'HONOR GURU DIPERBANTUKAN'));
+      bagian.push(rowItem(1, 'Honor Diperbantukan', diper.map(x => x.unit).filter(Boolean).join(', '), jml(diper, 'honor')));
+      bagian.push(rowItem(2, 'Transpor Piket Unit', `${jml(diper, 'jam_jaga')} jam jaga`, jml(diper, 'transport')));
+      bagian.push(rowJumlah(`Jumlah ${k}`, C));
+    }
+    if (D_ > 0 || meja || r.pengganti || ekskul.length || tahfidz.length || r.parkir) {
+      const k = kode();
+      const pg = r.pengganti;
+      bagian.push(rowHeader(k, 'TRANSPOR DAN KOMPENSASI LAIN'));
+      bagian.push(rowItem(1, 'Transpor Piket Meja Sekolah', meja ? `${meja.ukuran} jam jaga` : '', b.piket_meja));
+      bagian.push(rowItem(2, 'Transpor Guru Pengganti', pg ? `GT ${pg.jam_gt} · PT ${pg.jam_pt} · Inf ${pg.jam_inf} jam` : '', b.pengganti));
+      bagian.push(rowItem(3, 'Transpor Pembina Ekstrakurikuler', ekskul.length ? `${jml(ekskul, 'pertemuan')} pertemuan` : '', b.ekskul));
+      bagian.push(rowItem(4, 'Transpor Pembimbing Tahfidz', tahfidz.length ? `${jml(tahfidz, 'pertemuan')} pertemuan` : '', b.tahfidz));
+      bagian.push(rowItem(5, 'Kompensasi Piket Parkiran', r.parkir ? `${r.parkir.ukuran} hari jaga` : '', b.parkiran));
+      bagian.push(rowJumlah(`Jumlah ${k}`, D_));
+    }
+    if (E > 0) {
+      const k = kode();
+      bagian.push(rowHeader(k, 'TUNJANGAN'));
+      bagian.push(rowItem(1, 'Tunjangan Kesehatan (TuSehat)', r.sehat ? [r.sehat.bentuk, `${r.sehat.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs));
+      bagian.push(rowItem(2, 'Tunjangan Ketenagakerjaan (TuKerja)', r.kerja ? [r.kerja.bentuk, `${r.kerja.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs_tk));
+      bagian.push(rowJumlah(`Jumlah ${k}`, E));
+    }
+    const rumus = huruf > 1 ? ` (${Array.from({ length: huruf }, (_, i) => String.fromCharCode(65 + i)).join(' + ')})` : '';
+    bagian.push(rowJumlah('JUMLAH PENDAPATAN' + rumus, b.jumlah, { shade: BIRU, tebal: true, color: NAVY }));
+
+    const k = kode();
+    const sebut = arr => [...new Set(arr.map(x => x.jenis).filter(Boolean))].join(', ');
+    bagian.push(rowHeader(k, 'POTONGAN'));
+    bagian.push(rowItem(1, 'Potongan BPJS (porsi guru)', 'TuSehat & TuKerja', b.potongan_bpjs));
+    bagian.push(rowItem(2, 'Potongan Koperasi', sebut(r.koperasi), b.potongan_koperasi));
+    bagian.push(rowItem(3, 'Potongan Lain-lain', sebut(r.sekolah), b.potongan_sekolah));
+    bagian.push(rowJumlah('Jumlah Potongan', b.potongan));
+    bagian.push(new TableRow({ children: [
+      sel(teks(''), KOL[0], { shade: HIJAU, mt: 40, mb: 40 }),
+      sel(teks('PENERIMAAN BERSIH', { bold: true, size: 18, color: HIJAU_TUA }), KOL[1] + KOL[2], { span: 2, shade: HIJAU, mt: 40, mb: 40 }),
+      sel(teks('Rp', { bold: true, size: 18, color: HIJAU_TUA }), KOL[3], { shade: HIJAU, mt: 40, mb: 40 }),
+      sel(teks(angka(b.bersih), { bold: true, size: 18, align: AlignmentType.RIGHT, color: HIJAU_TUA }), KOL[4], { shade: HIJAU, mt: 40, mb: 40 })
+    ]}));
+    bagian.push(new TableRow({ children: [
+      sel(teks(''), KOL[0]),
+      sel(teks(`Terbilang: ${terbilang(b.bersih)}`, { italics: true, color: KELABU }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4 })
+    ]}));
+
+    const kop = tabel([900, 4700, 1900], [new TableRow({ children: [
+      sel(dataLogo ? par(new ImageRun({ type: 'png', data: dataLogo, transformation: { width: 40, height: 40 } })) : teks(''), 900, { borders: garisKop }),
+      sel([
+        teks(p.nama_sekolah || KONFIG.sekolah, { bold: true, size: 20, color: NAVY }),
+        teks(alamat, { size: 14, color: KELABU })
+      ], 4700, { borders: garisKop }),
+      sel([
+        teks('PERIODE', { size: 13, color: KELABU, align: AlignmentType.CENTER }),
+        teks(periode.toUpperCase(), { bold: true, size: 18, color: NAVY, align: AlignmentType.CENTER })
+      ], 1900, { shade: BIRU, borders: { top: tipis, left: tipis, right: tipis, bottom: garisKop.bottom } })
+    ]})]);
+    const identitas = tabel([1300, 200, 3000, 1100, 200, 1700], [
+      new TableRow({ children: [
+        sel(teks('Nama'), 1300), sel(teks(':'), 200), sel(teks(b.nama || '', { bold: true }), 3000),
+        sel(teks('Jenis'), 1100), sel(teks(':'), 200), sel(teks(b.jenis_orang || '—', { bold: true }), 1700)
+      ]}),
+      new TableRow({ children: [
+        sel(teks('TMT'), 1300), sel(teks(':'), 200), sel(teks(b.tmt_sekolah ? tglIndo(b.tmt_sekolah) : '—'), 3000),
+        sel(teks('Masa Kerja'), 1100), sel(teks(':'), 200), sel(teks(masaKerja), 1700)
+      ]})
+    ]);
+    const ttd = tabel([3300, 2100, 2100], [new TableRow({ children: [
+      sel([
+        teks('Catatan:', { bold: true, size: 14, color: KELABU }),
+        teks('Mohon konfirmasi kepada bendahara bila terdapat kekeliruan atau kekurangan pada struk ini.', { size: 14, color: KELABU })
+      ], 3300, { valign: VerticalAlign.TOP }),
+      sel([
+        teks(`${kota}, ${tanggal}`, { size: 15, align: AlignmentType.CENTER }),
+        teks('Bendahara', { size: 15, align: AlignmentType.CENTER }),
+        teks('', { size: 15 }), teks('', { size: 15 }),
+        teks(p.bendahara || '……………………', { bold: true, size: 15, align: AlignmentType.CENTER })
+      ], 2100, { valign: VerticalAlign.TOP }),
+      sel([
+        teks('', { size: 15 }),
+        teks('Penerima', { size: 15, align: AlignmentType.CENTER }),
+        teks('', { size: 15 }), teks('', { size: 15 }),
+        teks(b.nama || '……………………', { bold: true, size: 15, align: AlignmentType.CENTER })
+      ], 2100, { valign: VerticalAlign.TOP })
+    ]})]);
+
+    return [
+      kop,
+      teks('STRUK GAJI', { bold: true, size: 24, color: NAVY, align: AlignmentType.CENTER, before: 80, after: 40 }),
+      identitas,
+      teks('', { size: 6, before: 40 }),
+      tabel(KOL, bagian),
+      teks('', { size: 6, before: 40 }),
+      ttd
+    ];
+  }
+
+  // Dua struk sehalaman, berdampingan, dipisah garis putus-putus untuk digunting.
+  const isi = [];
+  for (let i = 0; i < penerima.length; i += 2) {
+    const kiri = penerima[i], kanan = penerima[i + 1];
+    isi.push(tabel([LEBAR, 500, LEBAR], [new TableRow({ children: [
+      sel(buatStruk(kiri), LEBAR, { valign: VerticalAlign.TOP, ml: 0, mr: 0, mt: 0, mb: 0 }),
+      sel(teks(''), 500, { borders: { top: tanpa, bottom: tanpa, right: tanpa, left: { style: BorderStyle.DASHED, size: 4, color: GARIS } } }),
+      sel(kanan ? buatStruk(kanan) : teks(''), LEBAR, { valign: VerticalAlign.TOP, ml: 0, mr: 0, mt: 0, mb: 0 })
+    ]})]));
+    if (i + 2 < penerima.length) isi.push(new Paragraph({ children: [new PageBreak()] }));
+  }
+
+  const doc = new Document({
+    creator: p.nama_sekolah || KONFIG.sekolah,
+    title: `Struk Gaji ${periode}`,
+    styles: { default: { document: { run: { font: F, size: 16 } } } },
+    sections: [{
+      properties: { page: {
+        size: { width: 11906, height: 16838, orientation: PageOrientation.LANDSCAPE },
+        margin: { top: 500, bottom: 400, left: 660, right: 660 }
+      } },
+      children: isi
+    }]
+  });
+  const blob = await Packer.toBlob(doc);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `Struk Gaji ${ui.rekapAwal} sd ${ui.rekapAkhir}.docx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast(`${penerima.length} struk diunduh`);
 }
 
 /* Penulis Excel halaman Kehadiran dan Piket: memakai daftar kolom yang sama
