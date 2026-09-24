@@ -1298,7 +1298,7 @@ function susunTabHadir(tab, h) {
 
   if (tab === 'kehadiran') {
     const baris = saring(tanpaStaf(h.kehadiran));
-    const total = jumlahkan(baris, ['kontrak', 'terjadwal', 'hadir_tm', 'httm', 'st', 'it', 'tk']);
+    const total = jumlahkan(baris, ['kontrak', 'terjadwal', 'hadir_tm', 'httm', 'st', 'it', 'tk', 'hari_terjadwal', 'hari_datang']);
     total.hadir = Math.round(bobotHadir(total) * 100) / 100;
     total.persen = persenDari(total.hadir, total.terjadwal);
     total.nama = `Total (${baris.length} guru)`;
@@ -1313,7 +1313,10 @@ function susunTabHadir(tab, h) {
           xls: r => Number(r.tambahan) > 0 ? `${Number(r.kontrak) || 0} (+${Number(r.tambahan)})` : Number(r.kontrak) || 0 },
         angka('terjadwal', 'Terjadwal', 85), angka('hadir_tm', 'Hadir'), angka('httm', 'HTTM'),
         angka('st', 'ST', 55), angka('it', 'IT', 55), angka('tk', 'TK', 55),
-        angka('hadir', 'Hadir (bobot)', 100, fmtJam), kolPersen('persen', '% Hadir')
+        angka('hadir', 'Hadir (bobot)', 100, fmtJam), kolPersen('persen', '% Hadir'),
+        // Hari, bukan jam: dasar Konsumsi Kedatangan di Honor Mengajar.
+        // Hitungannya sama persis dengan f_ip_honor_mengajar.
+        angka('hari_terjadwal', 'Hari terjadwal', 95), angka('hari_datang', 'Hari datang', 85)
       ],
       baris, total, kosong: 'Tidak ada data pada rentang ini.',
       catatan: 'Kontrak Jam = jam mengajar per minggu menurut jadwal KBM pada semester tanggal akhir rentang; '
@@ -1321,7 +1324,10 @@ function susunTabHadir(tab, h) {
              + 'Terjadwal = jam sepanjang rentang. Bobot kehadiran per status: HTTM 100% · ST 20% · IT 10% · TK 0%. % Hadir = (Hadir '
              + 'tatap muka + jumlah berbobot) ÷ Terjadwal. Sabtu–Minggu dan hari libur tidak dihitung '
              + 'sebagai hari kerja. Upacara dan Bimbingan Wali Kelas (Senin jam 1–2) tidak termasuk — '
-             + 'lihat tab Wali Kelas.',
+             + 'lihat tab Wali Kelas. '
+             + 'Hari terjadwal = hari kerja yang ada jam mengajarnya; Hari datang = hari terjadwal yang tidak absen pada seluruh jamnya '
+             + '(HTTM dihitung tidak datang). Konsumsi Kedatangan di Honor Mengajar = Hari datang × tarif konsumsi; '
+             + 'bagi guru berinsentif fingerprint dan staf di luar tupoksi konsumsinya nol walau hari datangnya tercatat.',
       judul: 'REKAP KEHADIRAN GURU', berkas: 'Rekap Kehadiran Guru', ttd: 'kurikulum'
     };
   }
