@@ -1311,18 +1311,18 @@ function susunTabHadir(tab, h) {
         { k: 'kontrak', t: 'Kontrak Jam', w: 95, num: true,
           html: r => `${Number(r.kontrak) || 0}${Number(r.tambahan) > 0 ? ` <span class="kecil">(+${Number(r.tambahan)})</span>` : ''}`,
           xls: r => Number(r.tambahan) > 0 ? `${Number(r.kontrak) || 0} (+${Number(r.tambahan)})` : Number(r.kontrak) || 0 },
-        angka('terjadwal', 'Terjadwal', 85), angka('hadir_tm', 'Hadir'), angka('httm', 'HTTM'),
-        angka('st', 'ST', 55), angka('it', 'IT', 55), angka('tk', 'TK', 55),
-        angka('hadir', 'Hadir (bobot)', 100, fmtJam), kolPersen('persen', '% Hadir'),
         // Hari, bukan jam: dasar Konsumsi Kedatangan di Honor Mengajar.
         // Hitungannya sama persis dengan f_ip_honor_mengajar.
-        angka('hari_terjadwal', 'Hari terjadwal', 95), angka('hari_datang', 'Hari datang', 85)
+        angka('hari_terjadwal', 'Hari Terjadwal', 95), angka('hari_datang', 'Hari Datang', 85),
+        angka('terjadwal', 'Jam Terjadwal', 95), angka('hadir_tm', 'Jam Hadir', 80), angka('httm', 'HTTM'),
+        angka('st', 'ST', 55), angka('it', 'IT', 55), angka('tk', 'TK', 55),
+        angka('hadir', 'Bobot Hadir', 90, fmtJam), kolPersen('persen', '% Kehadiran')
       ],
       baris, total, kosong: 'Tidak ada data pada rentang ini.',
       catatan: 'Kontrak Jam = jam mengajar per minggu menurut jadwal KBM pada semester tanggal akhir rentang; '
              + '(+n) = jam Tugas Tambahan per minggu dari Data Induk, di luar jadwal KBM. '
-             + 'Terjadwal = jam sepanjang rentang. Bobot kehadiran per status: HTTM 100% · ST 20% · IT 10% · TK 0%. % Hadir = (Hadir '
-             + 'tatap muka + jumlah berbobot) ÷ Terjadwal. Sabtu–Minggu dan hari libur tidak dihitung '
+             + 'Jam Terjadwal = jam sepanjang rentang; Jam Hadir = jam hadir tatap muka. Bobot kehadiran per status: HTTM 100% · ST 20% · IT 10% · TK 0%. '
+             + 'Bobot Hadir = Jam Hadir + HTTM + 20% ST + 10% IT; % Kehadiran = Bobot Hadir ÷ Jam Terjadwal. Sabtu–Minggu dan hari libur tidak dihitung '
              + 'sebagai hari kerja. Upacara dan Bimbingan Wali Kelas (Senin jam 1–2) tidak termasuk — '
              + 'lihat tab Wali Kelas. '
              + 'Hari terjadwal = hari kerja yang ada jam mengajarnya; Hari datang = hari terjadwal yang tidak absen pada seluruh jamnya '
