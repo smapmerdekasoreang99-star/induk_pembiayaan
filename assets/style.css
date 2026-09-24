@@ -208,18 +208,18 @@ table.rekap tfoot td{background:var(--emas-kabut);border-top:2px solid var(--lin
    piksel di antara keduanya, dan isi sel yang sedang digulir mengintip di
    celah itu. Bayangan selebar 2 px di sisi kiri kolom nama menutup sisa
    pembulatan setengah piksel. */
-table.rekap th.lekat-no,table.rekap td.lekat-no{position:sticky;left:0;z-index:2;background:var(--card);
+th.lekat-no,td.lekat-no{position:sticky;left:0;z-index:2;background:var(--card);
   width:40px;min-width:40px;max-width:40px;box-sizing:border-box;padding-left:6px;padding-right:6px}
-table.rekap th.lekat,table.rekap td.lekat{position:sticky;left:40px;z-index:2;background:var(--card);
+th.lekat,td.lekat{position:sticky;left:40px;z-index:2;background:var(--card);
   box-shadow:1px 0 0 var(--line),-2px 0 0 var(--card)}
-table.rekap thead th.lekat,table.rekap thead th.lekat-no{z-index:4;background:var(--emas-kabut)}
-table.rekap thead th.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
-table.rekap tfoot td.lekat,table.rekap tfoot td.lekat-no{background:var(--emas-kabut)}
-table.rekap tfoot td.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
+thead th.lekat,thead th.lekat-no{z-index:4;background:var(--emas-kabut)}
+thead th.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
+tfoot td.lekat,tfoot td.lekat-no{background:var(--emas-kabut)}
+tfoot td.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
 /* Baris yang disorot (hover) ikut mengganti latar kedua kolom beku, supaya
    sorotannya tidak terputus di kolom yang dibekukan. */
-table.rekap tbody tr:hover td.lekat-no,table.rekap tbody tr:hover td.lekat{background:var(--emas-kabut)}
-table.rekap tbody tr:hover td.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
+tbody tr:hover td.lekat-no,tbody tr:hover td.lekat{background:var(--emas-kabut)}
+tbody tr:hover td.lekat{box-shadow:1px 0 0 var(--line),-2px 0 0 var(--emas-kabut)}
 .gulir-petunjuk{font-size:12px;color:var(--ink3);padding:8px 16px 0}
 
 /* ---- Kehadiran dan Piket ----
@@ -326,4 +326,10 @@ tr.cicilan td{background:var(--kertas-3);border-top:0;padding-top:5px;padding-bo
    sendiri — kepala tabel menempel di tepi atas wadah, kolom No/Nama tetap
    menempel di kiri (keduanya sticky pada dua sumbu sekaligus). */
 .scroll.gulir-tegak{max-height:calc(100vh - 200px);min-height:280px;overflow-y:auto}
-.gulir-tegak table.rekap thead th{position:sticky;top:0;z-index:3}
+.gulir-tegak table thead th{position:sticky;top:0;z-index:3}
+/* Kolom nama yang dibekukan tanpa kolom nomor di kirinya (Tunjangan
+   Kesehatan / Ketenagakerjaan) menempel di tepi kiri. */
+th.lekat:first-child,td.lekat:first-child{left:0;box-shadow:1px 0 0 var(--line)}
+/* Baris terhenti dipudarkan lewat opacity; sel beku tidak boleh tembus
+   pandang, jadi pudarnya lewat warna teks. */
+tbody tr.mati td.lekat,tbody tr.mati td.lekat-no{opacity:1;color:var(--ink3)}

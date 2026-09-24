@@ -725,8 +725,8 @@ function isiTabPenyaluran(jenis) {
     <div class="panel"><div class="panel-head"><h3>${esc(TJ_TAB[jenis].nama)} — berlaku ${esc(tglIndo(ui.acuan))}</h3>
       <div class="sp" style="flex:1"></div>
       <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px"></div>
-      <div class="scroll"><table><thead><tr>
-        <th>Nama</th><th style="width:150px">Status</th>
+      <div class="scroll gulir-tegak"><table><thead><tr>
+        <th class="lekat">Nama</th><th style="width:150px">Status</th>
         <th style="width:160px">Bentuk</th><th style="width:130px">No. peserta</th>
         <th style="width:150px" class="num">Dari sekolah/bulan</th>
         <th style="width:150px" class="num">Potongan guru/bulan</th>
@@ -734,7 +734,7 @@ function isiTabPenyaluran(jenis) {
         <th style="width:80px"></th>
       </tr></thead><tbody>${
         baris.length ? baris.map(h => `<tr class="${h.status === 'terhenti' ? 'mati' : ''}" data-guru="${esc(h.id)}" data-jenis="${esc(jenis)}">
-          <td style="font-weight:500">${esc(h.nama)}</td>
+          <td class="lekat" style="font-weight:500">${esc(h.nama)}</td>
           <td class="kecil">${h.status === 'disahkan'
             ? `disahkan, sejak ${blnIndo(h.mulai)}`
             : `<span style="color:var(--warn)">terhenti: ${esc(h.keterangan || '')}</span>`}</td>
@@ -827,16 +827,16 @@ function isiTabPotongan(kelompok) {
     <div class="panel"><div class="panel-head"><h3>${esc(nama)} — bulan ${esc(blnIndo(ui.acuan))}</h3>
       <div class="sp" style="flex:1"></div>
       <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px"></div>
-      <div class="scroll"><table><thead><tr>
-        <th style="width:40px" class="num">No</th><th>Nama</th><th style="width:100px">TMT</th>
+      <div class="scroll gulir-tegak"><table><thead><tr>
+        <th style="width:40px" class="num lekat-no">No</th><th class="lekat">Nama</th><th style="width:100px">TMT</th>
         <th>Rincian</th>
         <th style="width:140px" class="num">Nominal/bulan</th>
         <th style="width:95px">Mulai</th><th style="width:130px">Sampai</th>
         <th style="width:${koperasi ? 200 : 150}px"></th>
       </tr></thead><tbody>${
         baris.length ? baris.map((g, i) => `<tr data-guru="${esc(g.id)}" data-kelompok="${esc(kelompok)}">
-          <td class="num kecil">${i + 1}</td>
-          <td style="font-weight:500">${esc(g.nama)}</td>
+          <td class="num kecil lekat-no">${i + 1}</td>
+          <td class="lekat" style="font-weight:500">${esc(g.nama)}</td>
           <td class="kecil">${esc(tglIndo(g.tmt_sekolah))}</td>
           <td class="kecil">${koperasi
             ? (g.anggota
@@ -1679,7 +1679,7 @@ function halHadir() {
       <div class="info">${esc(isi.ringkas)}</div>
       <button class="btn btn-sm" id="hUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
       <div class="gulir-petunjuk">Geser mendatar bila tabel lebih lebar dari layar. Kolom pertama tetap terlihat saat digeser.</div>
-      <div class="scroll" id="hTabel">${tabelHadir(isi)}</div>
+      <div class="scroll gulir-tegak" id="hTabel">${tabelHadir(isi)}</div>
       ${isi.catatan ? `<div class="foot"><div class="info">${esc(isi.catatan)}</div></div>` : ''}
     </div>`}`;
 
