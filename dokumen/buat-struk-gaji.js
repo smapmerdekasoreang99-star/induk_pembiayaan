@@ -200,7 +200,7 @@ function buatStruk(d) {
 
     new TableRow({ children: [
       sel(teks(''), KOL[0], { shade: HIJAU_MUDA, mt: 40, mb: 40 }),
-      sel(teks('DITERIMA GURU', { bold: true, size: 18, color: '375623' }), KOL[1] + KOL[2], { span: 2, shade: HIJAU_MUDA, mt: 40, mb: 40 }),
+      sel(teks('DITERIMA TUNAI OLEH GURU', { bold: true, size: 18, color: '375623' }), KOL[1] + KOL[2], { span: 2, shade: HIJAU_MUDA, mt: 40, mb: 40 }),
       sel(teks('Rp', { bold: true, size: 18, color: '375623' }), KOL[3], { shade: HIJAU_MUDA, mt: 40, mb: 40 }),
       sel(teks(rp(diterima), { bold: true, size: 18, align: AlignmentType.RIGHT, color: '375623' }), KOL[4], { shade: HIJAU_MUDA, mt: 40, mb: 40 })
     ]}),
@@ -215,7 +215,6 @@ function buatStruk(d) {
     new TableRow({ children: [
       sel([
         teks('Catatan:', { bold: true, size: 14, color: '595959' }),
-        ...(E > 0 ? [teks(`Tunjangan Kesehatan dan Ketenagakerjaan sebesar Rp ${rp(E)} disetor langsung ke bank / penyelenggara oleh sekolah, tidak termasuk jumlah yang diterima.`, { size: 14, color: '595959' })] : []),
         teks('Mohon konfirmasi kepada bendahara bila terdapat kekeliruan atau kekurangan pada struk ini.', { size: 14, color: '595959' })
       ], 3300, { valign: VerticalAlign.TOP }),
       sel([

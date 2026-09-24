@@ -2783,12 +2783,14 @@ async function unduhStruk(baris) {
     /* Tunjangan (TuSehat, TuKerja) tidak diterima tunai: sekolah menyetorkannya
        langsung ke bank / penyelenggara. Ia tetap tercetak sebagai pendapatan
        (bagian Tunjangan) dan tetap terhitung di penerimaan bersih Gabungan,
-       tetapi yang dibawa guru adalah bersih dikurangi tunjangan itu. */
+       tetapi yang dibawa guru adalah bersih dikurangi tunjangan itu. Baris
+       "Tunjangan disetor ke bank" sudah menjelaskannya; Catatan tidak
+       mengulanginya. */
     const diterima = (Number(b.bersih) || 0) - E;
     if (E > 0) bagian.push(rowItem('', 'Tunjangan disetor ke bank', 'TuSehat & TuKerja, tidak diterima tunai', E));
     bagian.push(new TableRow({ children: [
       sel(teks(''), KOL[0], { shade: HIJAU, mt: 40, mb: 40 }),
-      sel(teks('DITERIMA GURU', { bold: true, size: 18, color: HIJAU_TUA }), KOL[1] + KOL[2], { span: 2, shade: HIJAU, mt: 40, mb: 40 }),
+      sel(teks('DITERIMA TUNAI OLEH GURU', { bold: true, size: 18, color: HIJAU_TUA }), KOL[1] + KOL[2], { span: 2, shade: HIJAU, mt: 40, mb: 40 }),
       sel(teks('Rp', { bold: true, size: 18, color: HIJAU_TUA }), KOL[3], { shade: HIJAU, mt: 40, mb: 40 }),
       sel(teks(angka(diterima), { bold: true, size: 18, align: AlignmentType.RIGHT, color: HIJAU_TUA }), KOL[4], { shade: HIJAU, mt: 40, mb: 40 })
     ]}));
@@ -2825,7 +2827,6 @@ async function unduhStruk(baris) {
     const ttd = tabel([3300, 2100, 2100], [new TableRow({ children: [
       sel([
         teks('Catatan:', { bold: true, size: 14, color: KELABU }),
-        ...(E > 0 ? [teks(`Tunjangan Kesehatan dan Ketenagakerjaan sebesar Rp ${angka(E)} disetor langsung ke bank / penyelenggara oleh sekolah, tidak termasuk jumlah yang diterima.`, { size: 14, color: KELABU })] : []),
         teks('Mohon konfirmasi kepada bendahara bila terdapat kekeliruan atau kekurangan pada struk ini.', { size: 14, color: KELABU })
       ], 3300, { valign: VerticalAlign.TOP }),
       sel([
