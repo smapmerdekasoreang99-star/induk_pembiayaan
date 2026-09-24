@@ -2673,7 +2673,7 @@ async function unduhStruk(baris) {
     sel(teks(': ' + isi, { color: KELABU }), KOL[2] + KOL[3] + KOL[4], { span: 3 })
   ]});
   const rowItem = (no, uraian, ket, nominal, persen) => new TableRow({ children: [
-    sel(teks(no + '.', { align: AlignmentType.RIGHT }), KOL[0]),
+    sel(teks(no ? no + '.' : '', { align: AlignmentType.RIGHT }), KOL[0]),
     sel(teks(uraian), KOL[1]),
     sel(par([run(ket || '', { color: KELABU, italics: true }),
              ...(ket ? [run(' ', { color: KELABU, italics: true }), ...runPersen(persen, { color: KELABU, italics: true })] : [])]), KOL[2]),
@@ -2708,6 +2708,16 @@ async function unduhStruk(baris) {
     const masaKerja = b.tmt_sekolah
       ? Math.max(0, Math.floor((new Date(ui.rekapAkhir) - new Date(b.tmt_sekolah)) / (365.25 * 86400000))) + ' tahun'
       : '—';
+    /* Ringkasan persentase kehadiran di blok identitas — selain yang tercetak
+       di tajuk tiap bagian — supaya terbaca sekilas. Hanya yang punya
+       jadwal pembanding; kosong berarti barisnya tidak dicetak. */
+    const ringkasHadir = [
+      r.persenMengajar != null && `Mengajar ${fmtPersen(r.persenMengajar)}`,
+      r.persenWali != null && `Wali kelas ${fmtPersen(r.persenWali)}`,
+      r.persenUnit != null && `Piket unit ${fmtPersen(r.persenUnit)}`,
+      r.persenMeja != null && `Piket meja ${fmtPersen(r.persenMeja)}`,
+      r.persenParkir != null && `Parkiran ${fmtPersen(r.persenParkir)}`
+    ].filter(Boolean).join(' · ');
 
     const bagian = [];
     const A = Number(b.mengajar) || 0, B = Number(b.wali) || 0, C = Number(b.diperbantukan) || 0;
@@ -2770,15 +2780,21 @@ async function unduhStruk(baris) {
     bagian.push(rowItem(2, 'Potongan Koperasi', sebut(r.koperasi), b.potongan_koperasi));
     bagian.push(rowItem(3, 'Potongan Lain-lain', sebut(r.sekolah), b.potongan_sekolah));
     bagian.push(rowJumlah('Jumlah Potongan', b.potongan));
+    /* Tunjangan (TuSehat, TuKerja) tidak diterima tunai: sekolah menyetorkannya
+       langsung ke bank / penyelenggara. Ia tetap tercetak sebagai pendapatan
+       (bagian Tunjangan) dan tetap terhitung di penerimaan bersih Gabungan,
+       tetapi yang dibawa guru adalah bersih dikurangi tunjangan itu. */
+    const diterima = (Number(b.bersih) || 0) - E;
+    if (E > 0) bagian.push(rowItem('', 'Tunjangan disetor ke bank', 'TuSehat & TuKerja, tidak diterima tunai', E));
     bagian.push(new TableRow({ children: [
       sel(teks(''), KOL[0], { shade: HIJAU, mt: 40, mb: 40 }),
-      sel(teks('PENERIMAAN BERSIH', { bold: true, size: 18, color: HIJAU_TUA }), KOL[1] + KOL[2], { span: 2, shade: HIJAU, mt: 40, mb: 40 }),
+      sel(teks('DITERIMA GURU', { bold: true, size: 18, color: HIJAU_TUA }), KOL[1] + KOL[2], { span: 2, shade: HIJAU, mt: 40, mb: 40 }),
       sel(teks('Rp', { bold: true, size: 18, color: HIJAU_TUA }), KOL[3], { shade: HIJAU, mt: 40, mb: 40 }),
-      sel(teks(angka(b.bersih), { bold: true, size: 18, align: AlignmentType.RIGHT, color: HIJAU_TUA }), KOL[4], { shade: HIJAU, mt: 40, mb: 40 })
+      sel(teks(angka(diterima), { bold: true, size: 18, align: AlignmentType.RIGHT, color: HIJAU_TUA }), KOL[4], { shade: HIJAU, mt: 40, mb: 40 })
     ]}));
     bagian.push(new TableRow({ children: [
       sel(teks(''), KOL[0]),
-      sel(teks(`Terbilang: ${terbilang(b.bersih)}`, { italics: true, color: KELABU }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4 })
+      sel(teks(`Terbilang: ${terbilang(diterima)}`, { italics: true, color: KELABU }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4 })
     ]}));
 
     const kop = tabel([900, 4700, 1900], [new TableRow({ children: [
@@ -2800,11 +2816,16 @@ async function unduhStruk(baris) {
       new TableRow({ children: [
         sel(teks('TMT'), 1300), sel(teks(':'), 200), sel(teks(b.tmt_sekolah ? tglIndo(b.tmt_sekolah) : '—'), 3000),
         sel(teks('Masa Kerja'), 1100), sel(teks(':'), 200), sel(teks(masaKerja), 1700)
-      ]})
+      ]}),
+      ...(ringkasHadir ? [new TableRow({ children: [
+        sel(teks('Kehadiran'), 1300), sel(teks(':'), 200),
+        sel(teks(ringkasHadir, { bold: true }), 3000 + 1100 + 200 + 1700, { span: 4 })
+      ]})] : [])
     ]);
     const ttd = tabel([3300, 2100, 2100], [new TableRow({ children: [
       sel([
         teks('Catatan:', { bold: true, size: 14, color: KELABU }),
+        ...(E > 0 ? [teks(`Tunjangan Kesehatan dan Ketenagakerjaan sebesar Rp ${angka(E)} disetor langsung ke bank / penyelenggara oleh sekolah, tidak termasuk jumlah yang diterima.`, { size: 14, color: KELABU })] : []),
         teks('Mohon konfirmasi kepada bendahara bila terdapat kekeliruan atau kekurangan pada struk ini.', { size: 14, color: KELABU })
       ], 3300, { valign: VerticalAlign.TOP }),
       sel([

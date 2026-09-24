@@ -113,6 +113,17 @@ function buatStruk(d) {
   const pendapatan = A + B + C + D + E;
   const F = d.potongan.bpjs + d.potongan.koperasi + d.potongan.lain;
   const bersih = pendapatan - F;
+  /* Tunjangan tidak diterima tunai — disetor sekolah ke bank / penyelenggara —
+     jadi yang dibawa guru adalah bersih dikurangi tunjangan. */
+  const diterima = bersih - E;
+  const fmtPersen = p => Number(p).toFixed(2).replace('.', ',') + '%';
+  const ringkasHadir = [
+    d.mengajar.persen != null && `Mengajar ${fmtPersen(d.mengajar.persen)}`,
+    d.wali.persen != null && `Wali kelas ${fmtPersen(d.wali.persen)}`,
+    d.diperbantukan.persen != null && `Piket unit ${fmtPersen(d.diperbantukan.persen)}`,
+    d.lain.persenPiket != null && `Piket meja ${fmtPersen(d.lain.persenPiket)}`,
+    d.lain.persenParkir != null && `Parkiran ${fmtPersen(d.lain.persenParkir)}`
+  ].filter(Boolean).join(' · ');
 
   /* kop: logo | nama & alamat sekolah | kotak bulan */
   const kop = tabel([900, 4700, 1900], [new TableRow({ children: [
@@ -137,7 +148,11 @@ function buatStruk(d) {
     new TableRow({ children: [
       sel(teks('Status'), 1300), sel(teks(':'), 200), sel(teks(d.status), 3000),
       sel(teks('Masa Kerja'), 1100), sel(teks(':'), 200), sel(teks(d.masaKerja), 1700)
-    ]})
+    ]}),
+    ...(ringkasHadir ? [new TableRow({ children: [
+      sel(teks('Kehadiran'), 1300), sel(teks(':'), 200),
+      sel(teks(ringkasHadir, { bold: true }), 3000 + 1100 + 200 + 1700, { span: 4 })
+    ]})] : [])
   ]);
 
   const m = d.mengajar, w = d.wali, p = d.diperbantukan, l = d.lain, t = d.tunjangan, q = d.potongan;
@@ -181,16 +196,17 @@ function buatStruk(d) {
     rowItem(2, 'Potongan Koperasi', 'Iuran anggota / cicilan', q.koperasi),
     rowItem(3, 'Potongan Lain-lain', 'Tabungan / pinjaman sekolah', q.lain),
     rowJumlah('Jumlah Potongan', F),
+    ...(E > 0 ? [rowItem('', 'Tunjangan disetor ke bank', 'TuSehat & TuKerja, tidak diterima tunai', E)] : []),
 
     new TableRow({ children: [
       sel(teks(''), KOL[0], { shade: HIJAU_MUDA, mt: 40, mb: 40 }),
-      sel(teks('PENERIMAAN BERSIH', { bold: true, size: 18, color: '375623' }), KOL[1] + KOL[2], { span: 2, shade: HIJAU_MUDA, mt: 40, mb: 40 }),
+      sel(teks('DITERIMA GURU', { bold: true, size: 18, color: '375623' }), KOL[1] + KOL[2], { span: 2, shade: HIJAU_MUDA, mt: 40, mb: 40 }),
       sel(teks('Rp', { bold: true, size: 18, color: '375623' }), KOL[3], { shade: HIJAU_MUDA, mt: 40, mb: 40 }),
-      sel(teks(rp(bersih), { bold: true, size: 18, align: AlignmentType.RIGHT, color: '375623' }), KOL[4], { shade: HIJAU_MUDA, mt: 40, mb: 40 })
+      sel(teks(rp(diterima), { bold: true, size: 18, align: AlignmentType.RIGHT, color: '375623' }), KOL[4], { shade: HIJAU_MUDA, mt: 40, mb: 40 })
     ]}),
     new TableRow({ children: [
       sel(teks(''), KOL[0]),
-      sel(teks(`Terbilang: ${Terbilang(bersih)}`, { italics: true, color: '595959' }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4 })
+      sel(teks(`Terbilang: ${Terbilang(diterima)}`, { italics: true, color: '595959' }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4 })
     ]})
   ]);
 
@@ -199,6 +215,7 @@ function buatStruk(d) {
     new TableRow({ children: [
       sel([
         teks('Catatan:', { bold: true, size: 14, color: '595959' }),
+        ...(E > 0 ? [teks(`Tunjangan Kesehatan dan Ketenagakerjaan sebesar Rp ${rp(E)} disetor langsung ke bank / penyelenggara oleh sekolah, tidak termasuk jumlah yang diterima.`, { size: 14, color: '595959' })] : []),
         teks('Mohon konfirmasi kepada bendahara bila terdapat kekeliruan atau kekurangan pada struk ini.', { size: 14, color: '595959' })
       ], 3300, { valign: VerticalAlign.TOP }),
       sel([
