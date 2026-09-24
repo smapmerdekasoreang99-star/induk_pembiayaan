@@ -232,6 +232,10 @@ function layarUtama() {
     // Pengesahan dilakukan di Data Induk; tiap kali halaman Tunjangan dibuka,
     // daftarnya dibaca segar supaya yang baru disahkan langsung tampak.
     if (halaman === 'tunjangan') D.tunjangan = null;
+    // Rekap yang dibuang karena ada perubahan (potongan, penyaluran) dihitung
+    // ulang sendiri dengan periode yang sama, supaya perubahannya langsung
+    // terlihat tanpa menekan Hitung lagi.
+    if (halaman === 'rekap' && !D.rekap && ui.rekapAwal && ui.rekapAkhir) { jalankan('Menghitung…', muatRekap); return; }
     gambar();
   });
   gambar();
@@ -559,8 +563,8 @@ function dialogRiwayat(kode) {
         bawaan ikut berubah, sedangkan yang sudah ditetapkan sendiri tidak.
         Siapa yang BERHAK ditentukan Data Induk (kelayakan dihitung,
         pengesahan kepala sekolah) — di sini hanya penyalurannya.
-   3–4. Potongan sekolah (tabungan rutin, pinjaman ke sekolah) dan potongan
-        koperasi (iuran keanggotaan, simpanan, pinjaman koperasi): satu
+   3–4. Potongan sekolah (pinjaman ke sekolah, lainnya) dan potongan
+        koperasi (iuran keanggotaan, tabungan koperasi, pinjaman koperasi): satu
         baris satu potongan per orang, dengan bulan mulai dan bulan
         terakhir (kosong = sampai diubah). Seorang guru boleh punya
         beberapa sekaligus. Mengubah nominal = mengakhiri baris lama dan
@@ -583,14 +587,18 @@ const TJ_TAB = {
   sekolah:         { nama: 'Potongan lain-lain',        kelompok: 'sekolah' }
 };
 const JENIS_POTONGAN = {
-  sekolah:  ['Tabungan rutin', 'Pinjaman ke sekolah', 'Lainnya'],
-  koperasi: ['Iuran keanggotaan', 'Simpanan wajib', 'Pinjaman koperasi', 'Lainnya']
+  sekolah:  ['Pinjaman ke sekolah', 'Lainnya'],
+  koperasi: ['Iuran keanggotaan', 'Tabungan koperasi', 'Pinjaman koperasi', 'Lainnya']
 };
+/* Baris lama berjenis "Simpanan wajib" (koperasi) dan "Tabungan rutin"
+   (lain-lain) tetap tersimpan dan tampil apa adanya; keduanya hanya tidak
+   ditawarkan lagi saat menambah. Formulir Ubah tetap menampilkan jenis
+   lamanya supaya baris itu bisa disunting tanpa berganti jenis. */
 /* Iuran keanggotaan koperasi: bawaan dari Penggajian (kode iuran_koperasi)
    untuk SEMUA guru dan staf aktif, tanpa perlu dicatat per orang. Baris
    potongan berjenis 'Iuran keanggotaan' milik seseorang menggantikan bawaan
    itu selama berlaku (nol bila bukan anggota). Potongan jenis lain —
-   simpanan, pinjaman — ditambahkan di atasnya. Fungsi rekap f_ip_potongan
+   tabungan, pinjaman — ditambahkan di atasnya. Fungsi rekap f_ip_potongan
    memakai aturan yang sama. */
 const IURAN_KOPERASI = 'Iuran keanggotaan';
 const KODE_IURAN = 'iuran_koperasi';
@@ -756,7 +764,7 @@ const keadaanPotongan = (p, tgl) => potonganAktif(p, tgl) ? 'berjalan'
    urut masa kerja. Tiap orang satu BARIS UTAMA — nominal per bulan
    seluruhnya; di koperasi juga iuran keanggotaan dan tombol Anggota /
    Non-Anggota — lalu satu BARIS CICILAN di bawahnya untuk tiap potongan lain
-   yang berjalan atau akan mulai (pinjaman, tabungan, simpanan), dengan
+   yang berjalan atau akan mulai (pinjaman, tabungan koperasi), dengan
    Mulai, Sampai, Ubah, dan Akhiri. Tombol Cicilan menambah baris baru;
    yang sudah berakhir hanya di riwayat. */
 function isiTabPotongan(kelompok) {
@@ -857,13 +865,13 @@ function isiTabPotongan(kelompok) {
       }</tbody></table></div></div>
 
     <p class="kecil">${kelompok === 'sekolah'
-      ? 'Potongan lain-lain dari pendapatan guru: tabungan rutin, angsuran pinjaman ke sekolah, atau lainnya. '
+      ? 'Potongan lain-lain dari pendapatan guru: angsuran pinjaman ke sekolah, atau lainnya. '
         + 'Semua guru dan staf aktif tercantum, urut masa kerja, dengan nominal bawaan Rp 0.'
       : `Potongan dari pendapatan guru untuk koperasi. Iuran keanggotaan bawaannya ${esc(rupiah(iuran))}/bulan dari Penggajian
         untuk semua anggota. Tombol <b>Anggota</b> menjadikan orang itu bukan anggota sejak bulan acuan (iurannya Rp 0),
         dan tombol <b>Non-Anggota</b> mengembalikannya menjadi anggota; bulan-bulan sebelumnya tidak berubah. Iuran seseorang
         yang berbeda dari bawaan dicatat lewat Cicilan berjenis Iuran keanggotaan.`}
-      Tombol <b>Cicilan</b> menambah satu baris di bawah nama: nominal per bulan, jenisnya (pinjaman, tabungan, atau lainnya),
+      Tombol <b>Cicilan</b> menambah satu baris di bawah nama: nominal per bulan, jenisnya (pinjaman, tabungan koperasi, atau lainnya),
       bulan Mulai, dan bulan Sampai — dipotong tiap bulan dalam rentang itu (Sampai kosong = sampai diubah). Pada bulan
       terakhir barisnya bertanda dan bulan berikutnya berhenti sendiri. Semuanya dikurangkan di Gabungan per Guru; mengubah
       nominal mengakhiri baris lama dan menambah baris baru, supaya rekap bulan lalu tidak berubah.</p>`;
@@ -1046,7 +1054,8 @@ function dialogAturPotongan(kelompok, guruId) {
               : '<span class="tag tag-l">berjalan</span>')
           : esc(TEKS[p.keadaan])}</td>
         <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button>${
-          p.keadaan === 'selesai' ? '' : ' <button class="btn btn-sm bAkhiriPot">Akhiri</button>'}</td></tr>`).join('')
+          p.keadaan === 'selesai' ? '' : ' <button class="btn btn-sm bAkhiriPot">Akhiri</button>'
+          } <button class="btn btn-sm btn-d bHapusPot" title="Hapus baris ini seluruhnya">Hapus</button></td></tr>`).join('')
         : (pakaiBawaan && iuran > 0) ? ''
         : `<tr><td colspan="7" class="kecil" style="text-align:center;padding:14px">Belum ada ${esc(nama.toLowerCase())} untuk ${esc(g.nama)}.</td></tr>`
       }</tbody></table></div>
@@ -1057,7 +1066,28 @@ function dialogAturPotongan(kelompok, guruId) {
   $('#m-batal').onclick = tutupModal;
   $('#m-tambah').onclick = () => dialogPotongan(kelompok, null, guruId);
   $$('#modal-root .bUbahPot').forEach(b => b.onclick = () => dialogPotongan(kelompok, Number(b.closest('tr').dataset.id), guruId));
-  $$('#modal-root .bAkhiriPot').forEach(b => b.onclick = () => dialogAkhiriPotongan(Number(b.closest('tr').dataset.id)));
+  $('#modal-root .bAkhiriPot').forEach(b => b.onclick = () => dialogAkhiriPotongan(Number(b.closest('tr').dataset.id)));
+  $('#modal-root .bHapusPot').forEach(b => b.onclick = () => {
+    const p = D.tunjangan.potongan.find(x => x.id === Number(b.closest('tr').dataset.id));
+    if (p && hapusPotongan(p)) tutupModal();
+  });
+}
+
+/* Menghapus satu baris potongan seluruhnya — dari riwayat maupun formulir
+   Ubah. Dipakai untuk baris yang salah catat; potongan yang memang pernah
+   berjalan sebaiknya di-Akhiri supaya rekap bulan lalu tetap benar.
+   Mengembalikan true bila pengguna mengonfirmasi. */
+function hapusPotongan(p) {
+  const namaGuru = (D.tunjangan.guru.find(g => g.id === p.guru_id) || {}).nama || p.guru_id;
+  if (!confirm(`Hapus ${p.jenis} ${rupiah(p.nominal)}/bulan milik ${namaGuru} (mulai ${blnIndo(p.berlaku_mulai)}) seluruhnya?\n\n`
+    + 'Untuk menghentikan potongan yang memang pernah berjalan, pakai Akhiri — supaya rekap bulan lalu tetap benar.')) return false;
+  jalankan('Menghapus…', async () => {
+    await buang('ip_potongan', `id=eq.${p.id}`);
+    await muatTunjangan();
+    D.rekap = null;
+    toast(`Potongan ${p.jenis} milik ${namaGuru} dihapus.`);
+  });
+  return true;
 }
 
 /* Tambah (id kosong) atau ubah satu potongan. Mengubah nominal dengan
@@ -1090,10 +1120,10 @@ function dialogPotongan(kelompok, id, guruTetap) {
       <input class="field num" type="number" min="0" step="1000" id="q-nominal" value="${lama ? Number(lama.nominal) : ''}">
       <div class="hint">Dipotong tiap bulan dari pendapatan di Gabungan per Guru.</div></div>
     <div class="fg"><label>Mulai bulan <span style="color:var(--danger)">*</span></label>
-      <input class="field" type="date" id="q-mulai" value="${esc(lama ? lama.berlaku_mulai : awalBulanDepan())}">
+      <input class="field" type="date" id="q-mulai" value="${esc(lama ? lama.berlaku_mulai : awalBulan(ui.acuan))}">
       <div class="hint">${lama
         ? 'Tanggal yang lebih baru dari mulai semula mengakhiri baris lama pada bulan sebelumnya dan menyimpan nominal baru sejak tanggal ini — rekap bulan sebelumnya tidak berubah. Tanggal yang sama atau lebih awal menulis ulang baris ini.'
-        : 'Tanggal 1 suatu bulan; bawaannya bulan depan.'}</div></div>
+        : `Tanggal 1 suatu bulan; bawaannya bulan acuan yang sedang dilihat (${esc(blnIndo(ui.acuan))}). Pilih bulan depan bila potongannya baru mulai nanti.`}</div></div>
     <div class="fg"><label>Sampai bulan (opsional)</label>
       <input class="field" type="date" id="q-sampai" value="${esc(lama && lama.berlaku_sampai ? lama.berlaku_sampai : '')}">
       <div class="hint">Bulan terakhir yang masih dipotong, mis. angsuran terakhir pinjaman. Kosongkan bila berjalan sampai diubah.</div></div>
@@ -1106,16 +1136,7 @@ function dialogPotongan(kelompok, id, guruTetap) {
       <button class="btn btn-p" id="m-simpan">Simpan</button></div>`, true);
 
   $('#m-batal').onclick = tutupModal;
-  if ($('#m-hapus')) $('#m-hapus').onclick = () => {
-    if (!confirm('Hapus potongan ini seluruhnya? Untuk menghentikan potongan yang memang pernah berjalan, pakai Akhiri — supaya rekap bulan lalu tetap benar.')) return;
-    tutupModal();
-    jalankan('Menghapus…', async () => {
-      await buang('ip_potongan', `id=eq.${lama.id}`);
-      await muatTunjangan();
-      D.rekap = null;
-      toast('Potongan dihapus.');
-    });
-  };
+  if ($('#m-hapus')) $('#m-hapus').onclick = () => { if (hapusPotongan(lama)) tutupModal(); };
   $('#m-simpan').onclick = () => {
     const guruId = guruTetap || $('#q-guru').value;
     if (!guruId) { $('#q-guru').focus(); return; }
@@ -1151,7 +1172,8 @@ function dialogPotongan(kelompok, id, guruTetap) {
       D.rekap = null;
       toast(`${namaGuru}: ${isi.jenis} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
         + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
-        + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(mulai)} supaya terlihat.` : ''));
+        + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(mulai)} supaya terlihat.` : '')
+        + `. Di Honor dan Transpor terhitung pada periode yang memuat ${blnIndo(mulai)}.`);
     });
   };
 }
@@ -1961,7 +1983,7 @@ const REKAP = {
       potongan_koperasi: {
         nama: 'Potongan Koperasi', fungsi: 'f_ip_potongan', arg: { p_kelompok: 'koperasi' }, potongan: true,
         judul: 'DAFTAR POTONGAN KOPERASI',
-        catatan: 'Potongan dari pendapatan guru untuk koperasi: iuran keanggotaan, simpanan wajib, atau '
+        catatan: 'Potongan dari pendapatan guru untuk koperasi: iuran keanggotaan, tabungan koperasi, atau '
                + 'angsuran pinjaman koperasi. Iuran keanggotaan bawaan (Penggajian) berlaku untuk semua guru dan '
                + 'staf aktif pada bulan yang tidak tertutup baris Iuran keanggotaan miliknya sendiri; baris bawaan '
                + 'itu tanpa tanggal Mulai/Sampai. ' + bersama,
@@ -1970,7 +1992,7 @@ const REKAP = {
       potongan_sekolah: {
         nama: 'Potongan lain-lain', fungsi: 'f_ip_potongan', arg: { p_kelompok: 'sekolah' }, potongan: true,
         judul: 'DAFTAR POTONGAN LAIN-LAIN',
-        catatan: 'Potongan lain-lain dari pendapatan guru: tabungan rutin, angsuran pinjaman ke sekolah, '
+        catatan: 'Potongan lain-lain dari pendapatan guru: angsuran pinjaman ke sekolah, '
                + 'atau lainnya. ' + bersama,
         kolom
       }
