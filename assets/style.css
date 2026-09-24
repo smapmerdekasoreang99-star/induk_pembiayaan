@@ -318,3 +318,12 @@ table.log th,table.log td{padding:8px 12px}
 
 /* Baris cicilan di matriks potongan: anak dari baris nama di atasnya. */
 tr.cicilan td{background:var(--kertas-3);border-top:0;padding-top:5px;padding-bottom:5px}
+
+/* ---- Kepala tabel rekap pembiayaan dibekukan di atas ----
+   Daftar penerimanya panjang (Gabungan per Guru, Guru Mengajar); tanpa ini
+   judul kolom hilang begitu digulir dan angka di bawah kehilangan artinya.
+   Wadahnya diberi tinggi maksimum supaya yang digulir adalah wadahnya
+   sendiri — kepala tabel menempel di tepi atas wadah, kolom No/Nama tetap
+   menempel di kiri (keduanya sticky pada dua sumbu sekaligus). */
+.scroll.gulir-tegak{max-height:calc(100vh - 200px);min-height:280px;overflow-y:auto}
+.gulir-tegak table.rekap thead th{position:sticky;top:0;z-index:3}

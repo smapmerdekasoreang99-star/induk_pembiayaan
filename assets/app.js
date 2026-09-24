@@ -2117,7 +2117,7 @@ function halRekap() {
         spek.struk ? '<button class="btn btn-sm" id="rStruk" style="margin-left:6px">Unduh struk (docx)</button>' : ''}</div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
         seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
-      <div class="scroll"><table class="rekap"><thead><tr>
+      <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th>
         <th class="lekat">Nama</th>
         ${spek.kolom.map(k => `<th style="width:${k.w}px" class="${k.num || k.rp ? 'num' : ''}">${esc(k.t)}</th>`).join('')}
