@@ -38,6 +38,10 @@ const $$ = (s, r) => [...(r || document).querySelectorAll(s)];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
   c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const enc = encodeURIComponent;
+/* Halaman Nominal Penggajian hanya dibuka dengan PIN khusus (keputusan 25
+   September 2026), sekali per sesi. Halaman lain tetap terbuka bagi
+   operator dan bendahara. */
+const PIN_NOMINAL = 'kepsek2026';
 
 const hariIniISO = () => {
   const d = new Date();
@@ -233,6 +237,12 @@ function layarUtama() {
   $('#fPeran').textContent = sesi.peran === 'bendahara' ? 'Bendahara' : 'Operator';
   $('#bKeluar').onclick = () => { sesi = { token: '', email: '', nama: '' }; layarMasuk(); };
   $$('#nav button').forEach(b => b.onclick = () => {
+    if (b.dataset.hal === 'nominal' && !ui.nominalDibuka) {
+      const pin = window.prompt('Masukkan PIN untuk membuka Nominal Penggajian:');
+      if (pin == null) return;
+      if (pin !== PIN_NOMINAL) { toast('PIN salah. Nominal Penggajian tidak dibuka.', true); return; }
+      ui.nominalDibuka = true;
+    }
     halaman = b.dataset.hal;
     $$('#nav button').forEach(x => x.classList.toggle('on', x === b));
     // Pengesahan dilakukan di Data Induk; tiap kali halaman Tunjangan dibuka,
