@@ -1298,18 +1298,31 @@ function dialogAkhiriPotongan(id) {
    begitu salah satunya diperbaiki, dan bendahara akan membaca angka yang
    berbeda dari yang dibaca kurikulum. Yang dikerjakan di sini hanya
    menyaring, menjumlahkan, dan menggambar.                               */
+/* Tiga BAGIAN (tab induk) seperti Honor dan Transpor, 25 September 2026:
+   Kehadiran Guru dan Kehadiran Staf dari aplikasi Kehadiran Guru, Absensi
+   Ekskul dari aplikasi Absensi Ekskul. Tiap tab menyebut bagiannya. */
+const HADIR_BAGIAN = { guru: 'Kehadiran Guru', staf: 'Kehadiran Staf', ekskul: 'Absensi Ekskul' };
 const HADIR_TAB = {
-  kehadiran: { nama: 'Kehadiran Guru', asal: 'guru' },
-  pengganti: { nama: 'Guru Pengganti', asal: 'guru' },
-  wali:      { nama: 'Wali Kelas',     asal: 'guru' },
-  piket_meja:     { nama: 'Piket Meja Sekolah',      asal: 'guru' },
-  piket_unit:     { nama: 'Piket Guru Diperbantukan', asal: 'guru' },
-  piket_parkiran: { nama: 'Piket Parkiran',          asal: 'guru' },
-  staf:      { nama: 'Kehadiran Staf', asal: 'guru' },
-  kegiatan:  { nama: 'Per kegiatan',   asal: 'ekskul' },
-  pertemuan: { nama: 'Per pertemuan',  asal: 'ekskul' },
-  pembina:   { nama: 'Per pembina',    asal: 'ekskul' }
+  kehadiran: { nama: 'Kehadiran Guru', bagian: 'guru' },
+  pengganti: { nama: 'Guru Pengganti', bagian: 'guru' },
+  wali:      { nama: 'Wali Kelas',     bagian: 'guru' },
+  piket_meja:     { nama: 'Piket Meja Sekolah',      bagian: 'guru' },
+  piket_unit:     { nama: 'Piket Guru Diperbantukan', bagian: 'guru' },
+  piket_parkiran: { nama: 'Piket Parkiran',          bagian: 'guru' },
+  staf:      { nama: 'Hari Hadir Staf',     bagian: 'staf' },
+  karyawan:  { nama: 'Kehadiran Karyawan',  bagian: 'staf' },
+  kegiatan:  { nama: 'Per kegiatan',   bagian: 'ekskul' },
+  pertemuan: { nama: 'Per pertemuan',  bagian: 'ekskul' },
+  pembina:   { nama: 'Per pembina',    bagian: 'ekskul' }
 };
+const hadirDiBagian = b => Object.entries(HADIR_TAB).filter(([, v]) => v.bagian === b);
+/* Nama kelompok tarif honor staf (guru_tugas.kelompok_tarif, diatur di Data
+   Induk → Jam Kerja Staf). Karyawan = tiga kelompok terakhir. */
+const KELOMPOK_TARIF_NAMA = {
+  kepala_sekolah: 'Kepala Sekolah', wakasek: 'Wakil Kepala Sekolah', staf: 'Staf',
+  kepala_tu: 'Kepala TU', tata_usaha: 'Tata Usaha dan Toolman', caraka_satpam: 'Caraka dan Satpam'
+};
+const namaKelompokTarif = k => KELOMPOK_TARIF_NAMA[k] || k || '—';
 const KATEGORI_EKSKUL = ['Ekstrakurikuler', 'Pembinaan Imtaq', 'Pembinaan Kesiswaan'];
 const HARI_NAMA = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const STATUS_PEMBINA = { H: 'Hadir', TH: 'Tidak hadir', KG: 'Ditiadakan' };
@@ -1338,19 +1351,21 @@ const bobotHadir = b => b.hadir_tm + b.httm + b.st * 0.2 + b.it * 0.1;
    berpindah tab, dan sesudahnya berpindah tab tidak menunggu jaringan. */
 async function muatHadir() {
   const arg = { p_awal: ui.hadirAwal, p_akhir: ui.hadirAkhir };
-  const [hariKerja, kehadiran, wali, pengganti, piket, staf, sesi, ekskul] = await Promise.all([
+  const [hariKerja, kehadiran, wali, pengganti, piket, staf, honorStaf, sesi, ekskul] = await Promise.all([
     rpc('f_ip_hari_kerja', arg),
     rpc('f_ip_kehadiran_guru', arg),
     rpc('f_ip_kehadiran_wali', arg),
     rpc('f_ip_pengganti_rinci', arg),
     rpc('f_ip_pelaksanaan_piket', arg),
     rpc('f_ip_kehadiran_staf', arg),
+    rpc('f_ip_honor_staf', arg),   // hari/jam kerja dan hadir karyawan (tab Kehadiran Karyawan)
     rpc('f_ip_ekskul_pertemuan', arg),
     ambil('ekskul', 'select=id,nama,pembina_id,kategori,hari,jam_mulai,aktif&order=id')
   ]);
   D.hadir = { awal: ui.hadirAwal, akhir: ui.hadirAkhir, hariKerja: (hariKerja || []).length,
               kehadiran: kehadiran || [], wali: wali || [], pengganti: pengganti || [],
-              piket: piket || [], staf: staf || [], sesi: sesi || [], ekskul: ekskul || [] };
+              piket: piket || [], staf: staf || [], honorStaf: honorStaf || [],
+              sesi: sesi || [], ekskul: ekskul || [] };
 }
 
 /* Tiap tab dijabarkan sebagai data — daftar kolom, baris, baris jumlah,
@@ -1550,6 +1565,44 @@ function susunTabHadir(tab, h) {
     };
   }
 
+  if (tab === 'karyawan') {
+    /* Meniru sheet "Karyawan" (KEHADIRAN KARYAWAN) di struk bendahara: masa
+       kerja staf, rencana rutin per minggu (hari, jam), efektif bulan ini
+       (hari, jam kerja dalam rentang), kehadiran riil (hari, jam), persentase.
+       Datanya dari f_ip_honor_staf — angka yang sama yang dipakai daftar
+       honor karyawan di Honor dan Transpor. Karyawan = kelompok tarif Kepala
+       TU, Tata Usaha dan Toolman, Caraka dan Satpam. */
+    const baris = saring(h.honorStaf.filter(r => r.karyawan)).map(r => ({ ...r,
+      kelompok: namaKelompokTarif(r.kelompok_tarif),
+      persen: persenDari(r.hari_hadir, r.hari_kerja),
+      persenJam: persenDari(r.jam_hadir, r.jam_kerja) }));
+    const total = jumlahkan(baris, ['hari_minggu', 'jam_minggu', 'hari_kerja', 'jam_kerja', 'hari_hadir', 'jam_hadir']);
+    total.persen = persenDari(total.hari_hadir, total.hari_kerja);
+    total.persenJam = persenDari(total.jam_hadir, total.jam_kerja);
+    total.nama = `Total (${baris.length} karyawan)`;
+    return {
+      cari: 'Saring nama karyawan…', ringkas: periode,
+      kolom: [
+        { k: 'nama', t: 'Nama', lekat: true },
+        { k: 'jabatan', t: 'Jabatan', w: 140, f: v => v || '—' },
+        { k: 'kelompok', t: 'Kelompok tarif', w: 150 },
+        angka('masa_kerja', 'Masa kerja', 80, v => v == null ? '—' : v),
+        angka('hari_minggu', 'Hari/minggu', 85), angka('jam_minggu', 'Jam/minggu', 85, fmtJam),
+        angka('hari_kerja', 'Hari efektif', 85), angka('jam_kerja', 'Jam efektif', 85, fmtJam),
+        angka('hari_hadir', 'Hari hadir', 80), angka('jam_hadir', 'Jam hadir', 80, fmtJam),
+        kolPersen('persen', '% Hari'), kolPersen('persenJam', '% Jam')
+      ],
+      baris, total,
+      kosong: 'Belum ada karyawan: tetapkan kelompok tarif Kepala TU, Tata Usaha, atau Caraka/Satpam di Data Induk → Jam Kerja Staf.',
+      catatan: 'Susunannya mengikuti sheet Kehadiran Karyawan pada struk bendahara. Hari dan jam per minggu dari '
+             + 'ketentuan Jam Kerja Staf di Data Induk; hari dan jam efektif = hari kerja orang itu dalam rentang, di '
+             + 'luar hari libur; hari dan jam hadir dari catatan Kehadiran Staf (fingerprint atau manual), jam hadir '
+             + 'dipotong pada ketentuan masuk–pulang sehingga lembur tidak dihitung. Masa kerja dari TMT staf di Data '
+             + 'Induk (bila kosong, TMT sekolah).',
+      judul: 'REKAP KEHADIRAN KARYAWAN', berkas: 'Kehadiran Karyawan', ttd: 'kurikulum'
+    };
+  }
+
   /* ---- Absensi Ekskul: ketiga tab berbagi penyaring kategori dan ringkasan ---- */
   const kat = ui.ekskulKategori;
   const kategoriDari = e => (e && e.kategori) || 'Ekstrakurikuler';
@@ -1718,6 +1771,7 @@ function halHadir() {
   const spek = HADIR_TAB[ui.hadirTab];
   const isi = h ? susunTabHadir(ui.hadirTab, h) : null;
   const chip = ([k, v]) => `<button class="chip${k === ui.hadirTab ? ' on' : ''}" data-hadir="${k}">${esc(v.nama)}</button>`;
+  const bagian = spek.bagian || 'guru';
   const berubah = h && (h.awal !== ui.hadirAwal || h.akhir !== ui.hadirAkhir);
 
   $('#isi').innerHTML = `
@@ -1735,11 +1789,10 @@ function halHadir() {
         <button class="btn btn-p" id="hHitung">Hitung</button>
       </div></div>
 
-    <div class="bar"><span class="label">Kehadiran Guru</span>
-      ${Object.entries(HADIR_TAB).filter(([, v]) => v.asal === 'guru').map(chip).join('')}
-      <span class="label" style="margin-left:14px">Absensi Ekskul</span>
-      ${Object.entries(HADIR_TAB).filter(([, v]) => v.asal === 'ekskul').map(chip).join('')}
+    <div class="bagian-bar">${Object.entries(HADIR_BAGIAN).map(([k, nama]) =>
+      `<button class="bagian${k === bagian ? ' on' : ''}" data-hbagian="${k}">${esc(nama)}</button>`).join('')}
     </div>
+    <div class="anak-bar"><span class="induk">${esc(HADIR_BAGIAN[bagian])} ›</span>${hadirDiBagian(bagian).map(chip).join('')}</div>
 
     ${!h ? `<div class="panel"><div class="empty"><b>Belum dihitung</b>
       Pilih periodenya lalu ketuk Hitung.</div></div>` : `
@@ -1781,6 +1834,13 @@ function halHadir() {
   };
   $$('[data-hadir]').forEach(b => b.onclick = () => {
     ui.hadirTab = b.dataset.hadir; ui.hadirSaring = '';
+    if (!D.hadir) jalankan('Memuat kehadiran…', muatHadir); else gambar();
+  });
+  // Pindah bagian = pindah ke tab pertama bagian itu.
+  $$('[data-hbagian]').forEach(b => b.onclick = () => {
+    const pertama = hadirDiBagian(b.dataset.hbagian)[0];
+    if (!pertama || pertama[0] === ui.hadirTab) return;
+    ui.hadirTab = pertama[0]; ui.hadirSaring = '';
     if (!D.hadir) jalankan('Memuat kehadiran…', muatHadir); else gambar();
   });
   $$('[data-pilih]').forEach(b => b.onclick = () => { ui.penggantiRinci = b.dataset.pilih === 'rinci'; gambar(); });
@@ -1990,6 +2050,58 @@ const REKAP = {
       }
     };
   })(),
+  /* Dua daftar tenaga kependidikan (karyawan) meniru sheet Karyawan (1) dan
+     Karyawan (2) struk bendahara, dari satu fungsi f_ip_honor_staf yang
+     menghitung semua pemegang tugas Staf; di sini disaring yang karyawan
+     (kelompok tarif Kepala TU, Tata Usaha dan Toolman, Caraka dan Satpam).
+     Jumlah tiap daftar hanya komponennya sendiri. Staf yang guru (Wakasek,
+     Staf Kesiswaan, dst.) menunggu daftar Staf dan Wakasek menyusul. */
+  karyawan_pokok: {
+    tab: 'staf', nama: 'Gaji Pokok dan Tunjangan Karyawan', fungsi: 'f_ip_honor_staf',
+    saring: r => r.karyawan,
+    ubah: r => ({ ...r, jumlah: (Number(r.gaji_pokok) || 0) + (Number(r.tunjangan_jabatan) || 0) }),
+    judul: 'DAFTAR PENERIMAAN GAJI POKOK DAN TUNJANGAN JABATAN TENAGA KEPENDIDIKAN (KARYAWAN)',
+    catatan: 'Gaji pokok = tarif per jam menurut masa kerja staf (Gaji Pokok Staf di Nominal Penggajian Staf) '
+           + '× jam kerja per minggu, dibulatkan ke atas ke ribuan. Tunjangan jabatan = nominal per hari kelompok '
+           + 'tarifnya × hari kerja per minggu. Hari dan jam per minggu dari ketentuan Jam Kerja Staf di Data '
+           + 'Induk, kelompok tarif dari halaman yang sama; masa kerja dari TMT staf (bila kosong, TMT sekolah). '
+           + 'Keduanya tidak bergantung kehadiran dan tidak dikalikan indeks. Susunannya mengikuti sheet Karyawan (1) '
+           + 'struk bendahara.',
+    kolom: [
+      { k: 'jabatan', t: 'Jabatan', w: 140, jumlah: false },
+      { k: 'kelompok_tarif', t: 'Kelompok', w: 130, jumlah: false, html: r => esc(namaKelompokTarif(r.kelompok_tarif)), xls: r => namaKelompokTarif(r.kelompok_tarif) },
+      { k: 'masa_kerja', t: 'Masa kerja', w: 80, num: true, jumlah: false },
+      { k: 'hari_minggu', t: 'Hari/minggu', w: 85, num: true, jumlah: false },
+      { k: 'jam_minggu', t: 'Jam/minggu', w: 85, num: true, jumlah: false },
+      { k: 'tarif_jam', t: 'Tarif/jam', w: 100, rp: true, jumlah: false },
+      { k: 'gaji_pokok', t: 'Gaji Pokok', w: 130, rp: true },
+      { k: 'tunjangan_jabatan', t: 'Tunjangan Jabatan', w: 140, rp: true }
+    ]
+  },
+  karyawan_transport: {
+    tab: 'staf', nama: 'Transport dan Konsumsi Karyawan', fungsi: 'f_ip_honor_staf',
+    saring: r => r.karyawan,
+    ubah: r => ({ ...r, jumlah: (Number(r.transport_berdiri) || 0) + (Number(r.transport_htm) || 0) + (Number(r.konsumsi) || 0) }),
+    judul: 'DAFTAR PENERIMAAN TRANSPORT DAN KONSUMSI TAMBAHAN TENAGA KEPENDIDIKAN (KARYAWAN)',
+    catatan: 'Ketiganya dikalikan indeks kelompok tarif (Indeks Staf di Nominal Penggajian Staf, menurut masa kerja). '
+           + 'Transport berdiri = Transport Berdiri Karyawan (30 % dari tarif staf, mengikuti rumus struk bendahara) '
+           + '× jam kerja per minggu × indeks. Transport HTM = tarif per jam hadir × jam hadir sebulan × indeks, '
+           + 'dibulatkan ke atas ke ribuan. Konsumsi = tarif per hari hadir × hari hadir × indeks. Jam dan hari hadir '
+           + 'dari Kehadiran Staf; jam hadir dipotong pada ketentuan masuk–pulang. Susunannya mengikuti sheet '
+           + 'Karyawan (2) struk bendahara.',
+    kolom: [
+      { k: 'jabatan', t: 'Jabatan', w: 140, jumlah: false },
+      { k: 'indeks', t: 'Indeks', w: 70, num: true, jumlah: false, html: r => angkaIndeks(r.indeks) },
+      { k: 'masa_kerja', t: 'Masa kerja', w: 80, num: true, jumlah: false },
+      { k: 'hari_minggu', t: 'Hari/minggu', w: 85, num: true, jumlah: false },
+      { k: 'jam_minggu', t: 'Jam/minggu', w: 85, num: true, jumlah: false },
+      { k: 'hari_hadir', t: 'Hari/bulan', w: 80, num: true },
+      { k: 'jam_hadir', t: 'Jam/bulan', w: 80, num: true },
+      { k: 'transport_berdiri', t: 'Transport Berdiri', w: 130, rp: true },
+      { k: 'transport_htm', t: 'Transport HTM', w: 120, rp: true },
+      { k: 'konsumsi', t: 'Konsumsi', w: 120, rp: true }
+    ]
+  },
   piket_parkiran: { tab: 'staf',
     nama: 'Piket Parkiran', fungsi: 'f_ip_transport_piket',
     arg: { p_jenis: 'Parkiran' },
@@ -2409,7 +2521,8 @@ async function unduhRekap(spek, baris, total) {
     sel(r, 1, i + 1, { rata: 'center' });
     sel(r, 2, b.nama + (b.staf && b.seandainya != null ? ' (Staf — seandainya ' + rupiah(b.seandainya) + ')' : ''));
     kolom.forEach((k, j) => {
-      const v = b[k.k];
+      // `xls`: nilai Excel yang berbeda dari kunci mentahnya (mis. nama kelompok tarif).
+      const v = k.xls ? k.xls(b) : b[k.k];
       if (k.rp) sel(r, 3 + j, Number(v) || 0, { fmt: RP });
       else if (k.num) sel(r, 3 + j, Number(v) || 0, { rata: 'center' });
       else sel(r, 3 + j, v == null ? '—' : String(v), { rata: 'center' });
