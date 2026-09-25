@@ -326,19 +326,25 @@ const teksIndeks = i => !i ? ''
 const GAJI_TAB = {
   guru: { nama: 'Nominal Penggajian Guru', judul: 'Nominal Penggajian Guru',
           keterangan: 'Nominal tiap jenis pembiayaan untuk guru: mengajar, pengganti, wali kelas, '
-                    + 'diperbantukan, piket, pembina, serta tunjangan dan potongan yang berlaku bagi guru.' },
+                    + 'diperbantukan, piket, dan pembina. Bawaan tunjangan dan potongan diatur di halaman '
+                    + 'Tunjangan dan Potongan.' },
   staf: { nama: 'Nominal Penggajian Staf', judul: 'Nominal Penggajian Staf',
           keterangan: 'Formulasi honor staf (tenaga kependidikan) mengikuti berkas bendahara: gaji pokok per jam '
                     + 'menurut masa kerja, tunjangan jabatan per hari, lalu transport berdiri, transport HTM, dan '
                     + 'konsumsi yang dikalikan indeks kelompok jabatan (dasar + kenaikan per tahun masa kerja, '
-                    + 'dibatasi maksimum). Juga piket parkiran serta tunjangan dan potongan yang berlaku bagi staf.' }
+                    + 'dibatasi maksimum). Juga piket parkiran.' }
 };
 const untukTab = (j, tab) => { const p = j.penerima || 'guru'; return p === 'semua' || p === tab; };
 
 function halNominal() {
   const tab = GAJI_TAB[ui.gajiTab] ? ui.gajiTab : 'guru';
   const T = GAJI_TAB[tab];
-  const aktif = D.jenis.filter(j => j.aktif && !KODE_POTONGAN.has(j.kode) && untukTab(j, tab));
+  /* Kelompok Tunjangan dan Potongan (TuSehat, TuKerja, iuran koperasi) tidak
+     digambar di sini sejak 25 September 2026: bawaannya diubah dari halaman
+     Tunjangan dan Potongan lewat tombol Ubah bawaan, dengan formulir dan
+     riwayat yang sama. */
+  const aktif = D.jenis.filter(j => j.aktif && !KODE_POTONGAN.has(j.kode) && untukTab(j, tab)
+    && j.kelompok !== 'Tunjangan dan Potongan');
   const kelompok = [...new Set(aktif.map(j => j.kelompok))];
   const tarifDari = kode => D.tarif.filter(t => t.kode === kode);
   /* Tiap kelompok mendapat satu warna aksen dari palet bersama, berurutan —
@@ -631,10 +637,11 @@ function dialogRiwayat(kode) {
 /* Empat tab dalam satu halaman:
    1–2. TuSehat dan TuKerja: penyaluran per orang (BPJS, Simponi BNI, DPLK
         BJB), nomor peserta, NOMINAL dari sekolah dan POTONGAN porsi guru
-        per bulan. Bawaan keduanya diisi di Nominal Penggajian; angka per orang
+        per bulan. Bawaan keduanya diubah di halaman ini lewat tombol Ubah bawaan
+        (kartunya tidak lagi di Nominal Penggajian sejak 25 September 2026); angka per orang
         yang berbeda disimpan di sini — berversi menurut tanggal berlaku,
         seperti besaran — dan berlaku sampai diubah lagi. Yang kosong
-        mengikuti Nominal Penggajian, jadi bila bawaannya berubah, yang mengikuti
+        mengikuti bawaan, jadi bila bawaannya berubah, yang mengikuti
         bawaan ikut berubah, sedangkan yang sudah ditetapkan sendiri tidak.
         Siapa yang BERHAK ditentukan Data Induk (kelayakan dihitung,
         pengesahan kepala sekolah) — di sini hanya penyalurannya.
@@ -739,7 +746,7 @@ function halTunjangan() {
       <p>Penyaluran TuSehat (Tunjangan Kesehatan) dan TuKerja (Tunjangan Ketenagakerjaan) per orang,
          beserta nominal dari sekolah dan potongan porsi guru; lalu potongan lain dari pendapatan guru:
          tabungan dan pinjaman ke sekolah, serta iuran dan pinjaman koperasi. Semuanya dikurangkan
-         di Potongan per Guru (Honor dan Transpor, bagian Tunjangan dan Potongan).</p></div>
+         pada struk gaji dari Gabungan Keseluruhan di Honor dan Transpor.</p></div>
       <div class="sp"></div>
       <div class="mx-pilih">
         <label class="kecil">Berlaku pada</label>
@@ -783,11 +790,11 @@ function isiTabPenyaluran(jenis) {
   const totalNominal = aktif.reduce((t, h) => t + h.a.nominal, 0);
   const totalPotongan = aktif.reduce((t, h) => t + h.a.potongan, 0);
   const k = KODE_TUNJANGAN[jenis];
-  const sel = (nilai, khusus) => `${rupiah(nilai)}${khusus ? '' : ' <span class="kecil">(Nominal Penggajian)</span>'}`;
+  const sel = (nilai, khusus) => `${rupiah(nilai)}${khusus ? '' : ' <span class="kecil">(bawaan)</span>'}`;
 
   return `
     ${belumDiatur ? `<div class="info-box"><b>${belumDiatur} penerima belum diatur penyalurannya.</b>
-      Selama belum diatur, dianggap ${esc(bentukBawaan(jenis))} dengan nominal dan potongan bawaan Nominal Penggajian.
+      Selama belum diatur, dianggap ${esc(bentukBawaan(jenis))} dengan nominal dan potongan bawaan.
       Ketuk <b>Atur</b> pada barisnya.</div>` : ''}
 
     <div class="kartu-baris">
@@ -823,8 +830,10 @@ function isiTabPenyaluran(jenis) {
             ${semua.length ? 'Ubah pencarian.' : 'Belum ada yang disahkan di Data Induk.'}</div></td></tr>`
       }</tbody></table></div></div>
 
-    <p class="kecil">Bawaan pada ${esc(tglIndo(ui.acuan))} dari Nominal Penggajian: dari sekolah ${esc(rupiah(tarifBawaan(k.nominal)))}/bulan,
-      potongan guru ${esc(rupiah(tarifBawaan(k.potongan)))}/bulan. Angka bertanda <i>(Nominal Penggajian)</i> mengikuti bawaan itu
+    <p class="kecil"><button class="btn btn-sm bBawaan" data-kode="${esc(k.nominal)}" style="float:right;margin-left:10px">Ubah bawaan</button>
+      Bawaan pada ${esc(tglIndo(ui.acuan))}: dari sekolah ${esc(rupiah(tarifBawaan(k.nominal)))}/bulan,
+      potongan guru ${esc(rupiah(tarifBawaan(k.potongan)))}/bulan — diubah lewat <b>Ubah bawaan</b>, berversi menurut
+      tanggal berlaku. Angka bertanda <i>(bawaan)</i> mengikuti bawaan itu
       dan ikut berubah bila bawaannya diubah; yang ditetapkan sendiri lewat <b>Atur</b> tetap sampai diubah lagi.
       Potongan adalah porsi guru per bulan (termasuk anggota keluarga tambahan yang ditanggung guru), dicatat sebagai
       nominal — sistem tidak menghitung rumus BPJS — dan dikurangkan di Gabungan Keseluruhan. Mengubah penyaluran selalu
@@ -915,7 +924,7 @@ function isiTabPotongan(kelompok) {
           <td class="kecil">${esc(tglIndo(g.tmt_sekolah))}</td>
           <td class="kecil">${koperasi
             ? (g.anggota
-                ? `${esc(IURAN_KOPERASI)} ${esc(rupiah(g.iuranOrang))}${g.iuranSendiri ? '' : ' (Nominal Penggajian)'}`
+                ? `${esc(IURAN_KOPERASI)} ${esc(rupiah(g.iuranOrang))}${g.iuranSendiri ? '' : ' (bawaan)'}`
                 : '<span style="color:var(--warn)">bukan anggota koperasi</span>')
             : (g.cicilanJalan.length ? `${g.cicilanJalan.length} potongan berjalan` : '—')}${
             g.selesai ? ` · <a href="#" class="kecil bRiwayatPot">riwayat (${g.selesai})</a>` : ''}</td>
@@ -942,8 +951,9 @@ function isiTabPotongan(kelompok) {
     <p class="kecil">${kelompok === 'sekolah'
       ? 'Potongan lain-lain dari pendapatan guru: angsuran pinjaman ke sekolah, atau lainnya. '
         + 'Semua guru dan staf aktif tercantum, urut masa kerja, dengan nominal bawaan Rp 0.'
-      : `Potongan dari pendapatan guru untuk koperasi. Iuran keanggotaan bawaannya ${esc(rupiah(iuran))}/bulan dari Nominal Penggajian
-        untuk semua anggota. Tombol <b>Anggota</b> menjadikan orang itu bukan anggota sejak bulan acuan (iurannya Rp 0),
+      : `<button class="btn btn-sm bBawaan" data-kode="iuran_koperasi" style="float:right;margin-left:10px">Ubah iuran bawaan</button>
+        Potongan dari pendapatan guru untuk koperasi. Iuran keanggotaan bawaannya ${esc(rupiah(iuran))}/bulan
+        untuk semua anggota, diubah lewat <b>Ubah iuran bawaan</b> (berversi menurut tanggal berlaku). Tombol <b>Anggota</b> menjadikan orang itu bukan anggota sejak bulan acuan (iurannya Rp 0),
         dan tombol <b>Non-Anggota</b> mengembalikannya menjadi anggota; bulan-bulan sebelumnya tidak berubah. Iuran seseorang
         yang berbeda dari bawaan dicatat lewat Cicilan berjenis Iuran keanggotaan.`}
       Tombol <b>Cicilan</b> menambah satu baris di bawah nama: nominal per bulan, jenisnya (pinjaman, tabungan koperasi, atau lainnya),
@@ -974,7 +984,7 @@ function ubahKeanggotaan(guruId, jadiAnggota) {
     }]);
     await muatTunjangan();
     D.rekap = null;
-    toast(`${g.nama}: ${jadiAnggota ? 'anggota koperasi, iuran mengikuti Nominal Penggajian' : 'bukan anggota koperasi, iuran Rp 0'} sejak ${blnIndo(bulanAcuan)}.`);
+    toast(`${g.nama}: ${jadiAnggota ? 'anggota koperasi, iuran mengikuti bawaan' : 'bukan anggota koperasi, iuran Rp 0'} sejak ${blnIndo(bulanAcuan)}.`);
   });
 }
 
@@ -988,6 +998,8 @@ function pasangAksiTunjangan() {
     const tr = b.closest('tr');
     dialogPenyaluran(tr.dataset.guru, tr.dataset.jenis);
   });
+  // Bawaan TuSehat/TuKerja (nominal + potongan) dan iuran koperasi: formulir versi baru yang sama dengan Nominal Penggajian.
+  $$('.bBawaan').forEach(b => b.onclick = () => formTarif(b.dataset.kode));
   $$('.bRiwayatPot').forEach(b => b.onclick = e => {
     e.preventDefault();
     const tr = b.closest('tr');
@@ -1032,12 +1044,12 @@ function dialogPenyaluran(guruId, jenis) {
     <div class="fg"><label>Dari sekolah per bulan</label>
       <input class="field num" type="number" min="0" step="1000" id="p-nominal"
         value="${s && s.nominal != null ? Number(s.nominal) : ''}" placeholder="${bawaanNominal}">
-      <div class="hint">Kosongkan untuk mengikuti Nominal Penggajian (${esc(rupiah(bawaanNominal))} pada ${esc(tglIndo(ui.acuan))}).
+      <div class="hint">Kosongkan untuk mengikuti bawaan (${esc(rupiah(bawaanNominal))} pada ${esc(tglIndo(ui.acuan))}).
         Isi bila nominal orang ini berbeda; angka itu tetap sampai diubah lagi.</div></div>
     <div class="fg"><label>Potongan porsi guru per bulan</label>
       <input class="field num" type="number" min="0" step="1000" id="p-potongan"
         value="${s && s.potongan != null ? Number(s.potongan) : ''}" placeholder="${bawaanPotongan}">
-      <div class="hint">Kosongkan untuk mengikuti Nominal Penggajian (${esc(rupiah(bawaanPotongan))}). Isi bila potongan orang ini
+      <div class="hint">Kosongkan untuk mengikuti bawaan (${esc(rupiah(bawaanPotongan))}). Isi bila potongan orang ini
         berbeda, mis. menanggung anggota keluarga tambahan; nol bila tidak ada potongan.</div></div>
     <div class="fg penuh"><label>Catatan (opsional)</label>
       <input class="field" id="p-catatan" placeholder="Mis. ditanggung suami sejak Agustus; menanggung ibu">
@@ -1048,8 +1060,8 @@ function dialogPenyaluran(guruId, jenis) {
       <tbody>${riwayat.map(r => `<tr>
         <td class="kecil">${esc(tglIndo(r.berlaku_mulai))}</td><td>${esc(r.bentuk)}</td>
         <td class="kecil">${esc(r.nomor_peserta || '')}</td>
-        <td style="text-align:right">${r.nominal == null ? '<span class="kecil">Nominal Penggajian</span>' : rupiah(r.nominal)}</td>
-        <td style="text-align:right">${r.potongan == null ? '<span class="kecil">Nominal Penggajian</span>' : rupiah(r.potongan)}</td>
+        <td style="text-align:right">${r.nominal == null ? '<span class="kecil">bawaan</span>' : rupiah(r.nominal)}</td>
+        <td style="text-align:right">${r.potongan == null ? '<span class="kecil">bawaan</span>' : rupiah(r.potongan)}</td>
         <td class="kecil">${esc(r.catatan || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </div>
     <div class="aksi"><button class="btn" id="m-batal">Batal</button>
@@ -1080,8 +1092,8 @@ function dialogPenyaluran(guruId, jenis) {
       await muatTunjangan();
       D.rekap = null;   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
       const a = angkaTunjangan(jenis, isi);
-      toast(`${h.nama}: ${isi.bentuk}, dari sekolah ${rupiah(a.nominal)}${a.nominalKhusus ? '' : ' (Nominal Penggajian)'}, `
-        + `potongan ${rupiah(a.potongan)}${a.potonganKhusus ? '' : ' (Nominal Penggajian)'}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
+      toast(`${h.nama}: ${isi.bentuk}, dari sekolah ${rupiah(a.nominal)}${a.nominalKhusus ? '' : ' (bawaan)'}, `
+        + `potongan ${rupiah(a.potongan)}${a.potonganKhusus ? '' : ' (bawaan)'}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
         + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(isi.berlaku_mulai)} supaya terlihat.` : ''));
     });
   };
@@ -1108,13 +1120,13 @@ function dialogAturPotongan(kelompok, guruId) {
     <p class="msg kecil">Nominal per bulan pada ${esc(blnIndo(ui.acuan))}: <b>${esc(rupiah(total))}</b>.
       Satu baris satu potongan — tabungan dan pinjaman boleh berjalan bersamaan. Mengubah nominal dengan
       tanggal mulai yang lebih baru mengakhiri baris lama dan menambah baris baru.${kelompok === 'koperasi'
-        ? ` Iuran keanggotaan bawaan Nominal Penggajian (${esc(rupiah(iuran))}) berlaku selama tidak ada baris
+        ? ` Iuran keanggotaan bawaan (${esc(rupiah(iuran))}) berlaku selama tidak ada baris
           Iuran keanggotaan miliknya; tambahkan baris itu bila iurannya berbeda, atau nol bila bukan anggota.` : ''}</p>
     <div class="fg penuh">
       <table class="log"><thead><tr><th>Jenis</th><th>Keterangan</th><th style="text-align:right">Nominal/bulan</th>
         <th>Mulai</th><th>Sampai</th><th></th><th></th></tr></thead>
       <tbody>${pakaiBawaan && iuran > 0 ? `<tr>
-        <td>${esc(IURAN_KOPERASI)}</td><td class="kecil">bawaan Nominal Penggajian</td>
+        <td>${esc(IURAN_KOPERASI)}</td><td class="kecil">bawaan</td>
         <td style="text-align:right;font-weight:600">${esc(rupiah(iuran))}</td>
         <td class="kecil">—</td><td class="kecil">sampai diubah</td>
         <td class="kecil"><span class="tag tag-l">berjalan</span></td><td></td></tr>` : ''}${
@@ -1188,7 +1200,7 @@ function dialogPotongan(kelompok, id, guruTetap) {
     <div class="fg"><label>Jenis</label>
       <select class="field" id="q-jenis">${pilihanJenis.map(j =>
         `<option value="${esc(j)}" ${lama && lama.jenis === j ? 'selected' : ''}>${esc(j)}</option>`).join('')}</select>
-      ${kelompok === 'koperasi' ? `<div class="hint">Iuran keanggotaan menggantikan bawaan Nominal Penggajian
+      ${kelompok === 'koperasi' ? `<div class="hint">Iuran keanggotaan menggantikan bawaan
         (${esc(rupiah(iuranBawaan(kelompok)))}/bulan) selama berlaku — isi nol bila bukan anggota. Jenis lain
         ditambahkan di atas iuran.</div>` : ''}</div>
     <div class="fg"><label>Nominal per bulan <span style="color:var(--danger)">*</span></label>
@@ -1861,10 +1873,9 @@ function halHadir() {
 const REKAP = {
   /* Susunan tabnya PER PENERIMA, bukan per jenis tarif (keputusan 22
      September 2026): satu tab untuk tiap golongan penerima. Sejak 25
-     September 2026 tab-tab itu dikelompokkan dalam empat BAGIAN (`tab`):
-     guru, staf, tp (Tunjangan dan Potongan), dan gabungan — Gabungan
-     Keseluruhan berdiri sendiri paling belakang sebagai dasar daftar
-     pembayaran — lihat REKAP_BAGIAN.
+     September 2026 tab-tab itu dikelompokkan dalam tiga BAGIAN (`tab`):
+     guru, staf, dan gabungan — Gabungan Keseluruhan berdiri sendiri paling
+     belakang sebagai dasar daftar pembayaran — lihat REKAP_BAGIAN.
      Tiap tab satu fungsi database, satu daftar kolom; menambah tab kelak
      cukup menambah satu entri di sini. `saring` menyaring baris hasil
      fungsi yang dipakai beberapa tab sekaligus (transport pembina:
@@ -1896,8 +1907,8 @@ const REKAP = {
     ]
     /* Potongan dan diterima bersih tidak lagi berdiri di sini (25 September
        2026): Gabungan menunjukkan yang DIBAYARKAN; yang dipotong dan yang
-       diterima ada di Potongan per Guru, bagian Tunjangan dan Potongan.
-       Fungsinya tetap mengembalikan kolom itu karena struk gaji membacanya. */
+       diterima hanya tercetak di struk gaji. Fungsinya tetap mengembalikan
+       kolom itu karena struk gaji membacanya. */
   },
   mengajar: { tab: 'guru',
     nama: 'Guru Mengajar',
@@ -2116,124 +2127,17 @@ const REKAP = {
       { k: 'tarif', t: 'Nominal/hari', w: 110, rp: true, jumlah: false }
     ]
   },
-  /* Dua tunjangan BPJS dari satu fungsi dengan argumen jenis, seperti
-     transport piket. Tunjangan kesejahteraan, bukan honor atas pekerjaan:
-     aturan Staf tidak berlaku. Siapa yang berhak ditentukan Data Induk
-     (kelayakan dihitung, pengesahan kepala sekolah); di sini hanya
-     dikalikan bulan dan nominal. */
-  ...(() => {
-    const bersama = 'Jumlah bulan dihitung dari bulan kalender yang LEBIH DARI SETENGAH harinya masuk '
-                  + 'rentang, sejak bulan mulai. Tidak perlu dicabut bila syaratnya gugur: pembayaran '
-                  + 'berhenti sendiri. Aturan Staf tidak berlaku: ini tunjangan kesejahteraan, bukan honor '
-                  + 'pekerjaan tambahan.';
-    const kolom = syarat => [
-      { k: 'tmt_dasar', t: 'TMT', w: 100, jumlah: false, html: b => esc(tglIndo(b.tmt_dasar)) },
-      { k: 'tanggal_syarat', t: syarat, w: 110, jumlah: false, html: b => esc(tglIndo(b.tanggal_syarat)) },
-      { k: 'mulai', t: 'Mulai', w: 90, jumlah: false,
-        html: b => b.mulai ? `${BULAN[Number(b.mulai.slice(5, 7)) - 1]} ${b.mulai.slice(0, 4)}` : '—' },
-      { k: 'bentuk', t: 'Bentuk', w: 130, jumlah: false },
-      { k: 'nomor_peserta', t: 'No. peserta', w: 120, jumlah: false },
-      { k: 'bulan', t: 'Bulan', w: 70, num: true },
-      { k: 'tarif', t: 'Nominal/bulan', w: 120, rp: true, jumlah: false }
-    ];
-    /* Setoran ke BPJS, BNI, dan BJB berupa tiga daftar berbeda, jadi tab ini
-       bisa disaring per bentuk sebelum diunduh. Potongan porsi guru ikut
-       ditampilkan sesudah Jumlah: Jumlah adalah yang ditanggung sekolah. */
-    const sesudah = [{ k: 'potongan', t: 'Potongan guru', w: 130, rp: true }];
-    return {
-      bpjs_kesehatan: { tab: 'tp',
-        nama: 'TuSehat', fungsi: 'f_ip_tunjangan_bpjs',
-        arg: { p_jenis: 'kesehatan' }, saringBentuk: true, sesudah,
-        judul: 'DAFTAR PENERIMAAN TUSEHAT (TUNJANGAN KESEHATAN)',
-        catatan: 'TuSehat = Tunjangan Kesehatan. FLAT per bulan untuk guru yang masa kerjanya di sekolah ini sudah LIMA tahun (TMT di '
-               + 'sekolah ini), bukan Guru Tidak Tetap (Dapodik menginduk di sekolah ini), dan DISAHKAN '
-               + 'kepala sekolah di Data Induk → Data Guru. Mulai bulan berikutnya sesudah genap lima tahun; '
-               + 'berhenti sendiri begitu guru nonaktif atau menjadi Guru Tidak Tetap. ' + bersama,
-        kolom: kolom('Genap 5 tahun')
-      },
-      bpjs_ketenagakerjaan: { tab: 'tp',
-        nama: 'TuKerja', fungsi: 'f_ip_tunjangan_bpjs',
-        arg: { p_jenis: 'ketenagakerjaan' }, saringBentuk: true, sesudah,
-        judul: 'DAFTAR PENERIMAAN TUKERJA (TUNJANGAN KETENAGAKERJAAN)',
-        catatan: 'TuKerja = Tunjangan Ketenagakerjaan. FLAT per bulan untuk pemegang tugas STAF yang masa kerjanya '
-               + 'sudah LIMA tahun — dari TMT di sekolah; bagi Guru Tetap Yayasan yang merangkap staf, dari TMT '
-               + 'sebagai staf (Data Induk → Data Guru) — dan DISAHKAN kepala sekolah. Mulai bulan berikutnya '
-               + 'sesudah genap lima tahun; berhenti sendiri begitu guru nonaktif atau tidak lagi memegang tugas Staf. '
-               + bersama,
-        kolom: kolom('Genap 5 tahun')
-      }
-    };
-  })(),
-  /* Potongan sekolah dan koperasi: bukan penerimaan, tetapi daftar yang
-     disetorkan bendahara (ke kas sekolah, ke koperasi), jadi diunduh dari
-     sini dengan tanda tangan. Satu baris satu potongan yang berjalan dalam
-     periode; `potongan: true` mengganti sebutan penerima/dibayarkan. */
-  ...(() => {
-    const kolom = [
-      { k: 'jenis', t: 'Jenis', w: 140, jumlah: false },
-      { k: 'keterangan', t: 'Keterangan', w: 180, jumlah: false },
-      // Baris bawaan iuran koperasi (dari Nominal Penggajian) tidak punya tanggal: id, mulai, sampai kosong.
-      { k: 'berlaku_mulai', t: 'Mulai', w: 90, jumlah: false,
-        html: b => b.berlaku_mulai ? esc(blnIndo(b.berlaku_mulai)) : '<span class="kecil">bawaan</span>' },
-      { k: 'berlaku_sampai', t: 'Sampai', w: 100, jumlah: false,
-        html: b => b.berlaku_sampai ? esc(blnIndo(b.berlaku_sampai))
-                 : `<span class="kecil">${b.berlaku_mulai ? 'sampai diubah' : 'bawaan'}</span>` },
-      { k: 'bulan', t: 'Bulan', w: 70, num: true },
-      { k: 'nominal', t: 'Nominal/bulan', w: 120, rp: true, jumlah: false }
-    ];
-    const bersama = 'Nominal per bulan dikalikan bulan yang dipotong dalam rentang (bulan kalender yang lebih dari '
-                  + 'setengah harinya masuk rentang, sejak bulan Mulai sampai bulan Sampai). Dicatat di halaman '
-                  + 'Tunjangan dan Potongan; dikurangkan dari penerimaan di Potongan per Guru.';
-    return {
-      potongan_koperasi: { tab: 'tp',
-        nama: 'Potongan Koperasi', fungsi: 'f_ip_potongan', arg: { p_kelompok: 'koperasi' }, potongan: true,
-        judul: 'DAFTAR POTONGAN KOPERASI',
-        catatan: 'Potongan dari pendapatan guru untuk koperasi: iuran keanggotaan, tabungan koperasi, atau '
-               + 'angsuran pinjaman koperasi. Iuran keanggotaan bawaan (Nominal Penggajian) berlaku untuk semua guru dan '
-               + 'staf aktif pada bulan yang tidak tertutup baris Iuran keanggotaan miliknya sendiri; baris bawaan '
-               + 'itu tanpa tanggal Mulai/Sampai. ' + bersama,
-        kolom
-      },
-      potongan_sekolah: { tab: 'tp',
-        nama: 'Potongan lain-lain', fungsi: 'f_ip_potongan', arg: { p_kelompok: 'sekolah' }, potongan: true,
-        judul: 'DAFTAR POTONGAN LAIN-LAIN',
-        catatan: 'Potongan lain-lain dari pendapatan guru: angsuran pinjaman ke sekolah, '
-               + 'atau lainnya. ' + bersama,
-        kolom
-      }
-    };
-  })(),
-  /* Potongan per orang (25 September 2026) — dulu empat kolom di ujung
-     Gabungan Keseluruhan. Datanya dari fungsi gabungan yang sama; kolomnya
-     ditukar: Penerimaan = jumlah gabungan, Jumlah = seluruh potongan, lalu
-     Diterima. Angka "seandainya" gabungan dibuang supaya tidak tampil di
-     bawah total potongan. */
-  potongan_gabungan: {
-    tab: 'tp', nama: 'Potongan per Guru', fungsi: 'f_ip_rekap_gabungan', potongan: true,
-    ubah: r => ({ ...r, penerimaan: r.jumlah, seandainya: null,
-                  jumlah: (Number(r.potongan_bpjs) || 0) + (Number(r.potongan_sekolah) || 0) + (Number(r.potongan_koperasi) || 0) }),
-    judul: 'DAFTAR POTONGAN DAN PENERIMAAN BERSIH PER PENERIMA',
-    catatan: 'Penerimaan adalah jumlah seluruh honor, transpor, dan tunjangan orang itu pada periode ini — '
-           + 'sama dengan Jumlah di Gabungan Keseluruhan. Pot. BPJS adalah porsi guru TuSehat/TuKerja; Pot. Lain-lain '
-           + 'dan Pot. Koperasi dari halaman Tunjangan dan Potongan. Jumlah adalah seluruh potongan, '
-           + 'Diterima = Penerimaan dikurangi Jumlah. Tunjangan yang disetor langsung ke bank masih termasuk '
-           + 'di Diterima; struk gaji yang memisahkannya. Yang tidak menerima dan tidak dipotong apa pun tidak dicetak.',
-    kolom: [
-      { k: 'jenis_orang', t: 'Jenis', w: 120, jumlah: false },
-      { k: 'penerimaan', t: 'Penerimaan', w: 140, rp: true },
-      { k: 'potongan_bpjs', t: 'Pot. BPJS', w: 120, rp: true },
-      { k: 'potongan_sekolah', t: 'Pot. Lain-lain', w: 120, rp: true },
-      { k: 'potongan_koperasi', t: 'Pot. Koperasi', w: 120, rp: true }
-    ],
-    sesudah: [{ k: 'bersih', t: 'Diterima', w: 140, rp: true }]
-  }
+  /* Daftar TuSehat, TuKerja, Potongan Koperasi, Potongan lain-lain, dan
+     Potongan per Guru dihapus dari halaman ini 25 September 2026: tunjangan
+     dan potongan diurus di halaman Tunjangan dan Potongan, dan pengurangannya
+     tetap tercetak di struk gaji (fungsi gabungan masih membawanya). */
 };
 
-/* Empat bagian Honor dan Transpor. Bagian Staf baru berisi piket parkiran
+/* Tiga bagian Honor dan Transpor. Bagian Staf berisi daftar karyawan dan piket parkiran
    (petugasnya memang staf); daftar honor staf menyusul setelah fungsi
    rekapnya dibuat dari formulasi di Nominal Penggajian Staf. Gabungan
    Keseluruhan paling belakang: rangkuman semua bagian per orang. */
-const REKAP_BAGIAN = { guru: 'Guru', staf: 'Staf', tp: 'Tunjangan dan Potongan', gabungan: 'Gabungan Keseluruhan' };
+const REKAP_BAGIAN = { guru: 'Guru', staf: 'Staf', gabungan: 'Gabungan Keseluruhan' };
 const rekapDiBagian = tab => Object.entries(REKAP).filter(([, v]) => (v.tab || 'guru') === tab);
 
 
