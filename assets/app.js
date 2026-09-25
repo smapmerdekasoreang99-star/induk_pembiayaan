@@ -489,6 +489,18 @@ function halNominal() {
     const p = D.pendukung.find(x => String(x.id) === a.dataset.pdAkhiri);
     if (p) akhiriPendukung(p);
   });
+  $$('[data-pd-hapus]').forEach(a => a.onclick = e => {
+    e.preventDefault();
+    const p = D.pendukung.find(x => String(x.id) === a.dataset.pdHapus);
+    if (!p) return;
+    if (!window.confirm(`Hapus komponen ${p.komponen} (${rupiah(p.nilai)} ${p.satuan}, berlaku ${tglIndo(p.berlaku_mulai)})? Tidak bisa dibatalkan.`)) return;
+    jalankan('Menghapus…', async () => {
+      await buang('ip_pendukung', `id=eq.${p.id}`);
+      D.rekap = null;
+      await muatSemua();
+      toast(`Komponen ${p.komponen} dihapus`);
+    });
+  });
   if ($('[data-pd-orang]')) $('[data-pd-orang]').onclick = dialogTambahOrangPendukung;
 }
 
@@ -547,7 +559,8 @@ function panelPendukung() {
             <td>${esc(p.komponen)}<div class="kecil">${esc(p.satuan)} · sejak ${esc(tglIndo(p.berlaku_mulai))}${
               p.berlaku_sampai ? ' s.d. ' + esc(tglIndo(p.berlaku_sampai)) : ''}</div></td>
             <td>${rupiah(p.nilai)}<div class="kecil" style="font-weight:400"><a href="#" data-pd-ubah="${p.id}">Ubah</a> ·
-              <a href="#" data-pd-akhiri="${p.id}">Akhiri</a></div></td></tr>`).join('')}</tbody></table>`
+              <a href="#" data-pd-akhiri="${p.id}">Akhiri</a> ·
+              <a href="#" data-pd-hapus="${p.id}">Hapus</a></div></td></tr>`).join('')}</tbody></table>`
           : '<div class="pg-nilai kosong">belum ada komponen</div>'}
         ${nanti.length ? `<div class="pg-berikut"><b>${nanti.length} versi berikutnya</b> mulai ${esc(tglIndo(nanti[0].berlaku_mulai))} —
           belum berlaku pada tanggal acuan.</div>` : ''}
@@ -654,14 +667,27 @@ function dialogTambahOrangPendukung() {
 function formTarif(kode) {
   const j = D.jenis.find(x => x.kode === kode);
   if (!j) return;
-  const sekarang = D.tarif.filter(t => t.kode === kode);
-  // Kartu ganda (TuSehat, TuKerja): potongan porsi guru diisi di formulir yang sama.
+  /* Formulir diisi dari VERSI TERBARU yang tersimpan (termasuk yang belum
+     berlaku pada tanggal acuan), bukan dari versi yang berlaku hari ini —
+     supaya versi bulan depan yang baru disimpan terbaca utuh saat dibuka
+     lagi (25 September 2026: 10 jenjang tersimpan untuk Oktober, formulir
+     hanya memperlihatkan 6 jenjang versi September). Tanggal mulainya ikut
+     versi itu bila masih di depan, sehingga menyimpan menimpa versi itu. */
+  const versiTerbaru = kd => {
+    const semua = (D.tarifSemua || []).filter(t => t.kode === kd);
+    const tgl = semua.reduce((m, t) => t.berlaku_mulai > m ? t.berlaku_mulai : m, '');
+    return { tgl, baris: semua.filter(t => t.berlaku_mulai === tgl) };
+  };
+  const vt = versiTerbaru(kode);
+  const sekarang = vt.baris;
+  // Kartu ganda (TuSehat, TuKerja, Tunjangan Wakasek): pasangannya diisi di formulir yang sama.
   const pasangan = PASANGAN[kode];
   const kodePot = pasangan ? pasangan.kode : null;
-  const potSekarang = kodePot ? D.tarif.filter(t => t.kode === kodePot) : [];
+  const potSekarang = kodePot ? versiTerbaru(kodePot).baris : [];
   // Bentuk indeks: nilai berdesimal, dan ada parameter kenaikan/batas yang ikut disimpan.
   const indeks = j.bentuk === 'indeks';
-  const ind = indeks ? indeksPada(kode, ui.acuan) : null;
+  const ind = indeks ? indeksPada(kode, vt.tgl || ui.acuan) : null;
+  const mulaiBawaan = vt.tgl && vt.tgl > awalBulan(ui.acuan) ? vt.tgl : awalBulan(ui.acuan);
   const langkah = indeks ? '0.005' : '500';
 
   const barisJenjang = () => (sekarang.length ? sekarang : [{ batas_min: 0, batas_maks: null, nilai: 0 }])
@@ -681,10 +707,11 @@ function formTarif(kode) {
       angka yang lama.</p>
 
     <div class="fg"><label>Berlaku mulai <span style="color:var(--danger)">*</span></label>
-      <input class="field" type="date" id="t-mulai" value="${esc(awalBulanDepan())}">
-      <div class="hint">Bawaannya tanggal 1 bulan depan, karena pembiayaan dihitung per bulan. Rekap sebuah
-        periode memakai besaran yang berlaku pada tanggal AKHIR periode itu — supaya bulan ini ikut
-        memakai besaran baru, pilih tanggal 1 bulan ini atau lebih awal.</div></div>
+      <input class="field" type="date" id="t-mulai" value="${esc(mulaiBawaan)}">
+      <div class="hint">${vt.tgl ? `Isian di bawah diambil dari versi terbaru yang tersimpan, berlaku mulai ${esc(tglIndo(vt.tgl))}${
+          vt.tgl > ui.acuan ? ' (belum berlaku pada tanggal acuan)' : ''}. Menyimpan dengan tanggal yang sama menimpa versi itu; tanggal lain membuat versi baru. ` : ''}Rekap sebuah periode
+        memakai besaran yang berlaku pada tanggal AKHIR periode itu: bila tanggal mulainya sesudah akhir periode
+        yang direkap, daftar periode itu masih memakai besaran lama.</div></div>
 
     ${j.berjenjang ? `
       <div class="fg penuh"><label>Jenjang menurut ${esc(j.satuan_jenjang)}</label>
@@ -829,11 +856,30 @@ function dialogRiwayat(kode) {
             <td style="text-align:right;font-weight:600">${kodePot && t.kode !== kode ? teksPasangan(pasangan, t.nilai) : teksNilai(j, t.nilai)}</td></tr>`).join('')}</tbody></table>
           ${(() => { const i = indeksSemua.find(x => x.berlaku_mulai === mulai);
                      return i ? `<div class="hint"><b>${esc(teksIndeks(i))}</b></div>` : ''; })()}
-          ${baris[0].catatan ? `<div class="hint">${esc(baris[0].catatan)}</div>` : ''}</div>`).join('')
+          ${baris[0].catatan ? `<div class="hint">${esc(baris[0].catatan)}</div>` : ''}
+          <div style="margin-top:6px"><button class="btn btn-sm btn-d" data-hapus-versi="${esc(mulai)}">Hapus versi ini</button></div></div>`).join('')
         : '<p class="msg kecil">Belum ada besaran yang pernah disimpan.</p>'}
       </div>
       <div class="aksi"><button class="btn" id="m-batal">Tutup</button></div>`, true);
     $('#m-batal').onclick = tutupModal;
+    /* Menghapus satu versi — untuk merapikan uji coba. Versi yang berlaku
+       sebelumnya otomatis kembali dipakai; bila tidak ada versi lain, jenis
+       itu kembali "belum diisi". Rekap yang tersimpan dibuang supaya dihitung
+       ulang. */
+    $$('[data-hapus-versi]').forEach(b => b.onclick = () => {
+      const mulai = b.dataset.hapusVersi;
+      if (!window.confirm(`Hapus versi ${j.nama} yang berlaku mulai ${tglIndo(mulai)}? Tidak bisa dibatalkan.`)) return;
+      tutupModal();
+      jalankan('Menghapus…', async () => {
+        const kodeSemua = kodePot ? `in.(${enc(kode)},${enc(kodePot)})` : `eq.${enc(kode)}`;
+        await buang('ip_tarif', `kode=${kodeSemua}&berlaku_mulai=eq.${enc(mulai)}`);
+        if (j.bentuk === 'indeks') await buang('ip_indeks', `kode=eq.${enc(kode)}&berlaku_mulai=eq.${enc(mulai)}`);
+        D.rekap = null;
+        await muatSemua();
+        toast(`${j.nama}: versi ${tglIndo(mulai)} dihapus`);
+        dialogRiwayat(kode);
+      });
+    });
   });
 }
 
@@ -2126,6 +2172,10 @@ const REKAP = {
       { k: 'ekskul', t: 'Transpor Pemb. Ekskul', w: 145, rp: true },
       { k: 'tahfidz', t: 'Transpor Pemb. Tahfidz', w: 150, rp: true },
       { k: 'parkiran', t: 'Transpor Parkiran', w: 130, rp: true },
+      // Honor staf (25 September 2026): gaji + tunjangan jabatan; transpor berdiri + insentif + konsumsi; tenaga pendukung.
+      { k: 'staf_gaji', t: 'Gaji & Tunj. Staf', w: 140, rp: true },
+      { k: 'staf_transpor', t: 'Transpor Staf', w: 130, rp: true },
+      { k: 'pendukung', t: 'Honor Pendukung', w: 140, rp: true },
       { k: 'bpjs', t: 'TuSehat', w: 120, rp: true },
       { k: 'bpjs_tk', t: 'TuKerja', w: 120, rp: true }
     ]
@@ -2579,7 +2629,10 @@ function halRekap() {
       ${baris.length ? `<tfoot><tr>
         <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td>
         ${spek.kolom.map(k => `<td class="${k.num || k.rp ? 'num' : ''}" style="font-weight:600">${
-          k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) + kecilTotal(k.k) : (total[k.k] || 0)}</td>`).join('')}
+          k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) + kecilTotal(k.k)
+          // Jumlah desimal (jam hadir) dibulatkan seperti sel per baris — penjumlahan biner
+          // JavaScript bisa menghasilkan 872,0799999999999.
+          : angkaSel({ [k.k]: Math.round((total[k.k] || 0) * 100) / 100 }, k)}</td>`).join('')}
         <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}${kecilTotal('jumlah')}</td>${
         sesudah.map(k => `<td class="num" style="font-weight:700">${rupiah(total[k.k] || 0)}</td>`).join('')}${
         spek.struk ? '<td></td>' : ''}</tr></tfoot>` : ''}
@@ -2753,7 +2806,7 @@ async function unduhRekap(spek, baris, total) {
   kolom.forEach((k, j) => {
     if (k.jumlah === false) sel(r, 3 + j, '', { abu: true });
     else if (k.rp) sel(r, 3 + j, total[k.k] || 0, { fmt: RP, tebal: true, abu: true });
-    else sel(r, 3 + j, total[k.k] || 0, { rata: 'center', tebal: true, abu: true });
+    else sel(r, 3 + j, Math.round((total[k.k] || 0) * 100) / 100, { rata: 'center', tebal: true, abu: true });   // jumlah desimal dibulatkan 2 angka
   });
   sel(r, kolom.length + 3, total.jumlah || 0, { fmt: RP, tebal: true, abu: true });
   sesudah.forEach((k, j) => sel(r, kolom.length + 4 + j, total[k.k] || 0, { fmt: RP, tebal: true, abu: true }));
@@ -2939,7 +2992,7 @@ function judulPeriodeRekap() {
 async function rincianStruk() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
   const [mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek, jadwal, mapel,
-         hadirGuru, hadirWali, hadirPiket] = await Promise.all([
+         hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung] = await Promise.all([
     rpc('f_ip_honor_mengajar', arg),
     rpc('f_ip_honor_wali_kelas', arg),
     rpc('f_ip_honor_diperbantukan', arg),
@@ -2959,10 +3012,13 @@ async function rincianStruk() {
     // gagal, struk tetap terbit tanpa persentase.
     rpc('f_ip_kehadiran_guru', arg).catch(() => []),
     rpc('f_ip_kehadiran_wali', arg).catch(() => []),
-    rpc('f_ip_pelaksanaan_piket', arg).catch(() => [])
+    rpc('f_ip_pelaksanaan_piket', arg).catch(() => []),
+    // Honor staf (gaji, tunjangan jabatan, transpor, insentif, konsumsi) dan tenaga pendukung.
+    rpc('f_ip_honor_staf', arg),
+    rpc('f_ip_honor_pendukung', arg)
   ]);
   const R = {};
-  const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [] });
+  const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [] });
   const dibayar = b => Number(b.jumlah) > 0;
   (mengajar || []).forEach(b => { orang(b.guru_id).mengajar = b; });
   (wali || []).forEach(b => { orang(b.guru_id).wali = b; });
@@ -2978,6 +3034,8 @@ async function rincianStruk() {
   (kerja || []).forEach(b => { orang(b.guru_id).kerja = b; });
   (kop || []).forEach(b => orang(b.guru_id).koperasi.push(b));
   (sek || []).forEach(b => orang(b.guru_id).sekolah.push(b));
+  (honorStaf || []).forEach(b => { orang(b.guru_id).staf = b; });
+  (honorPendukung || []).forEach(b => orang(b.guru_id).pendukung.push(b));
 
   /* Persentase kehadiran per orang: mengajar dan wali kelas sudah dihitung
      fungsi databasenya (berbobot: HTTM 100% · ST 20% · IT 10%); piket
@@ -3154,7 +3212,7 @@ async function unduhStruk(baris) {
      nol) tidak dicetak, supaya struk pelatih dari luar atau staf tidak
      dipenuhi baris Rp 0; Potongan dan Penerimaan Bersih selalu ada. */
   function buatStruk(b) {
-    const r = R[b.orang_id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [] };
+    const r = R[b.orang_id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [] };
     const m = r.mengajar && dibayar(r.mengajar) ? r.mengajar : null;
     const w = r.wali && dibayar(r.wali) ? r.wali : null;
     const meja = r.meja && dibayar(r.meja) ? r.meja : null;
@@ -3172,12 +3230,15 @@ async function unduhStruk(baris) {
       r.persenWali != null && `Wali kelas ${fmtPersen(r.persenWali)}`,
       r.persenUnit != null && `Piket unit ${fmtPersen(r.persenUnit)}`,
       r.persenMeja != null && `Piket meja ${fmtPersen(r.persenMeja)}`,
-      r.persenParkir != null && `Parkiran ${fmtPersen(r.persenParkir)}`
+      r.persenParkir != null && `Parkiran ${fmtPersen(r.persenParkir)}`,
+      r.staf && r.staf.hari_kerja > 0 && `Staf ${fmtPersen(persenDari(r.staf.hari_hadir, r.staf.hari_kerja))}`
     ].filter(Boolean).join(' · ');
 
     const bagian = [];
     const A = Number(b.mengajar) || 0, B = Number(b.wali) || 0, C = Number(b.diperbantukan) || 0;
     const D_ = ['piket_meja', 'pengganti', 'ekskul', 'tahfidz', 'parkiran'].reduce((t, k) => t + (Number(b[k]) || 0), 0);
+    const S = (Number(b.staf_gaji) || 0) + (Number(b.staf_transpor) || 0);
+    const P = Number(b.pendukung) || 0;
     const E = (Number(b.bpjs) || 0) + (Number(b.bpjs_tk) || 0);
     let huruf = 0;
     const kode = () => String.fromCharCode(65 + huruf++);   // A, B, C, … hanya untuk bagian yang dicetak
@@ -3218,6 +3279,28 @@ async function unduhStruk(baris) {
       bagian.push(rowItem(4, 'Transpor Pembimbing Tahfidz', tahfidz.length ? `${jml(tahfidz, 'pertemuan')} pertemuan` : '', b.tahfidz));
       bagian.push(rowItem(5, 'Kompensasi Piket Parkiran', r.parkir ? `${r.parkir.ukuran} hari jaga` : '', b.parkiran, r.parkir ? r.persenParkir : null));
       bagian.push(rowJumlah(`Jumlah ${k}`, D_));
+    }
+    /* Pendapatan sebagai staf: lima komponen formulasi bendahara. Persentase
+       kehadirannya hari hadir ÷ hari kerja (Kepala Sekolah 100 % bila
+       dianggap penuh). */
+    const st = r.staf;
+    if (S > 0 || st) {
+      const k = kode();
+      bagian.push(rowHeader(k, 'PENDAPATAN SEBAGAI STAF', st && st.hari_kerja > 0 ? persenDari(st.hari_hadir, st.hari_kerja) : null));
+      if (st && st.jabatan) bagian.push(rowInfo('Jabatan', st.jabatan));
+      bagian.push(rowItem(1, 'Gaji Pokok Staf', st ? `${fmtJam(st.jam_minggu)} jam/minggu` : '', st ? st.gaji_pokok : 0));
+      bagian.push(rowItem(2, 'Tunjangan Jabatan', st ? `${fmtJam(st.hari_tunjangan)} hari/minggu` : '', st ? st.tunjangan_jabatan : 0));
+      bagian.push(rowItem(3, 'Transpor Berdiri', st ? `${fmtJam(st.jam_minggu)} jam/minggu × indeks ${angkaIndeks(st.indeks)}` : '', st ? st.transport_berdiri : 0));
+      bagian.push(rowItem(4, 'Insentif Kedatangan', st ? `${fmtJam(st.jam_hadir)} jam hadir` : '', st ? st.transport_htm : 0));
+      bagian.push(rowItem(5, 'Konsumsi', st ? `${st.hari_hadir} hari hadir` : '', st ? st.konsumsi : 0));
+      bagian.push(rowJumlah(`Jumlah ${k}`, S));
+    }
+    /* Honor tenaga pendukung: komponen per orang, satu baris satu komponen. */
+    if (P > 0 || r.pendukung.length) {
+      const k = kode();
+      bagian.push(rowHeader(k, 'HONOR TENAGA PENDUKUNG'));
+      r.pendukung.forEach((x, i) => bagian.push(rowItem(i + 1, x.komponen, `${ukuranTeks(x)} × ${rupiah(x.nilai)}`, x.jumlah)));
+      bagian.push(rowJumlah(`Jumlah ${k}`, P));
     }
     if (E > 0) {
       const k = kode();
