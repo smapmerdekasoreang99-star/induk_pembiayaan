@@ -305,8 +305,25 @@ function halBeranda() {
    dari sekolah dan potongan guru berdampingan — satu formulir, satu riwayat,
    disimpan bersama pada tanggal berlaku yang sama. Kode potongannya tidak
    digambar sebagai kartu sendiri. */
-const POTONGAN_DARI = { bpjs_kesehatan: 'potongan_bpjs_kesehatan', bpjs_ketenagakerjaan: 'potongan_bpjs_ketenagakerjaan' };
+/* Kartu ganda: satu kartu, dua besaran (kode utama + kode pasangan), satu
+   formulir, satu riwayat, tanggal berlaku yang sama. Dipakai TuSehat/TuKerja
+   (nominal dari sekolah + potongan porsi guru) dan, sejak 25 September 2026,
+   Tunjangan Jabatan Wakasek (nominal per hari + tambahan hari bagi kontrak
+   kurang dari 5 hari). `bentuk` pasangan: rupiah atau indeks (desimal). */
+const PASANGAN = {
+  bpjs_kesehatan: { kode: 'potongan_bpjs_kesehatan', utama: 'Dari sekolah', judul: 'Potongan guru', label: 'Potongan porsi guru',
+    bentuk: 'rupiah', step: 500, hintUtama: ', ditanggung sekolah untuk tiap penerima',
+    hint: j => `${j.satuan}, bawaan untuk semua penerima; dikurangkan dari pendapatan guru. Angka per orang yang berbeda diatur di Tunjangan dan Potongan.` },
+  bpjs_ketenagakerjaan: { kode: 'potongan_bpjs_ketenagakerjaan', utama: 'Dari sekolah', judul: 'Potongan guru', label: 'Potongan porsi guru',
+    bentuk: 'rupiah', step: 500, hintUtama: ', ditanggung sekolah untuk tiap penerima',
+    hint: j => `${j.satuan}, bawaan untuk semua penerima; dikurangkan dari pendapatan guru. Angka per orang yang berbeda diatur di Tunjangan dan Potongan.` },
+  tj_wakasek: { kode: 'tj_wakasek_tambahan_hari', utama: 'Nominal per hari', judul: 'Tambahan hari (kontrak < 5 hari)', label: 'Tambahan hari bila kontrak kurang dari 5 hari',
+    bentuk: 'indeks', step: 0.5, hintUtama: ', dikalikan hari kerja per minggu',
+    hint: () => 'Wakasek yang hari kerja per minggunya kurang dari 5 dibayar untuk hari kerjanya ditambah angka ini: kontrak 4 hari → 4 + 0,5 = 4,5 hari. Kontrak 5 hari tidak ditambah.' }
+};
+const POTONGAN_DARI = Object.fromEntries(Object.entries(PASANGAN).map(([k, v]) => [k, v.kode]));
 const KODE_POTONGAN = new Set(Object.values(POTONGAN_DARI));
+const teksPasangan = (p, n) => p.bentuk === 'indeks' ? angkaIndeks(n) : rupiah(n);
 
 /* Besaran berbentuk INDEKS (Nominal Penggajian Staf, 25 September 2026): nilainya
    angka pengali berdesimal, bukan rupiah. Dasarnya (boleh berjenjang menurut
@@ -365,11 +382,12 @@ function halNominal() {
     const sejak = baris.length ? baris[0].berlaku_mulai : null;
     const nol = baris.length && baris.every(t => Number(t.nilai) === 0);
     // Kartu ganda: nominal dari sekolah dan potongan porsi guru berdampingan.
-    const kodePot = POTONGAN_DARI[j.kode];
+    const pasangan = PASANGAN[j.kode];
+    const kodePot = pasangan ? pasangan.kode : null;
     const pot = kodePot ? tarifDari(kodePot) : [];
-    const nilaiGanda = (b, judul) => `<div><span class="pg-label">${judul}</span>
+    const nilaiGanda = (b, judul, fmt) => `<div><span class="pg-label">${esc(judul)}</span>
       <div class="pg-nilai${!b.length ? ' kosong' : Number(b[0].nilai) === 0 ? ' nol' : ''}">${
-        b.length ? rupiah(b[0].nilai) : 'belum diisi'}</div></div>`;
+        b.length ? fmt(b[0].nilai) : 'belum diisi'}</div></div>`;
     const isi = !baris.length
       ? '<div class="pg-nilai kosong">belum diisi</div>'
       : j.berjenjang
@@ -378,7 +396,7 @@ function halNominal() {
               t.batas_maks == null ? ' ke atas' : '–' + t.batas_maks} ${esc(j.satuan_jenjang)}</td>
             <td>${teksNilai(j, t.nilai)}</td></tr>`).join('')}</tbody></table>`
         : kodePot
-          ? `<div class="pg-ganda">${nilaiGanda(baris, 'Dari sekolah')}${nilaiGanda(pot, 'Potongan guru')}</div>`
+          ? `<div class="pg-ganda">${nilaiGanda(baris, pasangan.utama, n => teksNilai(j, n))}${nilaiGanda(pot, pasangan.judul, n => teksPasangan(pasangan, n))}</div>`
           : `<div class="pg-nilai${nol ? ' nol' : ''}">${teksNilai(j, baris[0].nilai)}</div>`;
 
     /* Versi yang belum berlaku pada tanggal acuan. Tanpa ini, besaran yang
@@ -391,7 +409,7 @@ function halNominal() {
       ? (D.tarifSemua || []).find(t => t.kode === kodePot && t.berlaku_mulai === tglBerikut) : null;
     const teksBerikut = !versiBerikut.length ? ''
       : j.berjenjang ? `${versiBerikut.length} jenjang`
-      : teksNilai(j, versiBerikut[0].nilai) + (potBerikut ? ` · potongan guru ${rupiah(potBerikut.nilai)}` : '');
+      : teksNilai(j, versiBerikut[0].nilai) + (potBerikut ? ` · ${pasangan.judul.toLowerCase()} ${teksPasangan(pasangan, potBerikut.nilai)}` : '');
 
     return `<article class="pg-kartu${!baris.length ? ' kosong' : ''}">
       <div class="pg-kartu-atas"><h3>${esc(j.nama)}</h3><span class="pg-satuan">${esc(j.satuan)}</span></div>
@@ -628,7 +646,8 @@ function formTarif(kode) {
   if (!j) return;
   const sekarang = D.tarif.filter(t => t.kode === kode);
   // Kartu ganda (TuSehat, TuKerja): potongan porsi guru diisi di formulir yang sama.
-  const kodePot = POTONGAN_DARI[kode];
+  const pasangan = PASANGAN[kode];
+  const kodePot = pasangan ? pasangan.kode : null;
   const potSekarang = kodePot ? D.tarif.filter(t => t.kode === kodePot) : [];
   // Bentuk indeks: nilai berdesimal, dan ada parameter kenaikan/batas yang ikut disimpan.
   const indeks = j.bentuk === 'indeks';
@@ -666,16 +685,15 @@ function formTarif(kode) {
         <button class="btn btn-sm" id="t-tambah" style="margin-top:8px">+ Tambah jenjang</button>
         <div class="hint">Kosongkan kolom "Sampai" pada jenjang terakhir agar berlaku ke atas.</div></div>`
       : `
-      <div class="fg"><label>${kodePot ? 'Dari sekolah' : 'Besaran'} <span style="color:var(--danger)">*</span></label>
+      <div class="fg"><label>${pasangan ? esc(pasangan.utama) : 'Besaran'} <span style="color:var(--danger)">*</span></label>
         <input class="field num" type="number" min="0" step="${langkah}" id="t-nilai"
           value="${sekarang.length ? Number(sekarang[0].nilai) : 0}">
-        <div class="hint">${esc(j.satuan)}${kodePot ? ', ditanggung sekolah untuk tiap penerima' : ''}</div></div>
-      ${kodePot ? `
-      <div class="fg"><label>Potongan porsi guru <span style="color:var(--danger)">*</span></label>
-        <input class="field num" type="number" min="0" step="500" id="t-potongan"
+        <div class="hint">${esc(j.satuan)}${pasangan ? esc(pasangan.hintUtama) : ''}</div></div>
+      ${pasangan ? `
+      <div class="fg"><label>${esc(pasangan.label)} <span style="color:var(--danger)">*</span></label>
+        <input class="field num" type="number" min="0" step="${pasangan.step}" id="t-potongan"
           value="${potSekarang.length ? Number(potSekarang[0].nilai) : 0}">
-        <div class="hint">${esc(j.satuan)}, bawaan untuk semua penerima; dikurangkan dari pendapatan guru.
-          Angka per orang yang berbeda diatur di Tunjangan dan Potongan.</div></div>` : ''}`}
+        <div class="hint">${esc(pasangan.hint(j))}</div></div>` : ''}`}
 
     ${indeks ? `
       <div class="fg"><label>Kenaikan per tahun masa kerja <span style="color:var(--danger)">*</span></label>
@@ -776,7 +794,8 @@ function formTarif(kode) {
 
 function dialogRiwayat(kode) {
   const j = D.jenis.find(x => x.kode === kode);
-  const kodePot = POTONGAN_DARI[kode];   // kartu ganda: riwayat potongan guru ikut ditampilkan
+  const pasangan = PASANGAN[kode];
+  const kodePot = pasangan ? pasangan.kode : null;   // kartu ganda: riwayat pasangannya ikut ditampilkan
   jalankan('Memuat riwayat…', async () => {
     const indeksSemua = j.bentuk === 'indeks'
       ? (await ambil('ip_indeks', `select=*&kode=eq.${enc(kode)}`)) || [] : [];
@@ -794,10 +813,10 @@ function dialogRiwayat(kode) {
         <div class="fg penuh"><label>Berlaku mulai ${esc(tglIndo(mulai))}${
           mulai <= ui.acuan ? '' : ' <span class="kecil">(belum berlaku pada tanggal acuan)</span>'}</label>
           <table class="log"><tbody>${baris.map(t => `<tr>
-            <td class="kecil">${kodePot ? (t.kode === kode ? 'Dari sekolah' : 'Potongan guru')
+            <td class="kecil">${kodePot ? esc(t.kode === kode ? pasangan.utama : pasangan.judul)
               : t.batas_min == null ? 'semua'
               : `${t.batas_min}${t.batas_maks == null ? ' ke atas' : '–' + t.batas_maks} ${esc(j.satuan_jenjang || '')}`}</td>
-            <td style="text-align:right;font-weight:600">${teksNilai(j, t.nilai)}</td></tr>`).join('')}</tbody></table>
+            <td style="text-align:right;font-weight:600">${kodePot && t.kode !== kode ? teksPasangan(pasangan, t.nilai) : teksNilai(j, t.nilai)}</td></tr>`).join('')}</tbody></table>
           ${(() => { const i = indeksSemua.find(x => x.berlaku_mulai === mulai);
                      return i ? `<div class="hint"><b>${esc(teksIndeks(i))}</b></div>` : ''; })()}
           ${baris[0].catatan ? `<div class="hint">${esc(baris[0].catatan)}</div>` : ''}</div>`).join('')
@@ -2297,7 +2316,6 @@ const REKAP = {
   ...(() => {
     const kolomDasar = [
       { k: 'jabatan', t: 'Jabatan', w: 140, jumlah: false },
-      { k: 'kelompok_tarif', t: 'Kelompok', w: 130, jumlah: false, html: r => esc(namaKelompokTarif(r.kelompok_tarif)), xls: r => namaKelompokTarif(r.kelompok_tarif) },
       { k: 'masa_kerja', t: 'Masa kerja', w: 80, num: true, jumlah: false },
       { k: 'hari_minggu', t: 'Hari/minggu', w: 85, num: true, jumlah: false },
       { k: 'jam_minggu', t: 'Jam/minggu', w: 85, num: true, jumlah: false }
@@ -2311,11 +2329,14 @@ const REKAP = {
           ubah: r => ({ ...r, jumlah: (Number(r.gaji_pokok) || 0) + (Number(r.tunjangan_jabatan) || 0) }),
           catatan: siapaTeks + ' Gaji = tarif per jam menurut masa kerja staf (Gaji Pokok Staf di Nominal Penggajian Staf) × jam '
                  + 'kerja per minggu, dibulatkan ke atas ke ribuan. Tunjangan jabatan = nominal per hari kelompok tarifnya × hari '
-                 + 'kerja per minggu. Hari dan jam per minggu serta kelompok tarif dari Data Induk → Jam Kerja Staf; masa kerja '
+                 + 'kerja per minggu (Wakil Kepala Sekolah berkontrak kurang dari 5 hari: hari kerjanya ditambah Tambahan Hari '
+                 + 'Tunjangan Wakasek, bawaan 0,5 — kolom Hari tunj.). Hari dan jam per minggu serta kelompok tarif dari Data Induk → Jam Kerja Staf; masa kerja '
                  + 'dari TMT staf (bila kosong, TMT sekolah). Keduanya tidak bergantung kehadiran dan tidak dikalikan indeks.',
           kolom: [...kolomDasar,
             { k: 'tarif_jam', t: 'Tarif/jam', w: 100, rp: true, jumlah: false },
             { k: 'gaji_pokok', t: 'Gaji', w: 130, rp: true },
+            // Hari yang dibayar tunjangan: Wakasek berkontrak < 5 hari ditambah (mis. 4,5).
+            { k: 'hari_tunjangan', t: 'Hari tunj.', w: 80, num: true, jumlah: false },
             { k: 'tunjangan_jabatan', t: 'Tunjangan Jabatan', w: 140, rp: true }]
         },
         transpor: {
