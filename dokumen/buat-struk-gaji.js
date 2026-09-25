@@ -1,5 +1,5 @@
 /* Template Struk Gaji — dua struk per halaman A4 mendatar.
-   Itemnya mengikuti Gabungan per Guru di Induk Pembiayaan:
+   Itemnya mengikuti Gabungan Keseluruhan di Induk Pembiayaan:
    mengajar, wali, diperbantukan, piket meja, pengganti, ekskul, tahfidz,
    parkiran, TuSehat, TuKerja; potongan BPJS, koperasi, lain-lain; bersih. */
 const fs = require('fs');

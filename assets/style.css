@@ -251,6 +251,24 @@ table.rekap.hadir .satuan{font-weight:400;color:var(--ink3)}
 /* Baris pertama tiap kelompok (rekap per pembina): garis pemisah lebih tegas. */
 table.rekap tr.awal-kelompok td{border-top:2px solid var(--line)}
 .bar .label{font-size:12px;color:var(--ink3);margin-right:2px}
+
+/* ---- Honor dan Transpor: bagian (tab induk) dan tab-tab anaknya ----
+   Bagian yang terpilih menyatu dengan bilah di bawahnya — warna sama,
+   tanpa garis bawah, dan panah kecil menunjuk ke bilah — sehingga tab di
+   dalam bilah terbaca sebagai keturunan bagian itu. */
+.bagian-bar{display:flex;gap:6px;align-items:flex-end;flex-wrap:wrap;margin:0 0 0 10px}
+.bagian{position:relative;border:1px solid var(--line);border-bottom:none;background:#fff;color:var(--ink2);
+  border-radius:10px 10px 0 0;padding:7px 16px 8px;font-size:13.5px;font-weight:600;cursor:pointer}
+.bagian:hover{background:var(--kertas-3)}
+.bagian.on{background:var(--gelap);border-color:var(--gelap);color:var(--tinta-terang)}
+.bagian.on::after{content:"";position:absolute;left:50%;bottom:-9px;margin-left:-7px;
+  border:7px solid transparent;border-top:7px solid var(--gelap);border-bottom:0}
+.anak-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:var(--kertas-3);
+  border:1px solid var(--line);border-top:3px solid var(--gelap);border-radius:0 10px 10px 10px;
+  padding:10px 12px;margin-bottom:14px}
+.anak-bar .induk{font-size:12px;font-weight:600;color:var(--ink3);margin-right:4px;letter-spacing:.03em}
+.anak-bar .chip{background:#fff}
+.anak-bar .chip.on{background:var(--gelap);border-color:var(--gelap);color:var(--tinta-terang)}
 .bar .field.sempit{width:auto;padding:4px 8px;font-size:13px}
 
 /* ---- Penggajian: kartu nominal per jenis, dikelompokkan ----
