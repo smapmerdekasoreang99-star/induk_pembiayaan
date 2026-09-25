@@ -2271,7 +2271,7 @@ const REKAP = {
     ]
   },
   /* ---- Bagian Staf (25 September 2026): Piket Parkiran, Pendukung, Karyawan,
-     Staf Khusus, KS dan Wakasek. Tiga yang terakhir dari satu fungsi
+     Staf Khusus, Pimpinan. Tiga yang terakhir dari satu fungsi
      f_ip_honor_staf, disaring menurut kelompok tarif, masing-masing dengan
      dua SUB-TAB meniru sheet (1) dan (2) struk bendahara: Gaji dan Tunjangan
      Jabatan; Transpor Berdiri, Insentif (HTM), dan Konsumsi. Pendukung dari
@@ -2344,9 +2344,10 @@ const REKAP = {
       staf_khusus: honorStaf('Staf Khusus', 'STAF KHUSUS', r => r.kelompok_tarif === 'staf',
         'Staf Khusus = guru berjabatan struktural dengan kelompok tarif Staf (staf kesiswaan, kurikulum, sarana, BK, laboratorium, '
         + 'dan sejenisnya); transpor berdirinya penuh. Meniru sheet Staf (1) dan (2).'),
-      ks_wakasek: honorStaf('KS dan Wakasek', 'KEPALA SEKOLAH DAN WAKIL KEPALA SEKOLAH',
-        r => r.kelompok_tarif === 'kepala_sekolah' || r.kelompok_tarif === 'wakasek',
-        'Kepala Sekolah dan Wakil Kepala Sekolah, kelompok tarif masing-masing; transpor berdirinya penuh. Meniru sheet Wakasek (1) dan (2).')
+      pimpinan: honorStaf('Pimpinan', 'PIMPINAN',
+        r => r.jenis_ptk === 'Pimpinan' || r.kelompok_tarif === 'kepala_sekolah' || r.kelompok_tarif === 'wakasek',
+        'Pimpinan = jenis PTK Pimpinan di Data Induk (apa pun jabatannya) serta kelompok tarif Kepala Sekolah dan '
+        + 'Wakil Kepala Sekolah; transpor berdirinya penuh. Meniru sheet Wakasek (1) dan (2).')
     };
   })(),
   /* Daftar TuSehat, TuKerja, Potongan Koperasi, Potongan lain-lain, dan
@@ -2355,7 +2356,7 @@ const REKAP = {
      tetap tercetak di struk gaji (fungsi gabungan masih membawanya). */
 };
 
-/* Tiga bagian Honor dan Transpor. Bagian Staf: Piket Parkiran, Pendukung, Karyawan, Staf Khusus, KS dan Wakasek
+/* Tiga bagian Honor dan Transpor. Bagian Staf: Piket Parkiran, Pendukung, Karyawan, Staf Khusus, Pimpinan
    (petugasnya memang staf); daftar honor staf menyusul setelah fungsi
    rekapnya dibuat dari formulasi di Nominal Penggajian Staf. Gabungan
    Keseluruhan paling belakang: rangkuman semua bagian per orang. */
@@ -2416,7 +2417,7 @@ function kartuRekapOrang(induk, spek, baris, total) {
 
 function halRekap() {
   const induk = REKAP[ui.rekapJenis];
-  /* Tab bersub (Karyawan, Staf Khusus, KS dan Wakasek): data satu fungsi,
+  /* Tab bersub (Karyawan, Staf Khusus, Pimpinan): data satu fungsi,
      sub yang dipilih menimpa nama, judul, catatan, kolom, dan `ubah`. */
   const subKunci = !induk.sub ? null
     : induk.sub[ui.rekapSub[ui.rekapJenis]] ? ui.rekapSub[ui.rekapJenis] : Object.keys(induk.sub)[0];
