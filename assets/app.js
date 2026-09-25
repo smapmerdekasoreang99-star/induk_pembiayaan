@@ -168,7 +168,7 @@ async function muatSemua() {
     // Honor tenaga pendukung per orang: komponennya, siapa yang berkelompok pendukung, dan daftar guru untuk menambah orang.
     ambil('ip_pendukung', 'select=id,guru_id,komponen,satuan,nilai,berlaku_mulai,berlaku_sampai,catatan&order=guru_id,komponen,berlaku_mulai.asc'),
     ambil('v_jam_kerja_guru', 'select=guru_id,nama,jabatan,kelompok_tarif&kelompok_tarif=eq.pendukung'),
-    ambil('v_guru', 'select=id,nama,status_aktif&status_aktif=eq.Aktif&order=nama')
+    ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif&order=nama')
   ]);
 
   // RLS menolak dengan mengembalikan tabel kosong, bukan galat. Tanpa
@@ -543,8 +543,10 @@ function formPendukung(guruId, lama) {
     <div class="fg"><label>Nominal <span style="color:var(--danger)">*</span></label>
       <input class="field num" type="number" min="0" step="500" id="pd-nilai" value="${lama ? Number(lama.nilai) : 0}"></div>
     <div class="fg"><label>Berlaku mulai <span style="color:var(--danger)">*</span></label>
-      <input class="field" type="date" id="pd-mulai" value="${esc(lama ? awalBulanDepan() : awalBulan(ui.acuan))}">
-      <div class="hint">Rekap sebuah periode memakai komponen yang berlaku pada tanggal AKHIR periode itu.</div></div>
+      <input class="field" type="date" id="pd-mulai" value="${esc(awalBulan(ui.acuan))}">
+      <div class="hint">Bawaannya tanggal 1 bulan acuan (${esc(tglIndo(awalBulan(ui.acuan)))}). Rekap sebuah periode memakai
+        komponen yang berlaku pada tanggal AKHIR periode itu — bila tanggal mulainya sesudah akhir periode yang
+        direkap, daftar periode itu masih memakai nominal lama.</div></div>
     <div class="fg penuh"><label>Catatan (opsional)</label>
       <input class="field" id="pd-catatan" value="${esc(lama && lama.catatan ? lama.catatan : '')}" placeholder="Mis. keputusan yayasan 1 Juli 2026"></div>
     </div>
@@ -571,6 +573,7 @@ function formPendukung(guruId, lama) {
       await simpanBaru('ip_pendukung', [isi]);
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) ui.acuan = mulai;
+      D.rekap = null;   // rekap yang sudah dihitung memakai komponen lama
       await muatSemua();
       toast(`${orang.nama}: ${komponen} ${rupiah(isi.nilai)} ${isi.satuan}, berlaku ${tglIndo(mulai)}`
         + (acuanPindah ? `. Tanggal acuan halaman dipindahkan ke ${tglIndo(mulai)}.` : ''));
@@ -596,6 +599,7 @@ function akhiriPendukung(p) {
     tutupModal();
     jalankan('Menyimpan…', async () => {
       await ubah('ip_pendukung', `id=eq.${p.id}`, { berlaku_sampai: sampai });
+      D.rekap = null;
       await muatSemua();
       toast(`${orang.nama}: ${p.komponen} berakhir ${tglIndo(sampai)}`);
     });
@@ -762,6 +766,7 @@ function formTarif(kode) {
          dan pemindahan itu disebut di pesan. */
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) ui.acuan = mulai;
+      D.rekap = null;   // rekap yang sudah dihitung memakai besaran lama
       await muatSemua();
       toast(`${j.nama}: besaran baru berlaku ${tglIndo(mulai)}`
         + (acuanPindah ? `. Tanggal acuan halaman dipindahkan ke ${tglIndo(mulai)} supaya besaran itu terlihat.` : ''));
@@ -1506,6 +1511,25 @@ const KELOMPOK_TARIF_NAMA = {
   pendukung: 'Tenaga Pendukung'
 };
 const namaKelompokTarif = k => KELOMPOK_TARIF_NAMA[k] || k || '—';
+
+/* Semua daftar per orang diurutkan menurut masa kerja (25 September 2026):
+   yang paling lama mengabdi di atas — TMT paling awal dulu, tanpa TMT di
+   akhir, lalu nama. Kuncinya tmt_staf atau tmt_sekolah pada baris; bila
+   baris hanya membawa guru_id/orang_id (pembina, pendukung), TMT diambil
+   dari daftar guru; bila hanya masa_kerja, dipakai itu. Pengurutannya
+   stabil: baris-baris orang yang sama (komponen pendukung) tetap urut. */
+function urutMasaKerja(baris) {
+  if (!Array.isArray(baris) || baris.length < 2) return baris;
+  const tmtGuru = new Map((D.guruAktif || []).map(g => [g.id, g.tmt_sekolah || null]));
+  const kunci = r => {
+    const tmt = r.tmt_staf || r.tmt_sekolah || tmtGuru.get(r.guru_id || r.orang_id) || null;
+    if (tmt) return tmt;                                   // ISO: urut naik = lebih lama dulu
+    if (r.masa_kerja != null) return String(9999 - Number(r.masa_kerja)).padStart(4, '0');  // lebih lama = lebih kecil
+    return '9999-99-99';
+  };
+  const nama = r => String(r.nama || '');
+  return [...baris].sort((a, b) => kunci(a).localeCompare(kunci(b)) || nama(a).localeCompare(nama(b), 'id'));
+}
 const KATEGORI_EKSKUL = ['Ekstrakurikuler', 'Pembinaan Imtaq', 'Pembinaan Kesiswaan'];
 const HARI_NAMA = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
 const STATUS_PEMBINA = { H: 'Hadir', TH: 'Tidak hadir', KG: 'Ditiadakan' };
@@ -1570,7 +1594,7 @@ function susunTabHadir(tab, h) {
   const kolPersen = (k, t) => ({ k, t: t || '% Kehadiran', w: 100, num: true, html: r => selPersen(r[k]), f: fmtPersen, fmt: '0.00' });
 
   if (tab === 'kehadiran') {
-    const baris = saring(tanpaStaf(h.kehadiran));
+    const baris = urutMasaKerja(saring(tanpaStaf(h.kehadiran)));
     const total = jumlahkan(baris, ['kontrak', 'terjadwal', 'hadir_tm', 'httm', 'st', 'it', 'tk', 'hari_terjadwal', 'hari_datang']);
     total.hadir = Math.round(bobotHadir(total) * 100) / 100;
     total.persen = persenDari(total.hadir, total.terjadwal);
@@ -1649,7 +1673,7 @@ function susunTabHadir(tab, h) {
   }
 
   if (tab === 'wali') {
-    const baris = saring(tanpaStaf(h.wali));
+    const baris = urutMasaKerja(saring(tanpaStaf(h.wali)));
     const total = jumlahkan(baris, ['terjadwal_upacara', 'hadir_upacara', 'terjadwal_bimbingan', 'hadir_bimbingan', 'terjadwal', 'hadir']);
     total.persen = persenDari(total.hadir, total.terjadwal);
     total.nama = `Total (${baris.length} wali kelas)`;
@@ -1692,7 +1716,7 @@ function susunTabHadir(tab, h) {
       .filter(r => Number(r[J.p + '_terjadwal']) > 0 || Number(r[J.p + '_jaga']) > 0)
       .map(r => ({ ...r, terjadwal: r[J.p + '_terjadwal'], jaga: r[J.p + '_jaga'],
                    persen: persenDari(r[J.p + '_jaga'], r[J.p + '_terjadwal']) }));
-    const baris = saring(J.staf ? tanpaStaf(semua) : semua);
+    const baris = urutMasaKerja(saring(J.staf ? tanpaStaf(semua) : semua));
     const total = jumlahkan(baris, ['terjadwal', 'jaga']);
     total.persen = persenDari(total.jaga, total.terjadwal);
     total.nama = `Total (${baris.length} petugas)`;
@@ -1720,7 +1744,7 @@ function susunTabHadir(tab, h) {
        mengikuti ketentuan Jam Kerja Staf di Data Induk, jadi bisa berbeda
        antar orang (ada yang bekerja Sabtu). */
     const POLA = { bulanan: 'bulanan', bulanan_harian: 'bulanan + insentif kedatangan', harian: 'upah harian' };
-    const baris = saring(h.staf).map(r => ({ ...r, pola: POLA[r.pola_honor] || r.pola_honor || '—',
+    const baris = urutMasaKerja(saring(h.staf)).map(r => ({ ...r, pola: POLA[r.pola_honor] || r.pola_honor || '—',
       persen: persenDari(r.hadir, r.hari_kerja) }));
     const total = jumlahkan(baris, ['hari_kerja', 'hadir', 'tidak_hadir', 'belum', 'terlambat']);
     total.persen = persenDari(total.hadir, total.hari_kerja);
@@ -1755,7 +1779,7 @@ function susunTabHadir(tab, h) {
        Datanya dari f_ip_honor_staf — angka yang sama yang dipakai daftar
        honor karyawan di Honor dan Transpor. Karyawan = kelompok tarif Kepala
        TU, Tata Usaha dan Toolman, Caraka dan Satpam. */
-    const baris = saring(h.honorStaf.filter(r => r.karyawan)).map(r => ({ ...r,
+    const baris = urutMasaKerja(saring(h.honorStaf.filter(r => r.karyawan))).map(r => ({ ...r,
       kelompok: namaKelompokTarif(r.kelompok_tarif),
       persen: persenDari(r.hari_hadir, r.hari_kerja),
       persenJam: persenDari(r.jam_hadir, r.jam_kerja) }));
@@ -2254,6 +2278,8 @@ const REKAP = {
      f_ip_honor_pendukung: komponen per orang. ---- */
   pendukung: {
     tab: 'staf', nama: 'Pendukung', fungsi: 'f_ip_honor_pendukung',
+    kartu: true,   // digambar sebagai kartu per orang (bukan tabel), tiap kartu dengan kuitansi
+    kuitansiNama: 'Honor Tenaga Pendukung',
     judul: 'DAFTAR PENERIMAAN HONOR TENAGA PENDUKUNG',
     catatan: 'Honor tenaga pendukung disusun per orang menurut komponennya masing-masing (Nominal Penggajian Staf → '
            + 'Honor Tenaga Pendukung): komponen per bulan dikalikan jumlah bulan periode (bulan yang lebih dari '
@@ -2301,7 +2327,8 @@ const REKAP = {
                  + 'tarif per jam hadir × jam hadir sebulan × indeks, dibulatkan ke atas ke ribuan. Konsumsi = tarif per hari hadir '
                  + '× hari hadir × indeks. Jam dan hari hadir dari Kehadiran Staf; jam hadir dipotong pada ketentuan masuk–pulang.',
           kolom: [...kolomDasar,
-            { k: 'indeks', t: 'Indeks', w: 70, num: true, jumlah: false, html: r => angkaIndeks(r.indeks) },
+            // Indeks tampil di layar sebagai pegangan, tidak ikut ke daftar bertanda tangan (layar: true).
+            { k: 'indeks', t: 'Indeks', w: 70, num: true, jumlah: false, layar: true, html: r => angkaIndeks(r.indeks) },
             { k: 'hari_hadir', t: 'Hari/bulan', w: 80, num: true },
             { k: 'jam_hadir', t: 'Jam/bulan', w: 80, num: true },
             { k: 'transport_berdiri', t: 'Transpor Berdiri', w: 130, rp: true },
@@ -2349,6 +2376,44 @@ const angkaSel = (b, k) => {
   return v == null ? '—' : esc(String(v));
 };
 
+/* Tab berbentuk kartu (Pendukung): baris komponen dari fungsi dikelompokkan
+   per orang. `rincian` dipakai kuitansi ("Gaji 1 bulan × Rp …; Transpor
+   Kedatangan 104,2 jam × Rp …"). */
+const ukuranTeks = k => k.satuan === 'per bulan' ? `${Number(k.ukuran) || 0} bulan`
+  : k.satuan === 'per jam hadir' ? `${fmtJam(k.ukuran)} jam hadir` : `${Number(k.ukuran) || 0} hari hadir`;
+function orangDariKomponen(baris) {
+  const per = new Map();
+  (baris || []).forEach(b => {
+    if (!per.has(b.guru_id)) per.set(b.guru_id, { guru_id: b.guru_id, nama: b.nama, jabatan: b.jabatan, komponen: [], jumlah: 0 });
+    const o = per.get(b.guru_id);
+    o.komponen.push(b);
+    o.jumlah += Number(b.jumlah) || 0;
+  });
+  return [...per.values()].map(o => ({ ...o,
+    rincian: o.komponen.map(k => `${k.komponen} ${ukuranTeks(k)} × ${rupiah(k.nilai)}`).join('; ') }));
+}
+function kartuRekapOrang(induk, spek, baris, total) {
+  const orang = orangDariKomponen(baris);
+  const periode = `${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`;
+  return `<div class="panel"><div class="panel-head"><h3>${esc(induk.nama)}</h3>
+      <div class="sp" style="flex:1"></div>
+      <div class="info">${esc(periode)}</div>
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh Format (xlsx)</button>
+      <button class="btn btn-sm" id="rKuitansi" style="margin-left:6px" ${orang.length ? '' : 'disabled'}>Unduh semua kuitansi (xlsx)</button></div>
+      ${orang.length ? `<div class="pg-grid" style="padding:16px">${orang.map(o => `<article class="pg-kartu${o.jumlah > 0 ? '' : ' kosong'}">
+        <div class="pg-kartu-atas"><h3>${esc(o.nama)}</h3><span class="pg-satuan">${esc(o.jabatan || 'tanpa tugas Staf')}</span></div>
+        <table class="pg-jenjang"><tbody>${o.komponen.map(k => `<tr>
+          <td>${esc(k.komponen)}<div class="kecil">${esc(ukuranTeks(k))} × ${esc(rupiah(k.nilai))} ${esc(k.satuan)}</div></td>
+          <td>${esc(rupiah(k.jumlah))}</td></tr>`).join('')}</tbody></table>
+        <div class="pg-nilai${o.jumlah > 0 ? '' : ' nol'}">${esc(rupiah(o.jumlah))}</div>
+        <div class="pg-meta">${o.jumlah > 0 ? 'diterima untuk ' + esc(periode) : 'nominal komponennya masih Rp 0 — isi di Nominal Penggajian Staf'}</div>
+        <div class="pg-aksi"><button class="btn btn-sm btn-p" data-kuitansi="${esc(o.guru_id)}">Unduh kuitansi (xlsx)</button></div>
+      </article>`).join('')}</div>`
+      : `<div class="empty"><b>Tidak ada tenaga pendukung</b> Belum ada komponen yang berlaku pada periode ini
+        (Nominal Penggajian Staf → Honor Tenaga Pendukung).</div>`}
+      <div class="foot"><div class="info">${orang.length} orang · Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>`;
+}
+
 function halRekap() {
   const induk = REKAP[ui.rekapJenis];
   /* Tab bersub (Karyawan, Staf Khusus, KS dan Wakasek): data satu fungsi,
@@ -2356,7 +2421,7 @@ function halRekap() {
   const subKunci = !induk.sub ? null
     : induk.sub[ui.rekapSub[ui.rekapJenis]] ? ui.rekapSub[ui.rekapJenis] : Object.keys(induk.sub)[0];
   const spek = subKunci ? { ...induk, ...induk.sub[subKunci], nama: `${induk.nama} — ${induk.sub[subKunci].nama}` } : induk;
-  const semua = D.rekap && spek.ubah ? D.rekap.map(spek.ubah) : D.rekap;
+  const semua = urutMasaKerja(D.rekap && spek.ubah ? D.rekap.map(spek.ubah) : D.rekap);
   const bagian = spek.tab || 'guru';
   /* Pemegang tugas Staf berhonor nol di rekap ini — aturannya ditegakkan di
      fungsi database, bukan di layar. Yang disembunyikan hanya yang
@@ -2431,7 +2496,7 @@ function halRekap() {
       Pilih periodenya lalu ketuk Hitung.</div></div>` : `
 
     <div class="kartu-baris">
-      <div class="kartu"><b>${baris.length}</b><span>${spek.potongan ? 'potongan' : 'penerima'}</span></div>
+      <div class="kartu"><b>${spek.kartu ? new Set(baris.map(b => b.guru_id)).size : baris.length}</b><span>${spek.potongan ? 'potongan' : 'penerima'}</span></div>
       <div class="kartu"><b>${rupiah(total.jumlah || 0)}</b><span>${spek.potongan ? 'jumlah dipotong' : 'jumlah dibayarkan'}</span></div>
     </div>
 
@@ -2442,6 +2507,7 @@ function halRekap() {
       Insentif tatap muka dan konsumsinya dibayarkan akhir bulan lewat mesin kehadiran,
       jadi di sini ditulis nol supaya jumlahnya sama dengan yang benar-benar dibayarkan.</div>` : ''}
 
+    ${spek.kartu ? kartuRekapOrang(induk, spek, baris, total) : `
     <div class="panel"><div class="panel-head"><h3>${esc(induk.nama)}</h3>
       ${induk.sub ? `<div class="pg" style="margin-left:12px">${Object.entries(induk.sub).map(([k, v]) =>
         `<button data-rsub="${k}" class="${k === subKunci ? 'on' : ''}">${esc(v.nama)}</button>`).join('')}</div>` : ''}
@@ -2487,6 +2553,7 @@ function halRekap() {
         spek.struk ? '<td></td>' : ''}</tr></tfoot>` : ''}
       </table></div>
       <div class="foot"><div class="info">Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>
+`}
 
     <p class="kecil">${esc(spek.catatan)}</p>`}`;
 
@@ -2513,6 +2580,14 @@ function halRekap() {
   if ($('#rBentuk')) $('#rBentuk').onchange = e => { ui.rekapBentuk = e.target.value; gambar(); };
   if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…',
     () => spek.kuitansi ? unduhKuitansi(spek, baris) : unduhRekap(spek, baris, total));
+  // Tab berbentuk kartu: kuitansi per orang (komponennya dirinci di baris "Untuk pembayaran").
+  const spekKuitansi = { ...spek, kuitansi: spek.kuitansiNama || spek.nama };
+  if ($('#rKuitansi')) $('#rKuitansi').onclick = () => jalankan('Menyiapkan berkas…',
+    () => unduhKuitansi(spekKuitansi, orangDariKomponen(baris)));
+  $$('[data-kuitansi]').forEach(b => b.onclick = () => jalankan('Menyiapkan berkas…', () => {
+    const o = orangDariKomponen(baris).find(x => x.guru_id === b.dataset.kuitansi);
+    return unduhKuitansi(spekKuitansi, o ? [o] : [], o ? o.nama : '');
+  }));
   if ($('#rStruk')) $('#rStruk').onclick = () => dialogPilihStruk(baris);
   // Struk satu orang: baris yang sama, berkasnya hanya memuat struk itu (sisi kanan halaman kosong).
   $$('[data-struk]').forEach(el => el.onclick = () =>
@@ -2592,7 +2667,8 @@ async function unduhRekap(spek, baris, total) {
                  margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } }
   });
   const F = 'Calibri';
-  const kolom = spek.kolom;
+  // `layar`: kolom yang hanya digambar di layar (mis. Indeks), tidak ikut diunduh.
+  const kolom = spek.kolom.filter(k => !k.layar);
   const sesudah = spek.sesudah || [];  // kolom sesudah Jumlah (potongan, diterima)
   const KOL = kolom.length + 4 + sesudah.length;   // No, Nama, …kolom…, Jumlah, …sesudah…, Tanda tangan
   const kolTtd = KOL;
@@ -2707,7 +2783,7 @@ function labelPeriodeRekap() {
   return `periode ${tglIndo(a)} – ${tglIndo(b)}`;
 }
 
-async function unduhKuitansi(spek, baris) {
+async function unduhKuitansi(spek, baris, namaBerkas) {
   if (!baris || !baris.length) throw new Error('Tidak ada penerima pada periode ini.');
   const ExcelJS = await muatExcelJS();
   const wb = new ExcelJS.Workbook();
@@ -2744,7 +2820,8 @@ async function unduhKuitansi(spek, baris) {
     };
     const jumlah = Number(b.jumlah) || 0;
     const untuk = `${spek.kuitansi} ${labelPeriodeRekap()}`
-      + (b.bulan != null ? ` (${b.bulan} bulan × ${rupiah(b.tarif)})` : '');
+      + (b.bulan != null ? ` (${b.bulan} bulan × ${rupiah(b.tarif)})` : '')
+      + (b.rincian ? `: ${b.rincian}` : '');
 
     let r = r0 + 1;
     tulis(r, 2, 'No.', { tebal: true });            tulis(r, 3, ':');  tulis(r, 4, '……………………');
@@ -2759,7 +2836,7 @@ async function unduhKuitansi(spek, baris) {
     r += 1;
     tulis(r, 2, 'Untuk pembayaran', { tebal: true }); tulis(r, 3, ':'); tulis(r, 4, untuk, { lipat: true });
     ws.mergeCells(r, 4, r, 7);
-    ws.getRow(r).height = 30;
+    ws.getRow(r).height = b.rincian ? 15 * Math.max(2, Math.ceil(untuk.length / 55)) : 30;
     r += 2;
     kotak(r, 2, r, 2).value = `Rp ${jumlah.toLocaleString('id-ID')},-`;
     ws.getCell(r, 2).font = { name: F, size: 12, bold: true };
@@ -2793,7 +2870,7 @@ async function unduhKuitansi(spek, baris) {
     }
   });
 
-  await simpanBuku(wb, `Kuitansi ${spek.kuitansi} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
+  await simpanBuku(wb, `Kuitansi ${spek.kuitansi}${namaBerkas ? ' ' + namaBerkas : ''} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
 }
 
 /* ----------------------------------------------------------- struk gaji */
