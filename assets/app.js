@@ -25,12 +25,12 @@ const KONFIG = {
 };
 
 let sesi = { token: '', email: '', nama: '' };
-let D = { jenis: [], tarif: [], tarifSemua: [], indeks: [], pendukung: [], orangPendukung: [], guruAktif: [], profil: null, rekap: null, hadir: null, galat: {} };
+let D = { jenis: [], tarif: [], tarifSemua: [], indeks: [], pendukung: [], orangPendukung: [], guruAktif: [], profil: null, setoran: null, rekap: null, hadir: null, galat: {} };
 let halaman = 'beranda';
 let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'mengajar',
            hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '', hadirIkutStaf: false,
            penggantiRinci: false, ekskulKategori: '', rekapBentuk: '',
-           tunjanganTab: 'kesehatan', tunjanganCari: '', gajiTab: 'guru', rekapSub: {} };
+           tunjanganTab: 'kesehatan', tunjanganCari: '', gajiTab: 'guru', rekapSub: {}, setoranTab: 'bpjs_kesehatan' };
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -252,6 +252,7 @@ function layarUtama() {
     // ulang sendiri dengan periode yang sama, supaya perubahannya langsung
     // terlihat tanpa menekan Hitung lagi.
     if (halaman === 'rekap' && !D.rekap && ui.rekapAwal && ui.rekapAkhir) { jalankan('Menghitung…', muatRekap); return; }
+    if (halaman === 'setoran' && !D.setoran && ui.rekapAwal && ui.rekapAkhir) { jalankan('Menghitung…', muatSetoran); return; }
     gambar();
   });
   gambar();
@@ -260,7 +261,7 @@ function layarUtama() {
 function gambar() {
   if (!$('#isi')) return;
   ({ beranda: halBeranda, hadir: halHadir, nominal: halNominal, tunjangan: halTunjangan,
-     rekap: halRekap, identitas: halIdentitas }[halaman] || halBeranda)();
+     rekap: halRekap, setoran: halSetoran, identitas: halIdentitas }[halaman] || halBeranda)();
 }
 
 /* ---------------------------------------------------------- beranda */
@@ -345,6 +346,28 @@ const angkaIndeks = n => Number(n || 0).toLocaleString('id-ID', { minimumFractio
 const teksNilai = (j, n) => j.bentuk === 'indeks' ? angkaIndeks(n) : rupiah(n);
 // Parameter indeks yang berlaku pada tanggal tertentu (D.indeks urut berlaku_mulai naik).
 const indeksPada = (kode, tgl) => (D.indeks || []).filter(i => i.kode === kode && i.berlaku_mulai <= tgl).pop() || null;
+/* Jejak hitung indeks satu baris daftar staf, untuk keterangan sel: versi
+   mana yang dipakai (yang berlaku pada tanggal AKHIR periode), dasar
+   jenjang menurut masa kerja, kenaikan, dan batasnya — supaya angka di
+   daftar bisa dicocokkan dengan kartu Indeks di Nominal Penggajian Staf. */
+function jelaskanIndeks(r) {
+  const kode = r.kelompok_tarif === 'kepala_tu' ? 'indeks_tata_usaha' : 'indeks_' + r.kelompok_tarif;
+  const akhir = ui.rekapAkhir, mk = Number(r.masa_kerja) || 0;
+  const versi = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai <= akhir)
+    .reduce((m, t) => t.berlaku_mulai > m ? t.berlaku_mulai : m, '');
+  if (!versi) return 'Belum ada versi indeks yang berlaku pada ' + tglIndo(akhir);
+  const jenjang = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai === versi);
+  const dasar = jenjang.find(t => mk >= (t.batas_min == null ? 0 : t.batas_min) && (t.batas_maks == null || mk <= t.batas_maks));
+  const p = indeksPada(kode, akhir);
+  const naik = p ? Math.max(0, mk - p.sejak_tahun) * Number(p.kenaikan) : 0;
+  const mentah = (dasar ? Number(dasar.nilai) : 0) + naik;
+  const hasil = p && p.maksimum != null ? Math.min(Number(p.maksimum), mentah) : mentah;
+  return `Versi berlaku ${tglIndo(versi)} (dipakai karena periode berakhir ${tglIndo(akhir)}). `
+    + `Dasar jenjang masa kerja ${mk} tahun = ${dasar ? angkaIndeks(dasar.nilai) : 'tidak ada jenjang yang cocok'}`
+    + (p ? ` + ${angkaIndeks(p.kenaikan)} × (${mk} − ${p.sejak_tahun}) = ${angkaIndeks(mentah)}`
+          + (p.maksimum != null ? `, maksimum ${angkaIndeks(p.maksimum)}` : '') : ' (kenaikan belum diisi)')
+    + ` → ${angkaIndeks(hasil)}.`;
+}
 const teksIndeks = i => !i ? ''
   : `+ ${angkaIndeks(i.kenaikan)} per tahun masa kerja sejak tahun ke-${i.sejak_tahun}`
     + (i.maksimum != null ? `, maksimum ${angkaIndeks(i.maksimum)}` : ', tanpa batas atas');
@@ -496,7 +519,7 @@ function halNominal() {
     if (!window.confirm(`Hapus komponen ${p.komponen} (${rupiah(p.nilai)} ${p.satuan}, berlaku ${tglIndo(p.berlaku_mulai)})? Tidak bisa dibatalkan.`)) return;
     jalankan('Menghapus…', async () => {
       await buang('ip_pendukung', `id=eq.${p.id}`);
-      D.rekap = null;
+      D.rekap = null; D.setoran = null;
       await muatSemua();
       toast(`Komponen ${p.komponen} dihapus`);
     });
@@ -614,7 +637,7 @@ function formPendukung(guruId, lama) {
       await simpanBaru('ip_pendukung', [isi]);
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) ui.acuan = mulai;
-      D.rekap = null;   // rekap yang sudah dihitung memakai komponen lama
+      D.rekap = null; D.setoran = null;   // rekap yang sudah dihitung memakai komponen lama
       await muatSemua();
       toast(`${orang.nama}: ${komponen} ${rupiah(isi.nilai)} ${isi.satuan}, berlaku ${tglIndo(mulai)}`
         + (acuanPindah ? `. Tanggal acuan halaman dipindahkan ke ${tglIndo(mulai)}.` : ''));
@@ -640,7 +663,7 @@ function akhiriPendukung(p) {
     tutupModal();
     jalankan('Menyimpan…', async () => {
       await ubah('ip_pendukung', `id=eq.${p.id}`, { berlaku_sampai: sampai });
-      D.rekap = null;
+      D.rekap = null; D.setoran = null;
       await muatSemua();
       toast(`${orang.nama}: ${p.komponen} berakhir ${tglIndo(sampai)}`);
     });
@@ -821,7 +844,7 @@ function formTarif(kode) {
          dan pemindahan itu disebut di pesan. */
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) ui.acuan = mulai;
-      D.rekap = null;   // rekap yang sudah dihitung memakai besaran lama
+      D.rekap = null; D.setoran = null;   // rekap yang sudah dihitung memakai besaran lama
       await muatSemua();
       toast(`${j.nama}: besaran baru berlaku ${tglIndo(mulai)}`
         + (acuanPindah ? `. Tanggal acuan halaman dipindahkan ke ${tglIndo(mulai)} supaya besaran itu terlihat.` : ''));
@@ -874,7 +897,7 @@ function dialogRiwayat(kode) {
         const kodeSemua = kodePot ? `in.(${enc(kode)},${enc(kodePot)})` : `eq.${enc(kode)}`;
         await buang('ip_tarif', `kode=${kodeSemua}&berlaku_mulai=eq.${enc(mulai)}`);
         if (j.bentuk === 'indeks') await buang('ip_indeks', `kode=eq.${enc(kode)}&berlaku_mulai=eq.${enc(mulai)}`);
-        D.rekap = null;
+        D.rekap = null; D.setoran = null;
         await muatSemua();
         toast(`${j.nama}: versi ${tglIndo(mulai)} dihapus`);
         dialogRiwayat(kode);
@@ -1233,7 +1256,7 @@ function ubahKeanggotaan(guruId, jadiAnggota) {
       berlaku_mulai: bulanAcuan, berlaku_sampai: null, keterangan: 'Bukan anggota koperasi'
     }]);
     await muatTunjangan();
-    D.rekap = null;
+    D.rekap = null; D.setoran = null;
     toast(`${g.nama}: ${jadiAnggota ? 'anggota koperasi, iuran mengikuti bawaan' : 'bukan anggota koperasi, iuran Rp 0'} sejak ${blnIndo(bulanAcuan)}.`);
   });
 }
@@ -1340,7 +1363,7 @@ function dialogPenyaluran(guruId, jenis) {
       const acuanPindah = isi.berlaku_mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = isi.berlaku_mulai; await muatSemua(); }
       await muatTunjangan();
-      D.rekap = null;   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
+      D.rekap = null; D.setoran = null;   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
       const a = angkaTunjangan(jenis, isi);
       toast(`${h.nama}: ${isi.bentuk}, dari sekolah ${rupiah(a.nominal)}${a.nominalKhusus ? '' : ' (bawaan)'}, `
         + `potongan ${rupiah(a.potongan)}${a.potonganKhusus ? '' : ' (bawaan)'}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
@@ -1421,7 +1444,7 @@ function hapusPotongan(p) {
   jalankan('Menghapus…', async () => {
     await buang('ip_potongan', `id=eq.${p.id}`);
     await muatTunjangan();
-    D.rekap = null;
+    D.rekap = null; D.setoran = null;
     toast(`Potongan ${p.jenis} milik ${namaGuru} dihapus.`);
   });
   return true;
@@ -1506,7 +1529,7 @@ function dialogPotongan(kelompok, id, guruTetap) {
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = mulai; await muatSemua(); }
       await muatTunjangan();
-      D.rekap = null;
+      D.rekap = null; D.setoran = null;
       toast(`${namaGuru}: ${isi.jenis} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
         + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
         + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(mulai)} supaya terlihat.` : '')
@@ -1541,7 +1564,7 @@ function dialogAkhiriPotongan(id) {
     jalankan('Menyimpan…', async () => {
       await ubah('ip_potongan', `id=eq.${p.id}`, { berlaku_sampai: sampai });
       await muatTunjangan();
-      D.rekap = null;
+      D.rekap = null; D.setoran = null;
       toast(`${namaGuru}: ${p.jenis} berakhir ${blnIndo(sampai)}.`);
     });
   };
@@ -2404,12 +2427,15 @@ const REKAP = {
           judul: `DAFTAR PENERIMAAN TRANSPOR BERDIRI, INSENTIF, DAN KONSUMSI ${siapa}`,
           ubah: r => ({ ...r, jumlah: (Number(r.transport_berdiri) || 0) + (Number(r.transport_htm) || 0) + (Number(r.konsumsi) || 0) }),
           catatan: siapaTeks + ' Ketiganya dikalikan indeks kelompok tarif (Indeks Staf di Nominal Penggajian Staf, menurut masa '
-                 + 'kerja). Transpor berdiri = tarif per jam per minggu × jam kerja per minggu × indeks. Insentif (transport HTM) = '
+                 + 'kerja). Kolom Indeks adalah HASIL rumus, bukan angka jenjang: dasar jenjang masa kerja + kenaikan per tahun × '
+                 + '(masa kerja − tahun mulai), dibatasi maksimum, dari versi yang berlaku pada tanggal akhir periode — arahkan '
+                 + 'tetikus ke angkanya untuk melihat hitungannya. Transpor berdiri = tarif per jam per minggu × jam kerja per minggu × indeks. Insentif (transport HTM) = '
                  + 'tarif per jam hadir × jam hadir sebulan × indeks, dibulatkan ke atas ke ribuan. Konsumsi = tarif per hari hadir '
                  + '× hari hadir × indeks. Jam dan hari hadir dari Kehadiran Staf; jam hadir dipotong pada ketentuan masuk–pulang.',
           kolom: [...kolomDasar,
             // Indeks tampil di layar sebagai pegangan, tidak ikut ke daftar bertanda tangan (layar: true).
-            { k: 'indeks', t: 'Indeks', w: 70, num: true, jumlah: false, layar: true, html: r => angkaIndeks(r.indeks) },
+            { k: 'indeks', t: 'Indeks', w: 70, num: true, jumlah: false, layar: true,
+              html: r => `<span title="${esc(jelaskanIndeks(r))}" style="cursor:help;border-bottom:1px dotted var(--ink3)">${angkaIndeks(r.indeks)}</span>` },
             { k: 'hari_hadir', t: 'Hari/bulan', w: 80, num: true },
             { k: 'jam_hadir', t: 'Jam/bulan', w: 80, num: true },
             { k: 'transport_berdiri', t: 'Transpor Berdiri', w: 130, rp: true },
@@ -2650,7 +2676,7 @@ function halRekap() {
   };
   $$('[data-rekap]').forEach(b => b.onclick = () => {
     ui.rekapJenis = b.dataset.rekap;
-    D.rekap = null;
+    D.rekap = null; D.setoran = null;
     jalankan('Menghitung…', muatRekap);
   });
   $$('[data-rsub]').forEach(b => b.onclick = () => { ui.rekapSub[ui.rekapJenis] = b.dataset.rsub; gambar(); });
@@ -2659,7 +2685,7 @@ function halRekap() {
     const pertama = rekapDiBagian(b.dataset.rbagian)[0];
     if (!pertama || pertama[0] === ui.rekapJenis) return;
     ui.rekapJenis = pertama[0];
-    D.rekap = null;
+    D.rekap = null; D.setoran = null;
     if (ui.rekapAwal && ui.rekapAkhir) jalankan('Menghitung…', muatRekap); else gambar();
   });
   if ($('#rBentuk')) $('#rBentuk').onchange = e => { ui.rekapBentuk = e.target.value; gambar(); };
@@ -2956,6 +2982,126 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
   });
 
   await simpanBuku(wb, `Kuitansi ${spek.kuitansi}${namaBerkas ? ' ' + namaBerkas : ''} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
+}
+
+/* ------------------------------------------------ nominal setoran wajib */
+/* Daftar uang yang disetorkan sekolah ke bank / penyelenggara tiap periode
+   (26 September 2026): satu tab per tujuan setoran. Tiap orang: nominal dari
+   sekolah + potongan porsi guru = setoran. Datanya fungsi tunjangan yang
+   sama dengan halaman Tunjangan dan Potongan (TuSehat dan TuKerja),
+   disaring menurut bentuk penyaluran yang ditetapkan di sana. Periodenya
+   sama dengan Honor dan Transpor supaya angkanya sejalan dengan Gabungan. */
+const SETORAN = {
+  bpjs_kesehatan: { nama: 'BPJS Kesehatan',      jenis: ['kesehatan'],       bentuk: 'BPJS Kesehatan',
+    judul: 'DAFTAR SETORAN BPJS KESEHATAN' },
+  bpjs_tk:        { nama: 'BPJS Ketenagakerjaan', jenis: ['ketenagakerjaan'], bentuk: 'BPJS Ketenagakerjaan',
+    judul: 'DAFTAR SETORAN BPJS KETENAGAKERJAAN' },
+  dplk:           { nama: 'DPLK BJB',             jenis: ['kesehatan', 'ketenagakerjaan'], bentuk: 'DPLK BJB',
+    judul: 'DAFTAR SETORAN DPLK BJB' },
+  simponi:        { nama: 'Simponi BNI',          jenis: ['kesehatan', 'ketenagakerjaan'], bentuk: 'Simponi BNI',
+    judul: 'DAFTAR SETORAN SIMPONI BNI' }
+};
+const KOLOM_SETORAN = [
+  { k: 'program', t: 'Program', w: 90, jumlah: false },
+  { k: 'nomor_peserta', t: 'No. peserta', w: 130, jumlah: false, html: r => esc(r.nomor_peserta || '—') },
+  { k: 'bulan', t: 'Bulan', w: 65, num: true },
+  { k: 'tarif', t: 'Dari sekolah/bulan', w: 130, rp: true, jumlah: false },
+  { k: 'potongan_bulan', t: 'Potongan guru/bulan', w: 135, rp: true, jumlah: false },
+  { k: 'sekolah', t: 'Dari sekolah', w: 130, rp: true },
+  { k: 'potongan', t: 'Potongan guru', w: 130, rp: true }
+];
+
+async function muatSetoran() {
+  const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
+  const [kesehatan, ketenagakerjaan] = await Promise.all([
+    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
+    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' })
+  ]);
+  D.setoran = { awal: ui.rekapAwal, akhir: ui.rekapAkhir, kesehatan: kesehatan || [], ketenagakerjaan: ketenagakerjaan || [] };
+}
+
+function halSetoran() {
+  const tab = SETORAN[ui.setoranTab] ? ui.setoranTab : 'bpjs_kesehatan';
+  const spekTab = SETORAN[tab];
+  const semua = D.setoran;
+  // Baris: nominal dari sekolah dan potongan guru untuk periode; Jumlah = setoran ke bank.
+  const baris = !semua ? null : urutMasaKerja(spekTab.jenis.flatMap(j => (semua[j] || [])
+    .filter(r => r.bentuk === spekTab.bentuk)
+    .map(r => ({ ...r, program: TUNJANGAN[j], sekolah: Number(r.jumlah) || 0,
+                 jumlah: (Number(r.jumlah) || 0) + (Number(r.potongan) || 0) }))));
+  const total = (baris || []).reduce((t, r) => {
+    for (const k of ['bulan', 'sekolah', 'potongan', 'jumlah']) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
+    return t;
+  }, {});
+  const spek = { nama: spekTab.nama, judul: spekTab.judul, kolom: KOLOM_SETORAN,
+    catatan: `Setoran ${spekTab.nama} untuk ${labelPeriodeRekap()}: nominal dari sekolah ditambah potongan porsi guru, `
+           + 'keduanya dari penyaluran per orang di halaman Tunjangan dan Potongan (bila belum ditetapkan, bawaan dari '
+           + 'Nominal Penggajian). Jumlah bulan mengikuti aturan bulan yang lebih dari setengah harinya masuk periode. '
+           + 'Hanya orang yang bentuk penyalurannya ' + spekTab.nama + ' dan berhak pada periode ini.' };
+
+  $('#isi').innerHTML = `
+    <div class="head"><div><h1>Nominal Setoran Wajib</h1>
+      <p>Uang yang harus disetorkan sekolah ke bank atau penyelenggara pada satu periode: nominal dari
+         sekolah ditambah potongan porsi guru, per orang, menurut tujuan setorannya.</p></div>
+      <div class="sp"></div>
+      <div class="mx-pilih">
+        <label class="kecil">Dari</label>
+        <input class="field" type="date" id="sAwal" value="${esc(ui.rekapAwal)}" style="width:auto">
+        <label class="kecil">sampai</label>
+        <input class="field" type="date" id="sAkhir" value="${esc(ui.rekapAkhir)}" style="width:auto">
+        <button class="btn btn-p" id="sHitung">Hitung</button>
+      </div></div>
+
+    <div class="bar">${Object.entries(SETORAN).map(([k, v]) =>
+      `<button class="chip${k === tab ? ' on' : ''}" data-setoran="${k}">${esc(v.nama)}</button>`).join('')}</div>
+
+    ${!semua ? `<div class="panel"><div class="empty"><b>Belum dihitung</b>
+      Pilih periodenya lalu ketuk Hitung.</div></div>` : `
+    <div class="kartu-baris">
+      <div class="kartu"><b>${baris.length}</b><span>peserta</span></div>
+      <div class="kartu"><b>${rupiah(total.sekolah || 0)}</b><span>dari sekolah</span></div>
+      <div class="kartu"><b>${rupiah(total.potongan || 0)}</b><span>potongan guru</span></div>
+      <div class="kartu"><b>${rupiah(total.jumlah || 0)}</b><span>setoran ke ${esc(spekTab.nama)}</span></div>
+    </div>
+
+    <div class="panel"><div class="panel-head"><h3>${esc(spekTab.nama)}</h3>
+      <div class="sp" style="flex:1"></div>
+      <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div>
+      <button class="btn btn-sm" id="sUnduh" style="margin-left:10px">Unduh Format (xlsx)</button></div>
+      <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat seluruh kolom.</div>
+      <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
+        <th style="width:40px" class="num lekat-no">No</th>
+        <th class="lekat">Nama</th>
+        ${KOLOM_SETORAN.map(k => `<th style="width:${k.w}px" class="${k.num || k.rp ? 'num' : ''}">${esc(k.t)}</th>`).join('')}
+        <th style="width:135px" class="num">Setoran</th>
+      </tr></thead><tbody>${
+        baris.length ? baris.map((b, i) => `<tr>
+          <td class="num lekat-no">${i + 1}</td>
+          <td class="nama lekat" style="font-weight:500">${esc(b.nama)}</td>
+          ${KOLOM_SETORAN.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}</td>`).join('')}
+          <td class="num" style="font-weight:600">${rupiah(b.jumlah)}</td></tr>`).join('')
+        : `<tr><td colspan="${KOLOM_SETORAN.length + 3}"><div class="empty"><b>Tidak ada peserta</b>
+            Tidak ada yang bentuk penyalurannya ${esc(spekTab.nama)} dan berhak pada periode ini.</div></td></tr>`
+      }</tbody>
+      ${baris.length ? `<tfoot><tr>
+        <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td>
+        ${KOLOM_SETORAN.map(k => `<td class="${k.num || k.rp ? 'num' : ''}" style="font-weight:600">${
+          k.jumlah === false ? '—' : k.rp ? rupiah(total[k.k] || 0) : (total[k.k] || 0)}</td>`).join('')}
+        <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}</td></tr></tfoot>` : ''}
+      </table></div>
+      <div class="foot"><div class="info">Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>
+
+    <p class="kecil">${esc(spek.catatan)}</p>`}`;
+
+  $('#sHitung').onclick = () => {
+    ui.rekapAwal = $('#sAwal').value || ui.rekapAwal;
+    ui.rekapAkhir = $('#sAkhir').value || ui.rekapAkhir;
+    if (ui.rekapAwal > ui.rekapAkhir) { toast('Tanggal awal melewati tanggal akhir.', true); return; }
+    D.rekap = null;   // periode Honor dan Transpor ikut berubah
+    jalankan('Menghitung…', muatSetoran);
+  };
+  $$('[data-setoran]').forEach(b => b.onclick = () => { ui.setoranTab = b.dataset.setoran; gambar(); });
+  if ($('#sUnduh')) $('#sUnduh').onclick = () => jalankan('Menyiapkan berkas…', () => unduhRekap(spek, baris, total));
 }
 
 /* ----------------------------------------------------------- struk gaji */
