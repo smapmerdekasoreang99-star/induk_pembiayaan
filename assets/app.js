@@ -1329,18 +1329,35 @@ function dialogPenyaluran(guruId, jenis) {
     </div>
     ${riwayat.length ? `<div class="fg penuh"><label>Riwayat</label>
       <table class="log"><thead><tr><th>Mulai</th><th>Bentuk</th><th>No. peserta</th>
-        <th style="text-align:right">Dari sekolah</th><th style="text-align:right">Potongan</th><th>Catatan</th></tr></thead>
+        <th style="text-align:right">Dari sekolah</th><th style="text-align:right">Potongan</th><th>Catatan</th><th></th></tr></thead>
       <tbody>${riwayat.map(r => `<tr>
         <td class="kecil">${esc(tglIndo(r.berlaku_mulai))}</td><td>${esc(r.bentuk)}</td>
         <td class="kecil">${esc(r.nomor_peserta || '')}</td>
         <td style="text-align:right">${r.nominal == null ? '<span class="kecil">bawaan</span>' : rupiah(r.nominal)}</td>
         <td style="text-align:right">${r.potongan == null ? '<span class="kecil">bawaan</span>' : rupiah(r.potongan)}</td>
-        <td class="kecil">${esc(r.catatan || '')}</td></tr>`).join('')}</tbody></table></div>` : ''}
+        <td class="kecil">${esc(r.catatan || '')}</td>
+        <td><button class="btn btn-sm btn-d" data-hapus-salur="${r.id}">Hapus</button></td></tr>`).join('')}</tbody></table>
+      <div class="hint">Hapus untuk merapikan uji coba. Versi sebelumnya kembali berlaku; bila semua dihapus,
+        orang ini kembali ke bentuk dan nominal bawaan.</div></div>` : ''}
     </div>
     <div class="aksi"><button class="btn" id="m-batal">Batal</button>
       <button class="btn btn-p" id="m-simpan">Simpan sebagai versi baru</button></div>`, true);
 
   $('#m-batal').onclick = tutupModal;
+  // Hapus satu versi penyaluran (uji coba); dialog dibuka lagi dengan riwayat yang tersisa.
+  $$('[data-hapus-salur]').forEach(b => b.onclick = () => {
+    const r = riwayat.find(x => String(x.id) === b.dataset.hapusSalur);
+    if (!r || !window.confirm(`Hapus versi ${TUNJANGAN[jenis]} ${h.nama} yang berlaku mulai ${tglIndo(r.berlaku_mulai)}? Tidak bisa dibatalkan.`)) return;
+    tutupModal();
+    jalankan('Menghapus…', async () => {
+      await buang('ip_tunjangan_penyaluran', `id=eq.${r.id}`);
+      await muatTunjangan();
+      D.rekap = null; D.setoran = null;
+      gambar();
+      toast(`${h.nama}: versi ${tglIndo(r.berlaku_mulai)} dihapus`);
+      dialogPenyaluran(guruId, jenis);
+    });
+  });
   $('#m-simpan').onclick = () => {
     const mulai = $('#p-mulai').value;
     if (!mulai) { $('#p-mulai').focus(); return; }
