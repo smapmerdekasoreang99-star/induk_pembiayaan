@@ -236,6 +236,22 @@ function layarUtama() {
   $('#fPetugas').textContent = sesi.nama;
   $('#fPeran').textContent = sesi.peran === 'bendahara' ? 'Bendahara' : 'Operator';
   $('#bKeluar').onclick = () => { sesi = { token: '', email: '', nama: '' }; layarMasuk(); };
+  /* Kembali ke tab ini sesudah beberapa saat (26 September 2026): data yang
+     diubah di aplikasi lain — pengesahan TuSehat/TuKerja dan jam kerja di Data
+     Induk, kehadiran di Kehadiran Guru — tidak akan terlihat bila halaman
+     memakai hasil muatan lama. Hitungan yang tersimpan dibuang dan halaman
+     yang sedang dibuka dimuat ulang dengan periode yang sama. */
+  let tersembunyiSejak = 0;
+  document.onvisibilitychange = () => {
+    if (document.hidden) { tersembunyiSejak = Date.now(); return; }
+    if (!tersembunyiSejak || Date.now() - tersembunyiSejak < 15000 || $('#modal-root').innerHTML) return;
+    tersembunyiSejak = 0;
+    D.tunjangan = null; D.rekap = null; D.setoran = null;
+    if (halaman === 'rekap' && ui.rekapAwal && ui.rekapAkhir) jalankan('Memuat ulang…', muatRekap);
+    else if (halaman === 'setoran' && ui.rekapAwal && ui.rekapAkhir) jalankan('Memuat ulang…', muatSetoran);
+    else if (halaman === 'hadir' && D.hadir) jalankan('Memuat ulang…', muatHadir);
+    else jalankan('Memuat ulang…', muatSemua);
+  };
   $$('#nav button').forEach(b => b.onclick = () => {
     if (b.dataset.hal === 'nominal' && !ui.nominalDibuka) {
       const pin = window.prompt('Masukkan PIN untuk membuka Nominal Penggajian:');
