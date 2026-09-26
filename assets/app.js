@@ -2201,11 +2201,35 @@ const REKAP = {
       { k: 'pendukung', t: 'Honor Pendukung', w: 140, rp: true },
       { k: 'bpjs', t: 'TuSehat', w: 120, rp: true },
       { k: 'bpjs_tk', t: 'TuKerja', w: 120, rp: true }
-    ]
-    /* Potongan dan diterima bersih tidak lagi berdiri di sini (25 September
-       2026): Gabungan menunjukkan yang DIBAYARKAN; yang dipotong dan yang
-       diterima hanya tercetak di struk gaji. Fungsinya tetap mengembalikan
-       kolom itu karena struk gaji membacanya. */
+    ],
+    /* Dua sub-tab (26 September 2026). Tanpa Potongan: yang DIBAYARKAN saja.
+       Dengan Potongan: sesudah Jumlah, potongan dan yang diterima — susunannya
+       sama dengan struk gaji: Jumlah − potongan = bersih; tunjangan (TuSehat +
+       TuKerja) disetor sekolah langsung ke bank, jadi Diterima Tunai = bersih
+       − tunjangan. */
+    sub: {
+      tanpa: { nama: 'Tanpa Potongan' },
+      dengan: {
+        nama: 'Dengan Potongan',
+        judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA DENGAN POTONGAN',
+        ubah: r => {
+          const tunj = (Number(r.bpjs) || 0) + (Number(r.bpjs_tk) || 0);
+          return { ...r, disetor: tunj, tunai: (Number(r.bersih) || 0) - tunj };
+        },
+        sesudah: [
+          { k: 'potongan_bpjs', t: 'Pot. BPJS', w: 120, rp: true },
+          { k: 'potongan_koperasi', t: 'Pot. Koperasi', w: 120, rp: true },
+          { k: 'potongan_sekolah', t: 'Pot. Lain-lain', w: 120, rp: true },
+          { k: 'potongan', t: 'Jumlah Potongan', w: 130, rp: true },
+          { k: 'disetor', t: 'Tunj. Disetor ke Bank', w: 150, rp: true },
+          { k: 'tunai', t: 'Diterima Tunai', w: 140, rp: true }
+        ],
+        catatan: 'Sama dengan Tanpa Potongan, ditambah potongan dan yang diterima, persis seperti struk gaji: '
+               + 'Pot. BPJS (porsi guru TuSehat/TuKerja), Pot. Koperasi, dan Pot. Lain-lain dari halaman Tunjangan dan '
+               + 'Potongan; Jumlah Potongan = ketiganya. Tunjangan (TuSehat + TuKerja) disetor sekolah langsung ke bank '
+               + 'atau penyelenggara, jadi Diterima Tunai = Jumlah − Jumlah Potongan − Tunjangan Disetor ke Bank.'
+      }
+    }
   },
   mengajar: { tab: 'guru',
     nama: 'Guru Mengajar',
@@ -2647,7 +2671,7 @@ function halRekap() {
             k.s && Number(b[k.s]) > 0 ? kecilRp(b[k.s]) : ''}</td>`).join('')}
           <td class="num" style="font-weight:600">${rupiah(b.jumlah)}${
             b.seandainya != null && Number(b.seandainya) !== Number(b.jumlah) ? kecilRp(b.seandainya) : ''}</td>${
-          sesudah.map(k => `<td class="num" style="${k.k === 'bersih' ? 'font-weight:600' : ''}">${rupiah(b[k.k])}</td>`).join('')}${
+          sesudah.map(k => `<td class="num" style="${(k.k === 'bersih' || k.k === 'tunai') ? 'font-weight:600' : ''}">${rupiah(b[k.k])}</td>`).join('')}${
           spek.struk ? `<td>${adaStruk(b) ? `<button class="btn btn-sm" data-struk="${i}" title="Unduh struk gaji ${esc(b.nama)} (docx)">Struk</button>` : ''}</td>` : ''}</tr>`).join('')
         : `<tr><td colspan="${spek.kolom.length + 3 + sesudah.length + (spek.struk ? 1 : 0)}"><div class="empty"><b>Tidak ada penerima</b>
             Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
@@ -2821,7 +2845,7 @@ async function unduhRekap(spek, baris, total) {
       else sel(r, 3 + j, v == null ? '—' : String(v), { rata: 'center' });
     });
     sel(r, kolom.length + 3, Number(b.jumlah) || 0, { fmt: RP, tebal: true });
-    sesudah.forEach((k, j) => sel(r, kolom.length + 4 + j, Number(b[k.k]) || 0, { fmt: RP, tebal: k.k === 'bersih' }));
+    sesudah.forEach((k, j) => sel(r, kolom.length + 4 + j, Number(b[k.k]) || 0, { fmt: RP, tebal: k.k === 'bersih' || k.k === 'tunai' }));
     sel(r, kolTtd, `${i + 1}. ……………………`);
     ws.getRow(r).height = 26;
     r += 1;
@@ -3436,7 +3460,7 @@ async function unduhStruk(baris) {
       if (st && st.jabatan) bagian.push(rowInfo('Jabatan', st.jabatan));
       bagian.push(rowItem(1, 'Gaji Pokok Staf', st ? `${fmtJam(st.jam_minggu)} jam/minggu` : '', st ? st.gaji_pokok : 0));
       bagian.push(rowItem(2, 'Tunjangan Jabatan', st ? `${fmtJam(st.hari_tunjangan)} hari/minggu` : '', st ? st.tunjangan_jabatan : 0));
-      bagian.push(rowItem(3, 'Transpor Berdiri', st ? `${fmtJam(st.jam_minggu)} jam/minggu × indeks ${angkaIndeks(st.indeks)}` : '', st ? st.transport_berdiri : 0));
+      bagian.push(rowItem(3, 'Transpor Berdiri', st ? `${fmtJam(st.jam_minggu)} jam/minggu` : ''   /* indeks tidak dicetak: bukan konsumsi publik */, st ? st.transport_berdiri : 0));
       bagian.push(rowItem(4, 'Insentif Kedatangan', st ? `${fmtJam(st.jam_hadir)} jam hadir` : '', st ? st.transport_htm : 0));
       bagian.push(rowItem(5, 'Konsumsi', st ? `${st.hari_hadir} hari hadir` : '', st ? st.konsumsi : 0));
       bagian.push(rowJumlah(`Jumlah ${k}`, S));
