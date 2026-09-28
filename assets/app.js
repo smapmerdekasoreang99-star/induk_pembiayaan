@@ -958,7 +958,8 @@ const TJ_TAB = {
   sekolah:         { nama: 'Potongan lain-lain',        kelompok: 'sekolah' }
 };
 const JENIS_POTONGAN = {
-  sekolah:  ['Pinjaman ke sekolah', 'Lainnya'],
+  // Tabungan hari tua (28 September 2026): disetor ke DPLK BJB, Simponi BNI, atau koperasi — lihat Nominal Setoran Wajib.
+  sekolah:  ['Pinjaman ke sekolah', 'Tabungan DPLK', 'Tabungan Simponi', 'Tabungan Koperasi', 'Lainnya'],
   koperasi: ['Iuran keanggotaan', 'Tabungan koperasi', 'Pinjaman koperasi', 'Lainnya']
 };
 /* Baris lama berjenis "Simpanan wajib" (koperasi) dan "Tabungan rutin"
@@ -3405,21 +3406,27 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
    sama dengan halaman Tunjangan dan Potongan (TuSehat dan TuKerja),
    disaring menurut bentuk penyaluran yang ditetapkan di sana. Periodenya
    sama dengan Honor dan Transpor supaya angkanya sejalan dengan Gabungan. */
+/* Sumber tiap tujuan (28 September 2026):
+     jenis   — TuSehat/TuKerja yang bentuk penyalurannya = bentuk
+     koperasi — seluruh Potongan Koperasi, termasuk iuran keanggotaan bawaan
+     tabungan — potongan lain-lain berjenis itu (tabungan hari tua guru)  */
 const SETORAN = {
   bpjs_kesehatan: { nama: 'BPJS Kesehatan',      jenis: ['kesehatan'],       bentuk: 'BPJS Kesehatan',
     judul: 'DAFTAR SETORAN BPJS KESEHATAN' },
   bpjs_tk:        { nama: 'BPJS Ketenagakerjaan', jenis: ['ketenagakerjaan'], bentuk: 'BPJS Ketenagakerjaan',
     judul: 'DAFTAR SETORAN BPJS KETENAGAKERJAAN' },
-  dplk:           { nama: 'DPLK BJB',             jenis: ['kesehatan', 'ketenagakerjaan'], bentuk: 'DPLK BJB',
+  koperasi:       { nama: 'Koperasi',             jenis: [], koperasi: true, tabungan: 'Tabungan Koperasi',
+    judul: 'DAFTAR SETORAN KOPERASI' },
+  dplk:           { nama: 'DPLK BJB',             jenis: ['kesehatan', 'ketenagakerjaan'], bentuk: 'DPLK BJB', tabungan: 'Tabungan DPLK',
     judul: 'DAFTAR SETORAN DPLK BJB' },
-  simponi:        { nama: 'Simponi BNI',          jenis: ['kesehatan', 'ketenagakerjaan'], bentuk: 'Simponi BNI',
+  simponi:        { nama: 'Simponi BNI',          jenis: ['kesehatan', 'ketenagakerjaan'], bentuk: 'Simponi BNI', tabungan: 'Tabungan Simponi',
     judul: 'DAFTAR SETORAN SIMPONI BNI' }
 };
 const KOLOM_SETORAN = [
   { k: 'program', t: 'Program', w: 90, jumlah: false },
   { k: 'nomor_peserta', t: 'No. peserta', w: 130, jumlah: false, html: r => esc(r.nomor_peserta || '—') },
   { k: 'bulan', t: 'Bulan', w: 65, num: true },
-  { k: 'tarif', t: 'Dari sekolah/bulan', w: 130, rp: true, jumlah: false },
+  { k: 'tarif', t: 'Dari sekolah/bulan', w: 130, rp: true, jumlah: false, html: r => r.tarif == null ? '<span class="kecil">—</span>' : rupiah(r.tarif) },
   { k: 'potongan_bulan', t: 'Potongan guru/bulan', w: 135, rp: true, jumlah: false }
   /* Kolom Dari sekolah dan Potongan guru untuk seluruh periode dihapus (28
      September 2026): mengulang angka per bulan × Bulan. Totalnya tetap di
@@ -3428,11 +3435,14 @@ const KOLOM_SETORAN = [
 
 async function muatSetoran() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
-  const [kesehatan, ketenagakerjaan] = await Promise.all([
+  const [kesehatan, ketenagakerjaan, kopr, lain] = await Promise.all([
     rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
-    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' })
+    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
+    rpc('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
+    rpc('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' })
   ]);
-  D.setoran = { awal: ui.rekapAwal, akhir: ui.rekapAkhir, kesehatan: kesehatan || [], ketenagakerjaan: ketenagakerjaan || [] };
+  D.setoran = { awal: ui.rekapAwal, akhir: ui.rekapAkhir, kesehatan: kesehatan || [], ketenagakerjaan: ketenagakerjaan || [],
+                koperasi: kopr || [], sekolah: lain || [] };
 }
 
 function halSetoran() {
@@ -3440,16 +3450,27 @@ function halSetoran() {
   const spekTab = SETORAN[tab];
   const semua = D.setoran;
   // Baris: nominal dari sekolah dan potongan guru untuk periode; Jumlah = setoran ke bank.
-  const baris = !semua ? null : urutMasaKerja(spekTab.jenis.flatMap(j => (semua[j] || [])
-    .filter(r => r.bentuk === spekTab.bentuk)
-    .map(r => ({ ...r, program: TUNJANGAN[j], sekolah: Number(r.jumlah) || 0,
-                 jumlah: (Number(r.jumlah) || 0) + (Number(r.potongan) || 0) }))));
+  // Potongan (koperasi, tabungan): seluruhnya dari gaji guru; tidak ada bagian dari sekolah.
+  const dariPotongan = r => ({ ...r, program: r.jenis, nomor_peserta: r.keterangan || null, tarif: null,
+    potongan_bulan: Number(r.nominal) || 0, sekolah: 0, potongan: Number(r.jumlah) || 0, jumlah: Number(r.jumlah) || 0 });
+  const baris = !semua ? null : urutMasaKerja([
+    ...spekTab.jenis.flatMap(j => (semua[j] || [])
+      .filter(r => r.bentuk === spekTab.bentuk)
+      .map(r => ({ ...r, program: TUNJANGAN[j], sekolah: Number(r.jumlah) || 0,
+                   jumlah: (Number(r.jumlah) || 0) + (Number(r.potongan) || 0) }))),
+    ...(spekTab.koperasi ? (semua.koperasi || []).filter(r => Number(r.jumlah) > 0).map(dariPotongan) : []),
+    ...(spekTab.tabungan ? (semua.sekolah || []).filter(r => r.jenis === spekTab.tabungan && Number(r.jumlah) > 0).map(dariPotongan) : [])
+  ]);
   const total = (baris || []).reduce((t, r) => {
     for (const k of ['bulan', 'sekolah', 'potongan', 'jumlah']) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
     return t;
   }, {});
   const spek = { nama: spekTab.nama, judul: spekTab.judul, kolom: KOLOM_SETORAN,
-    catatan: `Setoran ${spekTab.nama} untuk ${labelPeriodeRekap()}: nominal dari sekolah ditambah potongan porsi guru, `
+    catatan: (spekTab.koperasi
+      ? 'Setoran ke koperasi: seluruh Potongan Koperasi (iuran keanggotaan — bawaan atau per orang —, tabungan, dan angsuran '
+        + 'pinjaman koperasi) ditambah Tabungan Koperasi dari Potongan lain-lain; semuanya dipotong dari pendapatan guru. '
+      : spekTab.tabungan ? `Termasuk ${spekTab.tabungan} dari Potongan lain-lain (tabungan hari tua guru, seluruhnya dari gaji guru). ` : '')
+           + `Setoran ${spekTab.nama} untuk ${labelPeriodeRekap()}: nominal dari sekolah ditambah potongan porsi guru, `
            + 'keduanya dari penyaluran per orang di halaman Tunjangan dan Potongan (bila belum ditetapkan, bawaan dari '
            + 'Nominal Penggajian). Jumlah bulan mengikuti aturan bulan yang lebih dari setengah harinya masuk periode. '
            + 'Hanya orang yang bentuk penyalurannya ' + spekTab.nama + ' dan berhak pada periode ini.' };
@@ -3496,7 +3517,8 @@ function halSetoran() {
           ${KOLOM_SETORAN.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}</td>`).join('')}
           <td class="num" style="font-weight:600">${rupiah(b.jumlah)}</td></tr>`).join('')
         : `<tr><td colspan="${KOLOM_SETORAN.length + 3}"><div class="empty"><b>Tidak ada peserta</b>
-            Tidak ada yang bentuk penyalurannya ${esc(spekTab.nama)} dan berhak pada periode ini.</div></td></tr>`
+            ${spekTab.koperasi ? 'Tidak ada potongan koperasi pada periode ini.'
+              : `Tidak ada yang bentuk penyalurannya ${esc(spekTab.nama)} atau menabung ke sana pada periode ini.`}</div></td></tr>`
       }</tbody>
       ${baris.length ? `<tfoot><tr>
         <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td>
