@@ -1524,27 +1524,38 @@ function isiTabPotongan(kelompok) {
           <td class="lekat" style="font-weight:500">${esc(g.nama)}</td>
           <td class="kecil">${esc(tglIndo(g.tmt_sekolah))}</td>
           <td class="kecil">${koperasi
-            ? (g.anggota
-                ? `${esc(IURAN_KOPERASI)} ${esc(rupiah(g.iuranOrang))}${g.iuranSendiri ? '' : ' (bawaan)'}`
-                : '<span style="color:var(--warn)">bukan anggota koperasi</span>')
+            /* Koperasi (28 September 2026): baris nama hanya total pembayaran ke koperasi; rinciannya di bawah. */
+            ? (g.anggota ? 'Total pembayaran ke koperasi' : '<span style="color:var(--warn)">bukan anggota koperasi</span>')
             : (g.cicilanJalan.length ? `${g.cicilanJalan.length} potongan berjalan` : '—')}${
-            g.selesai ? ` · <a href="#" class="kecil bRiwayatPot">riwayat (${g.selesai})</a>` : ''}</td>
+            !koperasi && g.selesai ? ` · <a href="#" class="kecil bRiwayatPot">riwayat (${g.selesai})</a>` : ''}</td>
           <td class="num"${g.nominal ? ' style="font-weight:600"' : ''}>${g.nominal ? rupiah(g.nominal) : '<span class="kecil">Rp 0</span>'}${
             g.terakhir.length ? `<div class="kecil" style="font-weight:400;color:var(--warn)">bulan depan ${esc(rupiah(g.bulanDepan))}</div>` : ''}</td>
           <td class="kecil">—</td>
-          <td class="kecil">${g.iuranOrang > 0 ? 'sampai diubah' : '—'}</td>
-          <td class="act">${koperasi ? `<button class="btn btn-sm bAnggota${g.anggota ? '' : ' btn-d'}">${
-              g.anggota ? 'Anggota' : 'Non-Anggota'}</button> ` : ''}<button class="btn btn-sm bCicilan">Cicilan</button></td></tr>${
+          <td class="kecil">—</td>
+          <td class="act"><button class="btn btn-sm bCicilan"${koperasi
+              ? ' title="Tambah, akhiri, atau hapus rincian pembayaran ke koperasi; keanggotaan"' : ''}>Cicilan</button></td></tr>${
+          (koperasi && g.anggota ? `<tr class="cicilan"${g.iuranSendiri ? ` data-id="${g.iuranSendiri.id}"` : ''} data-kelompok="${esc(kelompok)}" data-guru="${esc(g.id)}">
+          <td></td>
+          <td class="kecil" style="text-align:right">↳</td>
+          <td></td>
+          <td class="kecil"><b>${esc(IURAN_KOPERASI)}</b> — ${g.iuranSendiri
+            ? esc(g.iuranSendiri.keterangan || 'wajib bagi anggota') : 'wajib bagi anggota (bawaan)'}</td>
+          <td class="num">${rupiah(g.iuranOrang)}</td>
+          <td class="kecil">${g.iuranSendiri ? esc(blnIndo(g.iuranSendiri.berlaku_mulai)) : '—'}</td>
+          <td class="kecil">${g.iuranSendiri && g.iuranSendiri.berlaku_sampai ? esc(blnIndo(g.iuranSendiri.berlaku_sampai)) : 'sampai diubah'}</td>
+          <td class="act">${g.iuranSendiri ? '<button class="btn btn-sm bUbahPot">Ubah</button>'
+            : '<button class="btn btn-sm bUbahIuran" title="Tetapkan iuran orang ini berbeda dari bawaan">Ubah</button>'}</td></tr>` : '') +
           g.cicilan.map(p => `<tr class="cicilan" data-id="${p.id}" data-kelompok="${esc(kelompok)}" data-guru="${esc(g.id)}">
           <td></td>
-          <td class="kecil">↳ ${esc(p.jenis)}</td>
+          <td class="kecil" style="text-align:right">↳</td>
           <td></td>
-          <td class="kecil">${esc(p.keterangan || '')}${p.keadaan === 'nanti' ? ' <span class="tag tag-l">mulai nanti</span>' : ''}</td>
+          <td class="kecil"><b>${esc(p.jenis)}</b>${p.keterangan ? ' — ' + esc(p.keterangan) : ''}${
+            p.keadaan === 'nanti' ? ' <span class="tag tag-l">mulai nanti</span>' : ''}</td>
           <td class="num">${rupiah(p.nominal)}</td>
           <td class="kecil">${esc(blnIndo(p.berlaku_mulai))}</td>
           <td class="kecil">${p.berlaku_sampai ? esc(blnIndo(p.berlaku_sampai)) : 'sampai diubah'}${
             p.berlaku_sampai === bulanAcuan ? ' ' + selesaiTag : ''}</td>
-          <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button> <button class="btn btn-sm bAkhiriPot">Akhiri</button></td></tr>`).join('')}`).join('')
+          <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button>${koperasi ? '' : ' <button class="btn btn-sm bAkhiriPot">Akhiri</button>'}</td></tr>`).join('')}`).join('')
         : `<tr><td colspan="8"><div class="empty"><b>Tidak ada guru</b>
             ${semua.length ? 'Ubah pencarian.' : 'Belum ada guru aktif di Data Induk.'}</div></td></tr>`
       }</tbody></table></div></div>
@@ -1608,7 +1619,13 @@ function pasangAksiTunjangan() {
   });
   $$('.bCicilan').forEach(b => b.onclick = () => {
     const tr = b.closest('tr');
-    dialogPotongan(tr.dataset.kelompok, null, tr.dataset.guru);
+    // Koperasi: daftar rincian pembayaran orang itu (tambah, akhiri, hapus, keanggotaan).
+    if (tr.dataset.kelompok === 'koperasi') dialogAturPotongan('koperasi', tr.dataset.guru);
+    else dialogPotongan(tr.dataset.kelompok, null, tr.dataset.guru);
+  });
+  $$('.bUbahIuran').forEach(b => b.onclick = () => {
+    const tr = b.closest('tr');
+    dialogPotongan('koperasi', null, tr.dataset.guru, IURAN_KOPERASI);
   });
   $$('.bAnggota').forEach(b => b.onclick = () => {
     const tr = b.closest('tr');
@@ -1730,6 +1747,8 @@ function dialogAturPotongan(kelompok, guruId) {
   const berjalan = semua.filter(p => p.keadaan === 'berjalan');
   const iuran = iuranBawaan(kelompok);
   const pakaiBawaan = kelompok === 'koperasi' && !berjalan.some(p => p.jenis === IURAN_KOPERASI);
+  const iuranJalan = berjalan.find(p => p.jenis === IURAN_KOPERASI);
+  const anggotaKop = !iuranJalan || Number(iuranJalan.nominal) > 0;
   const total = berjalan.reduce((t, p) => t + Number(p.nominal), 0) + (pakaiBawaan ? iuran : 0);
   const bulanAcuan = awalBulan(ui.acuan);
   const TEKS = { berjalan: 'berjalan', nanti: 'mulai nanti', selesai: 'berakhir' };
@@ -1765,10 +1784,13 @@ function dialogAturPotongan(kelompok, guruId) {
         : `<tr><td colspan="7" class="kecil" style="text-align:center;padding:14px">Belum ada ${esc(nama.toLowerCase())} untuk ${esc(g.nama)}.</td></tr>`
       }</tbody></table></div>
     </div>
-    <div class="aksi"><button class="btn btn-p" id="m-tambah">+ Tambah potongan</button>
+    <div class="aksi"><button class="btn btn-p" id="m-tambah">+ Tambah potongan</button>${kelompok === 'koperasi'
+        ? `<button class="btn${anggotaKop ? '' : ' btn-d'}" id="m-anggota" title="${anggotaKop
+            ? 'Jadikan bukan anggota sejak bulan acuan (iuran Rp 0)' : 'Jadikan anggota kembali sejak bulan acuan'}">${anggotaKop ? 'Anggota' : 'Non-Anggota'}</button>` : ''}
       <div class="sp" style="flex:1"></div><button class="btn" id="m-batal">Tutup</button></div>`, true);
 
   $('#m-batal').onclick = tutupModal;
+  if ($('#m-anggota')) $('#m-anggota').onclick = () => { tutupModal(); ubahKeanggotaan(guruId, !anggotaKop); };
   $('#m-tambah').onclick = () => dialogPotongan(kelompok, null, guruId);
   $$('#modal-root .bUbahPot').forEach(b => b.onclick = () => dialogPotongan(kelompok, Number(b.closest('tr').dataset.id), guruId));
   $$('#modal-root .bAkhiriPot').forEach(b => b.onclick = () => dialogAkhiriPotongan(Number(b.closest('tr').dataset.id)));
@@ -1799,7 +1821,7 @@ function hapusPotongan(p) {
    tanggal mulai yang lebih baru mengakhiri baris lama pada bulan sebelumnya
    dan menambah baris baru; tanggal mulai yang sama menulis ulang barisnya.
    guruId diisi bila dibuka dari matriks (orangnya sudah tertentu). */
-function dialogPotongan(kelompok, id, guruTetap) {
+function dialogPotongan(kelompok, id, guruTetap, jenisAwal) {
   const lama = id ? D.tunjangan.potongan.find(p => p.id === id) : null;
   if (id && !lama) return;
   kelompok = lama ? lama.kelompok : kelompok;
@@ -1817,7 +1839,7 @@ function dialogPotongan(kelompok, id, guruTetap) {
       <div class="hint">Guru dan staf aktif menurut Data Induk, urut masa kerja.</div></div>`}
     <div class="fg"><label>Jenis</label>
       <select class="field" id="q-jenis">${pilihanJenis.map(j =>
-        `<option value="${esc(j)}" ${lama && lama.jenis === j ? 'selected' : ''}>${esc(j)}</option>`).join('')}</select>
+        `<option value="${esc(j)}" ${(lama ? lama.jenis : jenisAwal) === j ? 'selected' : ''}>${esc(j)}</option>`).join('')}</select>
       ${kelompok === 'koperasi' ? `<div class="hint">Iuran keanggotaan menggantikan bawaan
         (${esc(rupiah(iuranBawaan(kelompok)))}/bulan) selama berlaku — isi nol bila bukan anggota. Jenis lain
         ditambahkan di atas iuran.</div>` : ''}</div>
