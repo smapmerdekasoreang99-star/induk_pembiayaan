@@ -1046,6 +1046,11 @@ function halTunjangan() {
       `<button class="chip${k === tab ? ' on' : ''}" data-tj="${k}">${esc(v.nama)}</button>`).join('')}
     </div>
 
+    <div class="bar"><span class="label">Isi massal lewat Excel</span>
+      <button class="btn btn-sm" id="tjTemplate">Unduh template (xlsx)</button>
+      <button class="btn btn-sm" id="tjUnggahTombol">Unggah isian (xlsx)</button>
+      <input type="file" id="tjUnggah" accept=".xlsx" hidden></div>
+
     ${galat ? `<div class="info-box"><b>Data tunjangan tidak terbaca.</b> ${esc(galat)}</div>` : ''}
     <div id="tjIsi">${spek.jenis ? isiTabPenyaluran(spek.jenis) : isiTabPotongan(spek.kelompok)}</div>`;
 
@@ -1057,7 +1062,220 @@ function halTunjangan() {
     jalankan('Memuat…', muatSemua);
   };
   $$('[data-tj]').forEach(b => b.onclick = () => { ui.tunjanganTab = b.dataset.tj; ui.tunjanganCari = ''; gambar(); });
+  $('#tjTemplate').onclick = () => jalankan('Menyiapkan template…', () => unduhTemplateTunjangan(tab));
+  $('#tjUnggahTombol').onclick = () => $('#tjUnggah').click();
+  $('#tjUnggah').onchange = e => {
+    const berkas = e.target.files[0];
+    e.target.value = '';
+    if (berkas) jalankan('Membaca berkas…', () => unggahTemplateTunjangan(tab, berkas));
+  };
   pasangAksiTunjangan();
+}
+
+/* ------------------------------ Tunjangan dan Potongan: template Excel */
+/* Tiap tab bisa diunduh sebagai template berisi keadaan saat ini, disunting
+   di Excel, lalu diunggah kembali (28 September 2026). Yang diunggah tidak
+   menimpa sembarang: tiap baris dibandingkan dengan yang tersimpan, dan
+   hanya yang berubah ditulis — dengan aturan versi yang sama seperti
+   formulir Atur / Cicilan. Sebelum menulis, ringkasannya ditunjukkan dan
+   perlu disetujui. Kolom ID mengikat baris ke orangnya; jangan diubah.
+
+   Penyaluran (TuSehat, TuKerja): satu baris per penerima yang disahkan.
+     Kosong pada Dari sekolah / Potongan guru = ikut bawaan Nominal Penggajian.
+     Baris yang berubah disimpan sebagai versi yang berlaku mulai Berlaku mulai.
+   Potongan (koperasi, lain-lain): baris potongan yang berjalan atau akan
+     mulai (No. baris terisi), lalu satu baris kosong per guru untuk menambah.
+     No. baris terisi = ubah baris itu (mulai digeser maju = versi baru,
+     baris lama berakhir sebulan sebelumnya); No. baris kosong = baris baru.
+     Baris tidak pernah dihapus lewat unggahan. */
+const tglTeks = v => {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return isNaN(v) ? null : `${v.getUTCFullYear()}-${String(v.getUTCMonth() + 1).padStart(2, '0')}-${String(v.getUTCDate()).padStart(2, '0')}`;
+  const t = String(v).trim();
+  let m = t.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?/);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${(m[3] || '1').padStart(2, '0')}`;
+  m = t.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/);
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return 'salah';
+};
+// Nilai sel ExcelJS menjadi teks/angka/tanggal polos (rumus, teks kaya, hyperlink).
+const nilaiSel = c => {
+  let v = c && c.value;
+  if (v && typeof v === 'object' && !(v instanceof Date)) {
+    if ('result' in v) v = v.result;
+    else if (v.richText) v = v.richText.map(x => x.text).join('');
+    else if ('text' in v) v = v.text;
+  }
+  return v == null ? '' : v;
+};
+const angkaAtauKosong = v => {
+  if (v === '' || v == null) return null;
+  if (typeof v !== 'number' && !/\d/.test(String(v))) return 'salah';   // teks tanpa angka
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.'));
+  return isNaN(n) || n < 0 ? 'salah' : Math.round(n);
+};
+
+async function unduhTemplateTunjangan(tab) {
+  if (!D.tunjangan) await muatTunjangan();
+  const spek = TJ_TAB[tab];
+  const ExcelJS = await muatExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(spek.nama.slice(0, 28));
+  const F = 'Calibri';
+  const tebal = { name: F, size: 11, bold: true };
+  const bulanIni = awalBulan(ui.acuan);
+  let kolom, baris, daftar, catatan;
+  if (spek.jenis) {
+    const j = spek.jenis;
+    kolom = [['ID', 10], ['Nama', 34], ['Bentuk', 22], ['No. peserta', 20], ['Dari sekolah/bulan', 18],
+             ['Potongan guru/bulan', 20], ['Berlaku mulai', 15]];
+    baris = D.tunjangan.hak.filter(h => h.jenis === j && h.status === 'disahkan').map(h => {
+      const sv = salurBerlaku(h.id, j, ui.acuan);
+      return [h.id, h.nama, (sv && sv.bentuk) || bentukBawaan(j), (sv && sv.nomor_peserta) || '',
+              sv && sv.nominal != null ? Number(sv.nominal) : '', sv && sv.potongan != null ? Number(sv.potongan) : '',
+              new Date(bulanIni + 'T00:00:00Z')];
+    });
+    daftar = { 3: BENTUK[j] };
+    catatan = `Ubah Bentuk, No. peserta, dan nominal. Kosongkan Dari sekolah / Potongan guru untuk ikut bawaan Nominal Penggajian. `
+            + `Baris yang berubah disimpan sebagai versi yang berlaku mulai Berlaku mulai (bawaan ${blnIndo(bulanIni)}). Jangan ubah kolom ID.`;
+  } else {
+    const k = spek.kelompok;
+    kolom = [['No. baris', 10], ['ID', 10], ['Nama', 34], ['Jenis', 22], ['Nominal/bulan', 16], ['Mulai', 14], ['Sampai', 14], ['Keterangan', 30]];
+    baris = [];
+    const tglD = iso => iso ? new Date(iso + 'T00:00:00Z') : '';
+    for (const g of D.tunjangan.guru) {
+      const punya = D.tunjangan.potongan.filter(p => p.kelompok === k && p.guru_id === g.id && keadaanPotongan(p, ui.acuan) !== 'selesai')
+        .sort((a, b) => a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+      punya.forEach(p => baris.push([p.id, g.id, g.nama, p.jenis, Number(p.nominal), tglD(p.berlaku_mulai), tglD(p.berlaku_sampai), p.keterangan || '']));
+      baris.push(['', g.id, g.nama, '', '', '', '', '']);   // baris kosong untuk menambah
+    }
+    daftar = { 4: JENIS_POTONGAN[k] };
+    catatan = 'Baris ber-No. baris = potongan yang berjalan/akan mulai: ubah nominal, bulan, atau keterangannya. Baris tanpa No. baris = tambah '
+            + 'potongan baru (isi Jenis, Nominal/bulan, Mulai; Sampai kosong = sampai diubah). Mulai dan Sampai dibaca per bulan. '
+            + 'Baris tidak terhapus lewat unggahan. Jangan ubah kolom No. baris dan ID.';
+  }
+  ws.columns = kolom.map(([, w]) => ({ width: w }));
+  ws.getCell(1, 1).value = `TEMPLATE ${spek.nama.toUpperCase()}`; ws.getCell(1, 1).font = { name: F, size: 13, bold: true };
+  ws.getCell(2, 1).value = catatan; ws.getCell(2, 1).font = { name: F, size: 9, italic: true };
+  ws.mergeCells(2, 1, 2, kolom.length); ws.getRow(2).height = 42; ws.getCell(2, 1).alignment = { wrapText: true, vertical: 'top' };
+  const kepala = ws.getRow(4);
+  kolom.forEach(([t], i) => { const c = kepala.getCell(i + 1); c.value = t; c.font = tebal;
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9EEF6' } }; c.border = { bottom: { style: 'thin' } }; });
+  baris.forEach((isi, r) => {
+    const row = ws.getRow(5 + r);
+    isi.forEach((v, i) => {
+      const c = row.getCell(i + 1);
+      c.value = v; c.font = { name: F, size: 11 };
+      if (v instanceof Date || /Mulai|Sampai|Berlaku/.test(kolom[i][0])) c.numFmt = 'dd/mm/yyyy';
+      if (/sekolah|Potongan|Nominal/.test(kolom[i][0])) c.numFmt = '#,##0';
+      if (/^(ID|No\. baris|Nama)$/.test(kolom[i][0])) c.font = { name: F, size: 11, color: { argb: 'FF595959' } };
+      if (daftar[i + 1]) c.dataValidation = { type: 'list', allowBlank: true, formulae: [`"${daftar[i + 1].join(',')}"`] };
+    });
+  });
+  ws.views = [{ state: 'frozen', ySplit: 4 }];
+  await simpanBuku(wb, `Template ${spek.nama} ${bulanIni.slice(0, 7)}.xlsx`);
+}
+
+async function unggahTemplateTunjangan(tab, berkas) {
+  if (!D.tunjangan) await muatTunjangan();
+  const spek = TJ_TAB[tab];
+  const ExcelJS = await muatExcelJS();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await berkas.arrayBuffer());
+  const ws = wb.worksheets[0];
+  if (!ws) throw new Error('Berkas tidak berisi lembar kerja.');
+  // Baris judul: sel pertama "ID" (penyaluran) atau "No. baris" (potongan).
+  let kepala = 0;
+  ws.eachRow((row, n) => { if (!kepala && /^(ID|No\. baris)$/i.test(String(nilaiSel(row.getCell(1))).trim())) kepala = n; });
+  const harap = spek.jenis ? 'ID' : 'No. baris';
+  if (!kepala || String(nilaiSel(ws.getRow(kepala).getCell(1))).trim().toLowerCase() !== harap.toLowerCase())
+    throw new Error(`Ini bukan template ${spek.nama}. Unduh templatenya dari tab ini, isi, lalu unggah kembali.`);
+  const salah = [], tulis = [];
+  const sel = (row, i) => nilaiSel(row.getCell(i));
+
+  if (spek.jenis) {
+    const j = spek.jenis;
+    const hak = new Map(D.tunjangan.hak.filter(h => h.jenis === j).map(h => [h.id, h]));
+    ws.eachRow((row, n) => {
+      if (n <= kepala) return;
+      const id = String(sel(row, 1)).trim();
+      if (!id) return;
+      const h = hak.get(id);
+      if (!h) { salah.push(`Baris ${n}: ID ${id} bukan penerima ${TUNJANGAN[j]} yang disahkan.`); return; }
+      const bentuk = String(sel(row, 3)).trim() || bentukBawaan(j);
+      if (!BENTUK[j].includes(bentuk)) { salah.push(`Baris ${n} (${h.nama}): bentuk "${bentuk}" tidak dikenal.`); return; }
+      const nominal = angkaAtauKosong(sel(row, 5)), potongan = angkaAtauKosong(sel(row, 6));
+      if (nominal === 'salah' || potongan === 'salah') { salah.push(`Baris ${n} (${h.nama}): nominal tidak terbaca.`); return; }
+      const mulaiT = tglTeks(sel(row, 7));
+      if (mulaiT === 'salah') { salah.push(`Baris ${n} (${h.nama}): Berlaku mulai tidak terbaca.`); return; }
+      const mulai = awalBulan(mulaiT || ui.acuan);
+      const isi = { guru_id: id, jenis: j, berlaku_mulai: mulai, bentuk, nomor_peserta: String(sel(row, 4)).trim() || null,
+                    nominal, potongan, catatan: 'Unggahan template' };
+      const lama = salurBerlaku(id, j, mulai);
+      const sama = lama ? (lama.bentuk === isi.bentuk && (lama.nomor_peserta || null) === isi.nomor_peserta
+                          && (lama.nominal == null ? null : Number(lama.nominal)) === nominal
+                          && (lama.potongan == null ? null : Number(lama.potongan)) === potongan)
+                        : (bentuk === bentukBawaan(j) && !isi.nomor_peserta && nominal == null && potongan == null);
+      if (!sama) tulis.push({ nama: h.nama, isi });
+    });
+  } else {
+    const k = spek.kelompok;
+    const guru = new Map(D.tunjangan.guru.map(g => [g.id, g]));
+    const milik = new Map(D.tunjangan.potongan.filter(p => p.kelompok === k).map(p => [String(p.id), p]));
+    ws.eachRow((row, n) => {
+      if (n <= kepala) return;
+      const no = String(sel(row, 1)).trim(), gid = String(sel(row, 2)).trim();
+      const jenis = String(sel(row, 4)).trim(), nominal = angkaAtauKosong(sel(row, 5));
+      const mulaiT = tglTeks(sel(row, 6)), sampaiT = tglTeks(sel(row, 7));
+      const ket = String(sel(row, 8)).trim() || null;
+      if (!no && !jenis && nominal == null) return;                      // baris kosong
+      const g = guru.get(gid);
+      if (!g) { salah.push(`Baris ${n}: ID ${gid || '(kosong)'} bukan guru/staf aktif.`); return; }
+      if (nominal === 'salah' || nominal == null) { salah.push(`Baris ${n} (${g.nama}): Nominal/bulan kosong atau tidak terbaca.`); return; }
+      if (mulaiT === 'salah' || sampaiT === 'salah' || !mulaiT) { salah.push(`Baris ${n} (${g.nama}): bulan Mulai/Sampai tidak terbaca.`); return; }
+      const mulai = awalBulan(mulaiT), sampai = sampaiT ? awalBulan(sampaiT) : null;
+      if (sampai && sampai < mulai) { salah.push(`Baris ${n} (${g.nama}): Sampai mendahului Mulai.`); return; }
+      const isi = { guru_id: gid, kelompok: k, jenis, nominal, berlaku_mulai: mulai, berlaku_sampai: sampai, keterangan: ket };
+      if (no) {
+        const lama = milik.get(no);
+        if (!lama || lama.guru_id !== gid) { salah.push(`Baris ${n} (${g.nama}): No. baris ${no} tidak cocok.`); return; }
+        if (!jenis) isi.jenis = lama.jenis;
+        const sama = lama.jenis === isi.jenis && Number(lama.nominal) === nominal && lama.berlaku_mulai === mulai
+                  && (lama.berlaku_sampai || null) === sampai && (lama.keterangan || null) === ket;
+        if (!sama) tulis.push({ nama: g.nama, isi, lama });
+      } else {
+        if (!JENIS_POTONGAN[k].includes(jenis)) { salah.push(`Baris ${n} (${g.nama}): pilih Jenis dari daftar.`); return; }
+        tulis.push({ nama: g.nama, isi });
+      }
+    });
+  }
+
+  if (!tulis.length) {
+    toast(salah.length ? `Tidak ada yang disimpan. ${salah.length} baris bermasalah: ${salah.slice(0, 3).join(' ')}` : 'Tidak ada perubahan dibandingkan yang tersimpan.', !!salah.length);
+    return;
+  }
+  const ringkas = tulis.slice(0, 12).map(t => `• ${t.nama}: ${spek.jenis
+      ? `${t.isi.bentuk}, dari sekolah ${t.isi.nominal == null ? 'bawaan' : rupiah(t.isi.nominal)}, potongan ${t.isi.potongan == null ? 'bawaan' : rupiah(t.isi.potongan)}, mulai ${blnIndo(t.isi.berlaku_mulai)}`
+      : `${t.lama ? 'ubah' : 'tambah'} ${t.isi.jenis} ${rupiah(t.isi.nominal)}/bulan, ${blnIndo(t.isi.berlaku_mulai)}${t.isi.berlaku_sampai ? '–' + blnIndo(t.isi.berlaku_sampai) : ''}`}`).join('\n');
+  if (!window.confirm(`Simpan ${tulis.length} perubahan ${spek.nama}?\n\n${ringkas}${tulis.length > 12 ? `\n… dan ${tulis.length - 12} lagi` : ''}`
+      + (salah.length ? `\n\n${salah.length} baris dilewati karena bermasalah:\n${salah.slice(0, 8).join('\n')}` : ''))) return;
+
+  for (const t of tulis) {
+    if (spek.jenis) {
+      await buang('ip_tunjangan_penyaluran', `guru_id=eq.${enc(t.isi.guru_id)}&jenis=eq.${enc(t.isi.jenis)}&berlaku_mulai=eq.${enc(t.isi.berlaku_mulai)}`);
+      await simpanBaru('ip_tunjangan_penyaluran', [t.isi]);
+    } else if (t.lama && t.isi.berlaku_mulai > t.lama.berlaku_mulai) {
+      await ubah('ip_potongan', `id=eq.${t.lama.id}`, { berlaku_sampai: bulanSebelum(t.isi.berlaku_mulai) });
+      await simpanBaru('ip_potongan', [t.isi]);
+    } else if (t.lama) {
+      await ubah('ip_potongan', `id=eq.${t.lama.id}`, t.isi);
+    } else {
+      await simpanBaru('ip_potongan', [t.isi]);
+    }
+  }
+  await muatTunjangan();
+  D.rekap = null; D.setoran = null;
+  toast(`${tulis.length} perubahan ${spek.nama} tersimpan${salah.length ? `; ${salah.length} baris dilewati` : ''}.`);
 }
 
 /* Penyaluran satu jenis tunjangan: satu tab untuk TuSehat, satu untuk TuKerja. */
