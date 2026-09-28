@@ -973,6 +973,19 @@ const JENIS_POTONGAN = {
    tabungan, pinjaman — ditambahkan di atasnya. Fungsi rekap f_ip_potongan
    memakai aturan yang sama. */
 const IURAN_KOPERASI = 'Iuran keanggotaan';
+/* Urutan baris potongan (28 September 2026): menurut urutan jenis di daftar
+   pilihan formulir (JENIS_POTONGAN), lalu tanggal mulai. Jenis lama yang tidak
+   ditawarkan lagi (Simpanan wajib, Tabungan rutin) diletakkan sebelum
+   "Lainnya", yang selalu paling akhir. */
+function urutanJenisPotongan(kelompok, jenis) {
+  const daftar = JENIS_POTONGAN[kelompok] || [];
+  const i = daftar.indexOf(jenis);
+  if (jenis === 'Lainnya') return daftar.length + 1;
+  return i >= 0 ? i : daftar.length;
+}
+const bandingPotongan = (kelompok, turun) => (a, b) =>
+  urutanJenisPotongan(kelompok, a.jenis) - urutanJenisPotongan(kelompok, b.jenis)
+  || (turun ? b.berlaku_mulai.localeCompare(a.berlaku_mulai) : a.berlaku_mulai.localeCompare(b.berlaku_mulai));
 const KODE_IURAN = 'iuran_koperasi';
 const iuranBawaan = kelompok => kelompok === 'koperasi' ? tarifBawaan(KODE_IURAN) : 0;
 
@@ -1106,7 +1119,7 @@ async function unduhMatriksTunjangan(tab) {
     let no = 0;
     for (const g of D.tunjangan.guru.filter(x => cocok(x.nama))) {
       const jalan = D.tunjangan.potongan.filter(p => p.kelompok === k && p.guru_id === g.id && keadaanPotongan(p, ui.acuan) === 'berjalan')
-        .sort((a, b) => a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+        .sort(bandingPotongan(k));
       const isi = jalan.map(p => [p.jenis, Number(p.nominal) || 0, blnIndo(p.berlaku_mulai), p.berlaku_sampai ? blnIndo(p.berlaku_sampai) : 'sampai diubah', p.keterangan || '']);
       // Iuran keanggotaan bawaan berlaku bila orang itu tidak punya baris iuran sendiri.
       if (koperasi && iuran > 0 && !jalan.some(p => p.jenis === IURAN_KOPERASI)) isi.unshift([IURAN_KOPERASI, iuran, '—', 'sampai diubah', 'bawaan']);
@@ -1224,7 +1237,7 @@ async function unduhTemplateTunjangan(tab) {
     const tglD = iso => iso ? new Date(iso + 'T00:00:00Z') : '';
     for (const g of D.tunjangan.guru) {
       const punya = D.tunjangan.potongan.filter(p => p.kelompok === k && p.guru_id === g.id && keadaanPotongan(p, ui.acuan) !== 'selesai')
-        .sort((a, b) => a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+        .sort(bandingPotongan(k));
       punya.forEach(p => baris.push([p.id, g.id, g.nama, p.jenis, Number(p.nominal), tglD(p.berlaku_mulai), tglD(p.berlaku_sampai), p.keterangan || '']));
       baris.push(['', g.id, g.nama, '', '', '', '', '']);   // baris kosong untuk menambah
     }
@@ -1455,7 +1468,7 @@ function isiTabPotongan(kelompok) {
     const anggota = !koperasi || !iuranSendiri || Number(iuranSendiri.nominal) > 0;
     // Cicilan: potongan selain iuran, yang berjalan atau akan mulai.
     const cicilan = punya.filter(p => !(koperasi && p.jenis === IURAN_KOPERASI) && p.keadaan !== 'selesai')
-      .sort((a, b) => a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+      .sort(bandingPotongan(kelompok));
     const cicilanJalan = cicilan.filter(p => p.keadaan === 'berjalan');
     // Cicilan yang bulan acuan adalah bulan terakhirnya: bulan depan tidak dipotong lagi.
     const terakhir = cicilanJalan.filter(p => p.berlaku_sampai === bulanAcuan);
@@ -1713,7 +1726,7 @@ function dialogAturPotongan(kelompok, guruId) {
   const nama = TJ_TAB[kelompok].nama;
   const semua = D.tunjangan.potongan.filter(p => p.kelompok === kelompok && p.guru_id === guruId)
     .map(p => ({ ...p, keadaan: keadaanPotongan(p, ui.acuan) }))
-    .sort((a, b) => b.berlaku_mulai.localeCompare(a.berlaku_mulai));
+    .sort(bandingPotongan(kelompok, true));
   const berjalan = semua.filter(p => p.keadaan === 'berjalan');
   const iuran = iuranBawaan(kelompok);
   const pakaiBawaan = kelompok === 'koperasi' && !berjalan.some(p => p.jenis === IURAN_KOPERASI);
@@ -3458,7 +3471,7 @@ function halSetoran() {
       .filter(r => r.bentuk === spekTab.bentuk)
       .map(r => ({ ...r, program: TUNJANGAN[j], sekolah: Number(r.jumlah) || 0,
                    jumlah: (Number(r.jumlah) || 0) + (Number(r.potongan) || 0) }))),
-    ...(spekTab.koperasi ? (semua.koperasi || []).filter(r => Number(r.jumlah) > 0).map(dariPotongan) : []),
+    ...(spekTab.koperasi ? (semua.koperasi || []).filter(r => Number(r.jumlah) > 0).sort(bandingPotongan('koperasi')).map(dariPotongan) : []),
     ...(spekTab.tabungan ? (semua.sekolah || []).filter(r => r.jenis === spekTab.tabungan && Number(r.jumlah) > 0).map(dariPotongan) : [])
   ]);
   const total = (baris || []).reduce((t, r) => {
