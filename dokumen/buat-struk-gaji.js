@@ -1,5 +1,5 @@
 /* Template Struk Gaji — dua struk per halaman A4 mendatar.
-   Itemnya mengikuti Gabungan Keseluruhan di Induk Pembiayaan:
+   Itemnya mengikuti Keseluruhan di Induk Pembiayaan:
    mengajar, wali, diperbantukan, piket meja, pengganti, ekskul, tahfidz,
    parkiran, TuSehat, TuKerja; potongan BPJS, koperasi, lain-lain; bersih. */
 const fs = require('fs');
@@ -211,23 +211,18 @@ function buatStruk(d) {
   ]);
 
   /* catatan & tanda tangan */
-  const ttd = tabel([3300, 2100, 2100], [
+  // Tanpa tanda tangan penerima (28 September 2026), sama dengan aplikasi.
+  const ttd = tabel([5400, 2100], [
     new TableRow({ children: [
       sel([
         teks('Catatan:', { bold: true, size: 14, color: '595959' }),
         teks('Mohon konfirmasi kepada bendahara bila terdapat kekeliruan atau kekurangan pada struk ini.', { size: 14, color: '595959' })
-      ], 3300, { valign: VerticalAlign.TOP }),
+      ], 5400, { valign: VerticalAlign.TOP }),
       sel([
         teks(`${d.sekolah.kota}, ${d.tanggal}`, { size: 15, align: AlignmentType.CENTER }),
         teks('Bendahara', { size: 15, align: AlignmentType.CENTER }),
         teks('', { size: 15 }), teks('', { size: 15 }),
         teks(d.bendahara, { bold: true, size: 15, align: AlignmentType.CENTER })
-      ], 2100, { valign: VerticalAlign.TOP }),
-      sel([
-        teks('', { size: 15 }),
-        teks('Penerima', { size: 15, align: AlignmentType.CENTER }),
-        teks('', { size: 15 }), teks('', { size: 15 }),
-        teks(d.nama, { bold: true, size: 15, align: AlignmentType.CENTER })
       ], 2100, { valign: VerticalAlign.TOP })
     ]})
   ]);

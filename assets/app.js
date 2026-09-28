@@ -4110,22 +4110,18 @@ async function unduhStruk(baris) {
         sel(teks(ringkasHadir, { bold: true }), 3000 + 1100 + 200 + 1700, { span: 4 })
       ]})] : [])
     ]);
-    const ttd = tabel([3300, 2100, 2100], [new TableRow({ children: [
+    /* Tanpa tanda tangan penerima (28 September 2026): struk adalah bukti rincian
+       dari bendahara, bukan tanda terima. Lebar total tetap 7500. */
+    const ttd = tabel([5400, 2100], [new TableRow({ children: [
       sel([
         teks('Catatan:', { bold: true, size: 14, color: KELABU }),
         teks('Mohon konfirmasi kepada bendahara bila terdapat kekeliruan atau kekurangan pada struk ini.', { size: 14, color: KELABU })
-      ], 3300, { valign: VerticalAlign.TOP }),
+      ], 5400, { valign: VerticalAlign.TOP }),
       sel([
         teks(`${kota}, ${tanggal}`, { size: 15, align: AlignmentType.CENTER }),
         teks('Bendahara', { size: 15, align: AlignmentType.CENTER }),
         teks('', { size: 15 }), teks('', { size: 15 }),
         teks(p.bendahara || '……………………', { bold: true, size: 15, align: AlignmentType.CENTER })
-      ], 2100, { valign: VerticalAlign.TOP }),
-      sel([
-        teks('', { size: 15 }),
-        teks('Penerima', { size: 15, align: AlignmentType.CENTER }),
-        teks('', { size: 15 }), teks('', { size: 15 }),
-        teks(b.nama || '……………………', { bold: true, size: 15, align: AlignmentType.CENTER })
       ], 2100, { valign: VerticalAlign.TOP })
     ]})]);
 
