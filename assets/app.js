@@ -940,7 +940,7 @@ function dialogRiwayat(kode) {
         terakhir (kosong = sampai diubah). Seorang guru boleh punya
         beberapa sekaligus. Mengubah nominal = mengakhiri baris lama dan
         menambah baris baru, supaya rekap bulan lalu tidak berubah.
-   Semua potongan dikurangkan dari pendapatan di Gabungan Keseluruhan.      */
+   Semua potongan dikurangkan dari pendapatan di Keseluruhan.      */
 const TUNJANGAN = { kesehatan: 'TuSehat', ketenagakerjaan: 'TuKerja' };
 const BENTUK = {
   kesehatan:       ['BPJS Kesehatan', 'Simponi BNI', 'DPLK BJB'],
@@ -1035,7 +1035,7 @@ function halTunjangan() {
       <p>Penyaluran TuSehat (Tunjangan Kesehatan) dan TuKerja (Tunjangan Ketenagakerjaan) per orang,
          beserta nominal dari sekolah dan potongan porsi guru; lalu potongan lain dari pendapatan guru:
          tabungan dan pinjaman ke sekolah, serta iuran dan pinjaman koperasi. Semuanya dikurangkan
-         pada struk gaji dari Gabungan Keseluruhan di Honor dan Transpor.</p></div>
+         pada struk gaji dari Keseluruhan di Honor dan Transpor.</p></div>
       <div class="sp"></div>
       <div class="mx-pilih">
         <label class="kecil">Berlaku pada</label>
@@ -1343,7 +1343,7 @@ function isiTabPenyaluran(jenis) {
       tanggal berlaku. Angka bertanda <i>(bawaan)</i> mengikuti bawaan itu
       dan ikut berubah bila bawaannya diubah; yang ditetapkan sendiri lewat <b>Atur</b> tetap sampai diubah lagi.
       Potongan adalah porsi guru per bulan (termasuk anggota keluarga tambahan yang ditanggung guru), dicatat sebagai
-      nominal — sistem tidak menghitung rumus BPJS — dan dikurangkan di Gabungan Keseluruhan. Mengubah penyaluran selalu
+      nominal — sistem tidak menghitung rumus BPJS — dan dikurangkan di Keseluruhan. Mengubah penyaluran selalu
       menambah versi baru dengan tanggal berlaku, supaya rekap periode lama tetap memakai angka yang berlaku waktu itu.</p>`;
 }
 
@@ -1401,7 +1401,7 @@ function isiTabPotongan(kelompok) {
 
   return `
     ${tanpaBaris ? `<div class="info-box"><b>${tanpaBaris} orang berpotongan tetapi sudah nonaktif di Data Induk.</b>
-      Potongannya masih terhitung di Gabungan Keseluruhan selama belum diakhiri; aktifkan kembali orangnya untuk mengaturnya di sini.</div>` : ''}
+      Potongannya masih terhitung di Keseluruhan selama belum diakhiri; aktifkan kembali orangnya untuk mengaturnya di sini.</div>` : ''}
 
     ${bulanTerakhir ? `<div class="info-box"><b>${bulanTerakhir} orang berada pada bulan terakhir potongannya.</b>
       Mulai ${esc(blnIndo(bulanSesudah(bulanAcuan)))} potongan itu tidak dipotong lagi — tidak perlu diakhiri lagi.
@@ -1465,7 +1465,7 @@ function isiTabPotongan(kelompok) {
         yang berbeda dari bawaan dicatat lewat Cicilan berjenis Iuran keanggotaan.`}
       Tombol <b>Cicilan</b> menambah satu baris di bawah nama: nominal per bulan, jenisnya (pinjaman, tabungan koperasi, atau lainnya),
       bulan Mulai, dan bulan Sampai — dipotong tiap bulan dalam rentang itu (Sampai kosong = sampai diubah). Pada bulan
-      terakhir barisnya bertanda dan bulan berikutnya berhenti sendiri. Semuanya dikurangkan di Gabungan Keseluruhan; mengubah
+      terakhir barisnya bertanda dan bulan berikutnya berhenti sendiri. Semuanya dikurangkan di Keseluruhan; mengubah
       nominal mengakhiri baris lama dan menambah baris baru, supaya rekap bulan lalu tidak berubah.</p>`;
 }
 
@@ -1729,7 +1729,7 @@ function dialogPotongan(kelompok, id, guruTetap) {
         ditambahkan di atas iuran.</div>` : ''}</div>
     <div class="fg"><label>Nominal per bulan <span style="color:var(--danger)">*</span></label>
       <input class="field num" type="number" min="0" step="1000" id="q-nominal" value="${lama ? Number(lama.nominal) : ''}">
-      <div class="hint">Dipotong tiap bulan dari pendapatan di Gabungan Keseluruhan.</div></div>
+      <div class="hint">Dipotong tiap bulan dari pendapatan di Keseluruhan.</div></div>
     <div class="fg"><label>Mulai bulan <span style="color:var(--danger)">*</span></label>
       <input class="field" type="date" id="q-mulai" value="${esc(lama ? lama.berlaku_mulai : awalBulan(ui.acuan))}">
       <div class="hint">${lama
@@ -2418,7 +2418,7 @@ const REKAP = {
   /* Susunan tabnya PER PENERIMA, bukan per jenis tarif (keputusan 22
      September 2026): satu tab untuk tiap golongan penerima. Sejak 25
      September 2026 tab-tab itu dikelompokkan dalam tiga BAGIAN (`tab`):
-     guru, staf, dan gabungan — Gabungan Keseluruhan berdiri sendiri paling
+     guru, staf, dan gabungan — Keseluruhan berdiri sendiri paling
      belakang sebagai dasar daftar pembayaran — lihat REKAP_BAGIAN.
      Tiap tab satu fungsi database, satu daftar kolom; menambah tab kelak
      cukup menambah satu entri di sini. `saring` menyaring baris hasil
@@ -2426,9 +2426,9 @@ const REKAP = {
      Internal, Eksternal, Tahfidz); `ubah` memetakan tiap baris (Potongan
      per Guru menukar kolomnya dari fungsi gabungan). */
   gabungan: { tab: 'gabungan',
-    nama: 'Gabungan Keseluruhan',
+    nama: 'Keseluruhan',
     fungsi: 'f_ip_rekap_gabungan',
-    struk: true,   // tombol Unduh struk (docx): struk gaji per penerima, lihat unduhStruk
+    // Struk gaji tidak lagi di sini (28 September 2026): pindah ke bagian Cetak Struk.
     judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA',
     catatan: 'Menjumlahkan seluruh jenis pembiayaan menjadi satu baris per orang, kolomnya mengikuti '
            + 'tab di halaman ini. Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris '
@@ -2742,7 +2742,26 @@ const REKAP = {
    (petugasnya memang staf); daftar honor staf menyusul setelah fungsi
    rekapnya dibuat dari formulasi di Nominal Penggajian Staf. Gabungan
    Keseluruhan paling belakang: rangkuman semua bagian per orang. */
-const REKAP_BAGIAN = { guru: 'Guru', staf: 'Staf', gabungan: 'Gabungan Keseluruhan' };
+const REKAP_BAGIAN = { guru: 'Guru', staf: 'Staf', gabungan: 'Keseluruhan', struk: 'Cetak Struk' };
+/* Cetak Struk (28 September 2026): rekapitulasi pendapatan per orang —
+   Pendapatan, Potongan, Jumlah yang Diterima — dengan View struk per baris
+   dan Unduh struk (docx) untuk yang dipilih. Datanya fungsi gabungan yang
+   sama dengan Keseluruhan dan struk. */
+REKAP.cetak_struk = {
+  tab: 'struk', nama: 'Cetak Struk', fungsi: 'f_ip_rekap_gabungan', cetak: true,
+  saring: r => adaStruk(r),
+  judul: 'REKAPITULASI PENDAPATAN PER GURU DAN STAF',
+  catatan: 'Pendapatan adalah seluruh honor, transpor, dan tunjangan orang itu pada periode ini (Jumlah di Keseluruhan). '
+         + 'Potongan = porsi guru BPJS + koperasi + lain-lain. Jumlah yang Diterima = Pendapatan − Potongan; bila ada '
+         + 'TuSehat/TuKerja, bagian itu disetor sekolah langsung ke bank, dan sisanya diterima tunai (angka kecil di bawahnya, '
+         + 'sama dengan baris Diterima Tunai di struk).',
+  kolom: [
+    { k: 'jenis_orang', t: 'Jenis', w: 130, jumlah: false },
+    { k: 'jumlah', t: 'Pendapatan', w: 140, rp: true },
+    { k: 'potongan', t: 'Potongan', w: 130, rp: true },
+    { k: 'bersih', t: 'Jumlah yang Diterima', w: 170, rp: true }
+  ]
+};
 const rekapDiBagian = tab => Object.entries(REKAP).filter(([, v]) => (v.tab || 'guru') === tab);
 
 
@@ -2795,6 +2814,44 @@ function kartuRekapOrang(induk, spek, baris, total) {
       : `<div class="empty"><b>Tidak ada tenaga pendukung</b> Belum ada komponen yang berlaku pada periode ini
         (Nominal Penggajian Staf → Honor Tenaga Pendukung).</div>`}
       <div class="foot"><div class="info">${orang.length} orang · Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>`;
+}
+
+function panelCetakStruk(spek, baris, total) {
+  const periode = `${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`;
+  const tunaiDari = b => (Number(b.bersih) || 0) - (Number(b.bpjs) || 0) - (Number(b.bpjs_tk) || 0);
+  return `<div class="panel"><div class="panel-head"><h3>Rekapitulasi Pendapatan per Guru dan Staf</h3>
+      <div class="sp" style="flex:1"></div>
+      <div class="info">${esc(periode)}</div>
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh Format (xlsx)</button>
+      <button class="btn btn-sm btn-p" id="rStruk" style="margin-left:6px" ${baris.length ? '' : 'disabled'}>Unduh struk (docx)</button></div>
+      <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar. Kepala tabel dan kolom nama tetap terlihat saat digeser.</div>
+      <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
+        <th style="width:40px" class="num lekat-no">No</th>
+        <th class="lekat">Nama</th>
+        <th style="width:130px">Jenis</th>
+        <th style="width:140px" class="num">Pendapatan</th>
+        <th style="width:130px" class="num">Potongan</th>
+        <th style="width:170px" class="num">Jumlah yang Diterima</th>
+        <th style="width:100px"></th>
+      </tr></thead><tbody>${
+        baris.length ? baris.map((b, i) => `<tr>
+          <td class="num lekat-no">${i + 1}</td>
+          <td class="nama lekat" style="font-weight:500">${esc(b.nama)}</td>
+          <td>${esc(b.jenis_orang || '—')}</td>
+          <td class="num">${rupiah(b.jumlah)}</td>
+          <td class="num">${rupiah(b.potongan)}</td>
+          <td class="num" style="font-weight:600">${rupiah(b.bersih)}${
+            tunaiDari(b) !== Number(b.bersih) ? `<div class="kecil" style="font-weight:400">tunai ${esc(rupiah(tunaiDari(b)))}</div>` : ''}</td>
+          <td><button class="btn btn-sm" data-lihat-struk="${i}">View struk</button></td></tr>`).join('')
+        : `<tr><td colspan="7"><div class="empty"><b>Tidak ada penerima</b> Tidak ada pendapatan pada periode ini.</div></td></tr>`
+      }</tbody>
+      ${baris.length ? `<tfoot><tr>
+        <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td><td>—</td>
+        <td class="num" style="font-weight:700">${rupiah(total.jumlah || 0)}</td>
+        <td class="num" style="font-weight:700">${rupiah(total.potongan || 0)}</td>
+        <td class="num" style="font-weight:700">${rupiah(total.bersih || 0)}</td><td></td></tr></tfoot>` : ''}
+      </table></div>
+      <div class="foot"><div class="info">Terbilang (diterima): ${esc(terbilang(total.bersih || 0))}</div></div></div>`;
 }
 
 function halRekap() {
@@ -2890,7 +2947,7 @@ function halRekap() {
       Insentif tatap muka dan konsumsinya dibayarkan akhir bulan lewat mesin kehadiran,
       jadi di sini ditulis nol supaya jumlahnya sama dengan yang benar-benar dibayarkan.</div>` : ''}
 
-    ${spek.kartu ? kartuRekapOrang(induk, spek, baris, total) : `
+    ${spek.cetak ? panelCetakStruk(spek, baris, total) : spek.kartu ? kartuRekapOrang(induk, spek, baris, total) : `
     <div class="panel"><div class="panel-head"><h3>${esc(induk.nama)}</h3>
       ${induk.sub ? `<div class="pg" style="margin-left:12px">${Object.entries(induk.sub).map(([k, v]) =>
         `<button data-rsub="${k}" class="${k === subKunci ? 'on' : ''}">${esc(v.nama)}</button>`).join('')}</div>` : ''}
@@ -2975,6 +3032,8 @@ function halRekap() {
     return unduhKuitansi(spekKuitansi, o ? [o] : [], o ? o.nama : '');
   }));
   if ($('#rStruk')) $('#rStruk').onclick = () => dialogPilihStruk(baris);
+  $$('[data-lihat-struk]').forEach(el => el.onclick = () =>
+    jalankan('Menyiapkan struk…', () => lihatStruk(baris[Number(el.dataset.lihatStruk)])));
   // Struk satu orang: baris yang sama, berkasnya hanya memuat struk itu (sisi kanan halaman kosong).
   $$('[data-struk]').forEach(el => el.onclick = () =>
     jalankan('Menyiapkan struk…', () => unduhStruk([baris[Number(el.dataset.struk)]])));
@@ -3383,7 +3442,7 @@ function halSetoran() {
 /* Struk gaji per penerima dalam satu berkas Word: dua struk per halaman A4
    mendatar, susunannya mengikuti dokumen/Struk_Gaji.docx. Angka tiap bagian
    diambil dari fungsi rincian yang sama dengan tab-tab di halaman ini, dan
-   subtotal serta diterima bersihnya dari Gabungan Keseluruhan — sehingga struk
+   subtotal serta diterima bersihnya dari Keseluruhan — sehingga struk
    tidak pernah berbeda dari daftar pembayarannya. Pembuat berkasnya (docx)
    dimuat hanya saat diperlukan, seperti ExcelJS. */
 async function muatDocx() {
@@ -3406,7 +3465,7 @@ function judulPeriodeRekap() {
 }
 
 /* Kumpulkan rincian semua tab, dikelompokkan per orang. Kunci orangnya sama
-   dengan orang_id di Gabungan Keseluruhan: guru_id, atau 'PB:' + pembina_id
+   dengan orang_id di Keseluruhan: guru_id, atau 'PB:' + pembina_id
    untuk pelatih dari luar. Baris yang jumlahnya nol (staf yang honornya
    digugurkan) komponennya ikut dinolkan — kolom komponennya berisi angka
    seandainya, bukan yang dibayarkan. */
@@ -3549,6 +3608,175 @@ function dialogPilihStruk(baris) {
 /* `baris` boleh seluruh tabel (tombol Unduh struk di kepala panel) atau satu
    orang saja (tombol Struk pada barisnya): susunan halamannya sama, hanya
    sisi kanannya kosong dan nama berkasnya memuat nama penerima. */
+/* Isi satu struk sebagai baris abstrak (26–28 September 2026), dipakai dua
+   penggambar: berkas Word (unduhStruk) dan pratinjau layar (lihatStruk) —
+   supaya yang dilihat di layar sama persis dengan yang diunduh.
+   Baris: header (kode, judul, persen), info (label, isi), item (no, uraian,
+   ket, nominal, persen), jumlah (label, nominal, total), tunai (nilai),
+   terbilang (teks). */
+function susunIsiStruk(b, R, dibayar) {
+  const RH = (kode, judul, persen) => ({ t: 'header', kode, judul, persen });
+  const RI = (label, isi) => ({ t: 'info', label, isi });
+  const RT = (no, uraian, ket, nominal, persen) => ({ t: 'item', no, uraian, ket, nominal, persen });
+  const RJ = (label, nominal, o = {}) => ({ t: 'jumlah', label, nominal, total: !!o.total });
+    const r = R[b.orang_id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [] };
+    const m = r.mengajar && dibayar(r.mengajar) ? r.mengajar : null;
+    const w = r.wali && dibayar(r.wali) ? r.wali : null;
+    const meja = r.meja && dibayar(r.meja) ? r.meja : null;
+    const diper = r.diper.filter(dibayar);
+    const ekskul = r.ekskul.filter(dibayar), tahfidz = r.tahfidz.filter(dibayar);
+    const jml = (arr, k) => arr.reduce((t, x) => t + (Number(x[k]) || 0), 0);
+    const masaKerja = b.tmt_sekolah
+      ? Math.max(0, Math.floor((new Date(ui.rekapAkhir) - new Date(b.tmt_sekolah)) / (365.25 * 86400000))) + ' tahun'
+      : '—';
+    /* Ringkasan persentase kehadiran di blok identitas — selain yang tercetak
+       di tajuk tiap bagian — supaya terbaca sekilas. Hanya yang punya
+       jadwal pembanding; kosong berarti barisnya tidak dicetak. */
+    const ringkasHadir = [
+      r.persenMengajar != null && `Mengajar ${fmtPersen(r.persenMengajar)}`,
+      r.persenWali != null && `Wali kelas ${fmtPersen(r.persenWali)}`,
+      r.persenUnit != null && `Piket unit ${fmtPersen(r.persenUnit)}`,
+      r.persenMeja != null && `Piket meja ${fmtPersen(r.persenMeja)}`,
+      r.persenParkir != null && `Parkiran ${fmtPersen(r.persenParkir)}`,
+      r.staf && r.staf.hari_kerja > 0 && `Staf ${fmtPersen(persenDari(r.staf.hari_hadir, r.staf.hari_kerja))}`
+    ].filter(Boolean).join(' · ');
+
+    const bagian = [];
+    const A = Number(b.mengajar) || 0, B = Number(b.wali) || 0, C = Number(b.diperbantukan) || 0;
+    const D_ = ['piket_meja', 'pengganti', 'ekskul', 'tahfidz', 'parkiran'].reduce((t, k) => t + (Number(b[k]) || 0), 0);
+    const S = (Number(b.staf_gaji) || 0) + (Number(b.staf_transpor) || 0);
+    const P = Number(b.pendukung) || 0;
+    const E = (Number(b.bpjs) || 0) + (Number(b.bpjs_tk) || 0);
+    let huruf = 0;
+    const kode = () => String.fromCharCode(65 + huruf++);   // A, B, C, … hanya untuk bagian yang dicetak
+
+    if (A > 0 || m) {
+      const k = kode();
+      bagian.push(RH(k, 'PENDAPATAN SEBAGAI GURU', r.persenMengajar));
+      if (r.mapel) bagian.push(RI('Mata Pelajaran', r.mapel));
+      const jam = m ? `${m.jam_dibayar} jam/minggu` : '';
+      bagian.push(RT(1, 'Honor Mengajar', jam, m ? m.honor_guru : 0));
+      bagian.push(RT(2, 'Transpor Berdiri', jam, m ? m.transport : 0));
+      bagian.push(RT(3, 'Insentif Tatap Muka', m ? `${m.jam_tm} jam hadir` : '', m ? m.insentif : 0));
+      bagian.push(RT(4, 'Konsumsi Kedatangan', m ? `${m.hari_datang} hari hadir` : '', m ? m.konsumsi : 0));
+      bagian.push(RJ(`Jumlah ${k}`, A));
+    }
+    if (B > 0 || w) {
+      const k = kode();
+      bagian.push(RH(k, 'HONOR WALI KELAS', r.persenWali));
+      bagian.push(RT(1, 'Honor Wali Kelas', w ? `${w.bulan} bulan` : '', w ? w.honor_bulanan : 0));
+      bagian.push(RT(2, 'Honor Upacara', w ? `${w.jam_upacara} jam hadir` : '', w ? w.honor_upacara : 0));
+      bagian.push(RT(3, 'Honor Bimbingan Wali Kelas', w ? `${w.jam_bimbingan} jam hadir` : '', w ? w.honor_bimbingan : 0));
+      bagian.push(RJ(`Jumlah ${k}`, B));
+    }
+    if (C > 0 || diper.length) {
+      const k = kode();
+      bagian.push(RH(k, 'HONOR GURU DIPERBANTUKAN', r.persenUnit));
+      bagian.push(RT(1, 'Honor Diperbantukan', diper.map(x => x.unit).filter(Boolean).join(', '), jml(diper, 'honor')));
+      bagian.push(RT(2, 'Transpor Piket Unit', `${jml(diper, 'jam_jaga')} jam jaga`, jml(diper, 'transport')));
+      bagian.push(RJ(`Jumlah ${k}`, C));
+    }
+    if (D_ > 0 || meja || r.pengganti || ekskul.length || tahfidz.length || r.parkir) {
+      const k = kode();
+      const pg = r.pengganti;
+      bagian.push(RH(k, 'TRANSPOR DAN KOMPENSASI LAIN'));
+      bagian.push(RT(1, 'Transpor Piket Meja Sekolah', meja ? `${meja.ukuran} jam jaga` : '', b.piket_meja, meja ? r.persenMeja : null));
+      bagian.push(RT(2, 'Transpor Guru Pengganti', pg ? `GT ${pg.jam_gt} · PT ${pg.jam_pt} · Inf ${pg.jam_inf} jam` : '', b.pengganti));
+      bagian.push(RT(3, 'Transpor Pembina Ekstrakurikuler', ekskul.length ? `${jml(ekskul, 'pertemuan')} pertemuan` : '', b.ekskul));
+      bagian.push(RT(4, 'Transpor Pembimbing Tahfidz', tahfidz.length ? `${jml(tahfidz, 'pertemuan')} pertemuan` : '', b.tahfidz));
+      bagian.push(RT(5, 'Kompensasi Piket Parkiran', r.parkir ? `${r.parkir.ukuran} hari jaga` : '', b.parkiran, r.parkir ? r.persenParkir : null));
+      bagian.push(RJ(`Jumlah ${k}`, D_));
+    }
+    /* Pendapatan sebagai staf: lima komponen formulasi bendahara. Persentase
+       kehadirannya hari hadir ÷ hari kerja (Kepala Sekolah 100 % bila
+       dianggap penuh). */
+    const st = r.staf;
+    if (S > 0 || st) {
+      const k = kode();
+      bagian.push(RH(k, 'PENDAPATAN SEBAGAI STAF', st && st.hari_kerja > 0 ? persenDari(st.hari_hadir, st.hari_kerja) : null));
+      if (st && st.jabatan) bagian.push(RI('Jabatan', st.jabatan));
+      bagian.push(RT(1, 'Gaji Pokok Staf', st ? `${fmtJam(st.jam_minggu)} jam/minggu` : '', st ? st.gaji_pokok : 0));
+      bagian.push(RT(2, 'Tunjangan Jabatan', st ? `${fmtJam(st.hari_tunjangan)} hari/minggu` : '', st ? st.tunjangan_jabatan : 0));
+      bagian.push(RT(3, 'Transpor Berdiri', st ? `${fmtJam(st.jam_minggu)} jam/minggu` : ''   /* indeks tidak dicetak: bukan konsumsi publik */, st ? st.transport_berdiri : 0));
+      bagian.push(RT(4, 'Insentif Kedatangan', st ? `${fmtJam(st.jam_hadir)} jam hadir` : '', st ? st.transport_htm : 0));
+      bagian.push(RT(5, 'Konsumsi', st ? `${st.hari_hadir} hari hadir` : '', st ? st.konsumsi : 0));
+      bagian.push(RJ(`Jumlah ${k}`, S));
+    }
+    /* Honor tenaga pendukung: komponen per orang, satu baris satu komponen. */
+    if (P > 0 || r.pendukung.length) {
+      const k = kode();
+      bagian.push(RH(k, 'HONOR TENAGA PENDUKUNG'));
+      r.pendukung.forEach((x, i) => bagian.push(RT(i + 1, x.komponen, `${ukuranTeks(x)} × ${rupiah(x.nilai)}`, x.jumlah)));
+      bagian.push(RJ(`Jumlah ${k}`, P));
+    }
+    if (E > 0) {
+      const k = kode();
+      bagian.push(RH(k, 'TUNJANGAN'));
+      bagian.push(RT(1, 'Tunjangan Kesehatan (TuSehat)', r.sehat ? [r.sehat.bentuk, `${r.sehat.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs));
+      bagian.push(RT(2, 'Tunjangan Ketenagakerjaan (TuKerja)', r.kerja ? [r.kerja.bentuk, `${r.kerja.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs_tk));
+      bagian.push(RJ(`Jumlah ${k}`, E));
+    }
+    const rumus = huruf > 1 ? ` (${Array.from({ length: huruf }, (_, i) => String.fromCharCode(65 + i)).join(' + ')})` : '';
+    bagian.push(RJ('JUMLAH PENDAPATAN' + rumus, b.jumlah, { total: true }));
+
+    const k = kode();
+    const sebut = arr => [...new Set(arr.map(x => x.jenis).filter(Boolean))].join(', ');
+    bagian.push(RH(k, 'POTONGAN'));
+    bagian.push(RT(1, 'Potongan BPJS (porsi guru)', 'TuSehat & TuKerja', b.potongan_bpjs));
+    bagian.push(RT(2, 'Potongan Koperasi', sebut(r.koperasi), b.potongan_koperasi));
+    bagian.push(RT(3, 'Potongan Lain-lain', sebut(r.sekolah), b.potongan_sekolah));
+    bagian.push(RJ('Jumlah Potongan', b.potongan));
+    /* Tunjangan (TuSehat, TuKerja) tidak diterima tunai: sekolah menyetorkannya
+       langsung ke bank / penyelenggara. Ia tetap tercetak sebagai pendapatan
+       (bagian Tunjangan) dan tetap terhitung di penerimaan bersih Gabungan,
+       tetapi yang dibawa guru adalah bersih dikurangi tunjangan itu. Baris
+       "Tunjangan disetor ke bank" sudah menjelaskannya; Catatan tidak
+       mengulanginya. */
+    const diterima = (Number(b.bersih) || 0) - E;
+    if (E > 0) bagian.push(RT('', 'Tunjangan disetor ke bank', 'TuSehat & TuKerja, tidak diterima tunai', E));
+    bagian.push({ t: 'tunai', nilai: diterima });
+    bagian.push({ t: 'terbilang', teks: `Terbilang: ${terbilang(diterima)}` });
+    return { bagian, masaKerja, ringkasHadir, diterima };
+}
+
+/* View struk: pratinjau satu struk di layar, isinya dari penyusun yang sama
+   dengan berkas Word. Rincian komponen dimuat sekali per periode. */
+let rincianStrukSimpan = null;
+async function lihatStruk(b) {
+  const kunci = ui.rekapAwal + '|' + ui.rekapAkhir;
+  if (!rincianStrukSimpan || rincianStrukSimpan.kunci !== kunci) rincianStrukSimpan = { kunci, ...(await rincianStruk()) };
+  const { R, dibayar } = rincianStrukSimpan;
+  const isi = susunIsiStruk(b, R, dibayar);
+  const p = D.profil || {};
+  const baris = isi.bagian.map(x =>
+    x.t === 'header' ? `<tr class="st-head"><td>${esc(x.kode)}</td><td colspan="2">${esc(x.judul)}</td>
+        <td colspan="2" class="num">${x.persen != null ? 'kehadiran <b>' + esc(fmtPersen(x.persen)) + '</b>' : ''}</td></tr>`
+    : x.t === 'info' ? `<tr class="st-info"><td></td><td>${esc(x.label)}</td><td colspan="3">: ${esc(x.isi)}</td></tr>`
+    : x.t === 'item' ? `<tr><td class="num">${x.no ? esc(String(x.no)) + '.' : ''}</td><td>${esc(x.uraian)}</td>
+        <td class="st-ket">${esc(x.ket || '')}${x.ket && x.persen != null ? ' (kehadiran <b>' + esc(fmtPersen(x.persen)) + '</b>)' : ''}</td>
+        <td>Rp</td><td class="num">${esc(Number(x.nominal || 0).toLocaleString('id-ID'))}</td></tr>`
+    : x.t === 'jumlah' ? `<tr class="${x.total ? 'st-total' : 'st-jumlah'}"><td></td><td colspan="2">${esc(x.label)}</td>
+        <td>Rp</td><td class="num">${esc(Number(x.nominal || 0).toLocaleString('id-ID'))}</td></tr>`
+    : x.t === 'tunai' ? `<tr class="st-tunai"><td></td><td colspan="2">DITERIMA TUNAI OLEH GURU</td>
+        <td>Rp</td><td class="num">${esc(Number(x.nilai || 0).toLocaleString('id-ID'))}</td></tr>`
+    : `<tr><td></td><td colspan="4" class="st-ket">${esc(x.teks)}</td></tr>`).join('');
+  bukaModal(`<h2>Struk — ${esc(b.nama)}</h2><div class="body">
+    <div class="st-kop"><div><b>${esc(p.nama_sekolah || KONFIG.sekolah)}</b>
+      <div class="kecil">${esc([p.alamat, p.kota].filter(Boolean).join(' · '))}</div></div>
+      <div class="st-periode"><span class="kecil">PERIODE</span><b>${esc(judulPeriodeRekap().toUpperCase())}</b></div></div>
+    <table class="st-id"><tbody>
+      <tr><td>Nama</td><td>: <b>${esc(b.nama)}</b></td><td>Jenis</td><td>: <b>${esc(b.jenis_orang || '—')}</b></td></tr>
+      <tr><td>TMT</td><td>: ${esc(b.tmt_sekolah ? tglIndo(b.tmt_sekolah) : '—')}</td><td>Masa kerja</td><td>: ${esc(isi.masaKerja)}</td></tr>
+      ${isi.ringkasHadir ? `<tr><td>Kehadiran</td><td colspan="3">: <b>${esc(isi.ringkasHadir)}</b></td></tr>` : ''}
+    </tbody></table>
+    <table class="st-isi"><tbody>${baris}</tbody></table>
+    </div>
+    <div class="aksi"><button class="btn" id="m-batal">Tutup</button>
+      <button class="btn btn-p" id="m-unduh">Unduh struk ini (docx)</button></div>`, true);
+  $('#m-batal').onclick = tutupModal;
+  $('#m-unduh').onclick = () => { tutupModal(); jalankan('Menyiapkan struk…', () => unduhStruk([b])); };
+}
+
 async function unduhStruk(baris) {
   const penerima = (baris || []).filter(adaStruk);
   if (!penerima.length) throw new Error('Tidak ada penerima pada periode ini.');
@@ -3632,132 +3860,26 @@ async function unduhStruk(baris) {
   /* Satu struk. Bagian yang tidak ada isinya (nominal maupun kegiatannya
      nol) tidak dicetak, supaya struk pelatih dari luar atau staf tidak
      dipenuhi baris Rp 0; Potongan dan Penerimaan Bersih selalu ada. */
+  const barisTunai = nilai => new TableRow({ children: [
+    sel(teks(''), KOL[0], { shade: HIJAU, mt: 40, mb: 40 }),
+    sel(teks('DITERIMA TUNAI OLEH GURU', { bold: true, size: 18, color: HIJAU_TUA }), KOL[1] + KOL[2], { span: 2, shade: HIJAU, mt: 40, mb: 40 }),
+    sel(teks('Rp', { bold: true, size: 18, color: HIJAU_TUA }), KOL[3], { shade: HIJAU, mt: 40, mb: 40 }),
+    sel(teks(angka(nilai), { bold: true, size: 18, align: AlignmentType.RIGHT, color: HIJAU_TUA }), KOL[4], { shade: HIJAU, mt: 40, mb: 40 })
+  ]});
+  const barisTerbilang = t => new TableRow({ children: [
+    sel(teks(''), KOL[0]),
+    sel(teks(t, { italics: true, color: KELABU }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4 })
+  ]});
   function buatStruk(b) {
-    const r = R[b.orang_id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [] };
-    const m = r.mengajar && dibayar(r.mengajar) ? r.mengajar : null;
-    const w = r.wali && dibayar(r.wali) ? r.wali : null;
-    const meja = r.meja && dibayar(r.meja) ? r.meja : null;
-    const diper = r.diper.filter(dibayar);
-    const ekskul = r.ekskul.filter(dibayar), tahfidz = r.tahfidz.filter(dibayar);
-    const jml = (arr, k) => arr.reduce((t, x) => t + (Number(x[k]) || 0), 0);
-    const masaKerja = b.tmt_sekolah
-      ? Math.max(0, Math.floor((new Date(ui.rekapAkhir) - new Date(b.tmt_sekolah)) / (365.25 * 86400000))) + ' tahun'
-      : '—';
-    /* Ringkasan persentase kehadiran di blok identitas — selain yang tercetak
-       di tajuk tiap bagian — supaya terbaca sekilas. Hanya yang punya
-       jadwal pembanding; kosong berarti barisnya tidak dicetak. */
-    const ringkasHadir = [
-      r.persenMengajar != null && `Mengajar ${fmtPersen(r.persenMengajar)}`,
-      r.persenWali != null && `Wali kelas ${fmtPersen(r.persenWali)}`,
-      r.persenUnit != null && `Piket unit ${fmtPersen(r.persenUnit)}`,
-      r.persenMeja != null && `Piket meja ${fmtPersen(r.persenMeja)}`,
-      r.persenParkir != null && `Parkiran ${fmtPersen(r.persenParkir)}`,
-      r.staf && r.staf.hari_kerja > 0 && `Staf ${fmtPersen(persenDari(r.staf.hari_hadir, r.staf.hari_kerja))}`
-    ].filter(Boolean).join(' · ');
-
-    const bagian = [];
-    const A = Number(b.mengajar) || 0, B = Number(b.wali) || 0, C = Number(b.diperbantukan) || 0;
-    const D_ = ['piket_meja', 'pengganti', 'ekskul', 'tahfidz', 'parkiran'].reduce((t, k) => t + (Number(b[k]) || 0), 0);
-    const S = (Number(b.staf_gaji) || 0) + (Number(b.staf_transpor) || 0);
-    const P = Number(b.pendukung) || 0;
-    const E = (Number(b.bpjs) || 0) + (Number(b.bpjs_tk) || 0);
-    let huruf = 0;
-    const kode = () => String.fromCharCode(65 + huruf++);   // A, B, C, … hanya untuk bagian yang dicetak
-
-    if (A > 0 || m) {
-      const k = kode();
-      bagian.push(rowHeader(k, 'PENDAPATAN SEBAGAI GURU', r.persenMengajar));
-      if (r.mapel) bagian.push(rowInfo('Mata Pelajaran', r.mapel));
-      const jam = m ? `${m.jam_dibayar} jam/minggu` : '';
-      bagian.push(rowItem(1, 'Honor Mengajar', jam, m ? m.honor_guru : 0));
-      bagian.push(rowItem(2, 'Transpor Berdiri', jam, m ? m.transport : 0));
-      bagian.push(rowItem(3, 'Insentif Tatap Muka', m ? `${m.jam_tm} jam hadir` : '', m ? m.insentif : 0));
-      bagian.push(rowItem(4, 'Konsumsi Kedatangan', m ? `${m.hari_datang} hari hadir` : '', m ? m.konsumsi : 0));
-      bagian.push(rowJumlah(`Jumlah ${k}`, A));
-    }
-    if (B > 0 || w) {
-      const k = kode();
-      bagian.push(rowHeader(k, 'HONOR WALI KELAS', r.persenWali));
-      bagian.push(rowItem(1, 'Honor Wali Kelas', w ? `${w.bulan} bulan` : '', w ? w.honor_bulanan : 0));
-      bagian.push(rowItem(2, 'Honor Upacara', w ? `${w.jam_upacara} jam hadir` : '', w ? w.honor_upacara : 0));
-      bagian.push(rowItem(3, 'Honor Bimbingan Wali Kelas', w ? `${w.jam_bimbingan} jam hadir` : '', w ? w.honor_bimbingan : 0));
-      bagian.push(rowJumlah(`Jumlah ${k}`, B));
-    }
-    if (C > 0 || diper.length) {
-      const k = kode();
-      bagian.push(rowHeader(k, 'HONOR GURU DIPERBANTUKAN', r.persenUnit));
-      bagian.push(rowItem(1, 'Honor Diperbantukan', diper.map(x => x.unit).filter(Boolean).join(', '), jml(diper, 'honor')));
-      bagian.push(rowItem(2, 'Transpor Piket Unit', `${jml(diper, 'jam_jaga')} jam jaga`, jml(diper, 'transport')));
-      bagian.push(rowJumlah(`Jumlah ${k}`, C));
-    }
-    if (D_ > 0 || meja || r.pengganti || ekskul.length || tahfidz.length || r.parkir) {
-      const k = kode();
-      const pg = r.pengganti;
-      bagian.push(rowHeader(k, 'TRANSPOR DAN KOMPENSASI LAIN'));
-      bagian.push(rowItem(1, 'Transpor Piket Meja Sekolah', meja ? `${meja.ukuran} jam jaga` : '', b.piket_meja, meja ? r.persenMeja : null));
-      bagian.push(rowItem(2, 'Transpor Guru Pengganti', pg ? `GT ${pg.jam_gt} · PT ${pg.jam_pt} · Inf ${pg.jam_inf} jam` : '', b.pengganti));
-      bagian.push(rowItem(3, 'Transpor Pembina Ekstrakurikuler', ekskul.length ? `${jml(ekskul, 'pertemuan')} pertemuan` : '', b.ekskul));
-      bagian.push(rowItem(4, 'Transpor Pembimbing Tahfidz', tahfidz.length ? `${jml(tahfidz, 'pertemuan')} pertemuan` : '', b.tahfidz));
-      bagian.push(rowItem(5, 'Kompensasi Piket Parkiran', r.parkir ? `${r.parkir.ukuran} hari jaga` : '', b.parkiran, r.parkir ? r.persenParkir : null));
-      bagian.push(rowJumlah(`Jumlah ${k}`, D_));
-    }
-    /* Pendapatan sebagai staf: lima komponen formulasi bendahara. Persentase
-       kehadirannya hari hadir ÷ hari kerja (Kepala Sekolah 100 % bila
-       dianggap penuh). */
-    const st = r.staf;
-    if (S > 0 || st) {
-      const k = kode();
-      bagian.push(rowHeader(k, 'PENDAPATAN SEBAGAI STAF', st && st.hari_kerja > 0 ? persenDari(st.hari_hadir, st.hari_kerja) : null));
-      if (st && st.jabatan) bagian.push(rowInfo('Jabatan', st.jabatan));
-      bagian.push(rowItem(1, 'Gaji Pokok Staf', st ? `${fmtJam(st.jam_minggu)} jam/minggu` : '', st ? st.gaji_pokok : 0));
-      bagian.push(rowItem(2, 'Tunjangan Jabatan', st ? `${fmtJam(st.hari_tunjangan)} hari/minggu` : '', st ? st.tunjangan_jabatan : 0));
-      bagian.push(rowItem(3, 'Transpor Berdiri', st ? `${fmtJam(st.jam_minggu)} jam/minggu` : ''   /* indeks tidak dicetak: bukan konsumsi publik */, st ? st.transport_berdiri : 0));
-      bagian.push(rowItem(4, 'Insentif Kedatangan', st ? `${fmtJam(st.jam_hadir)} jam hadir` : '', st ? st.transport_htm : 0));
-      bagian.push(rowItem(5, 'Konsumsi', st ? `${st.hari_hadir} hari hadir` : '', st ? st.konsumsi : 0));
-      bagian.push(rowJumlah(`Jumlah ${k}`, S));
-    }
-    /* Honor tenaga pendukung: komponen per orang, satu baris satu komponen. */
-    if (P > 0 || r.pendukung.length) {
-      const k = kode();
-      bagian.push(rowHeader(k, 'HONOR TENAGA PENDUKUNG'));
-      r.pendukung.forEach((x, i) => bagian.push(rowItem(i + 1, x.komponen, `${ukuranTeks(x)} × ${rupiah(x.nilai)}`, x.jumlah)));
-      bagian.push(rowJumlah(`Jumlah ${k}`, P));
-    }
-    if (E > 0) {
-      const k = kode();
-      bagian.push(rowHeader(k, 'TUNJANGAN'));
-      bagian.push(rowItem(1, 'Tunjangan Kesehatan (TuSehat)', r.sehat ? [r.sehat.bentuk, `${r.sehat.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs));
-      bagian.push(rowItem(2, 'Tunjangan Ketenagakerjaan (TuKerja)', r.kerja ? [r.kerja.bentuk, `${r.kerja.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs_tk));
-      bagian.push(rowJumlah(`Jumlah ${k}`, E));
-    }
-    const rumus = huruf > 1 ? ` (${Array.from({ length: huruf }, (_, i) => String.fromCharCode(65 + i)).join(' + ')})` : '';
-    bagian.push(rowJumlah('JUMLAH PENDAPATAN' + rumus, b.jumlah, { shade: BIRU, tebal: true, color: NAVY }));
-
-    const k = kode();
-    const sebut = arr => [...new Set(arr.map(x => x.jenis).filter(Boolean))].join(', ');
-    bagian.push(rowHeader(k, 'POTONGAN'));
-    bagian.push(rowItem(1, 'Potongan BPJS (porsi guru)', 'TuSehat & TuKerja', b.potongan_bpjs));
-    bagian.push(rowItem(2, 'Potongan Koperasi', sebut(r.koperasi), b.potongan_koperasi));
-    bagian.push(rowItem(3, 'Potongan Lain-lain', sebut(r.sekolah), b.potongan_sekolah));
-    bagian.push(rowJumlah('Jumlah Potongan', b.potongan));
-    /* Tunjangan (TuSehat, TuKerja) tidak diterima tunai: sekolah menyetorkannya
-       langsung ke bank / penyelenggara. Ia tetap tercetak sebagai pendapatan
-       (bagian Tunjangan) dan tetap terhitung di penerimaan bersih Gabungan,
-       tetapi yang dibawa guru adalah bersih dikurangi tunjangan itu. Baris
-       "Tunjangan disetor ke bank" sudah menjelaskannya; Catatan tidak
-       mengulanginya. */
-    const diterima = (Number(b.bersih) || 0) - E;
-    if (E > 0) bagian.push(rowItem('', 'Tunjangan disetor ke bank', 'TuSehat & TuKerja, tidak diterima tunai', E));
-    bagian.push(new TableRow({ children: [
-      sel(teks(''), KOL[0], { shade: HIJAU, mt: 40, mb: 40 }),
-      sel(teks('DITERIMA TUNAI OLEH GURU', { bold: true, size: 18, color: HIJAU_TUA }), KOL[1] + KOL[2], { span: 2, shade: HIJAU, mt: 40, mb: 40 }),
-      sel(teks('Rp', { bold: true, size: 18, color: HIJAU_TUA }), KOL[3], { shade: HIJAU, mt: 40, mb: 40 }),
-      sel(teks(angka(diterima), { bold: true, size: 18, align: AlignmentType.RIGHT, color: HIJAU_TUA }), KOL[4], { shade: HIJAU, mt: 40, mb: 40 })
-    ]}));
-    bagian.push(new TableRow({ children: [
-      sel(teks(''), KOL[0]),
-      sel(teks(`Terbilang: ${terbilang(diterima)}`, { italics: true, color: KELABU }), KOL[1] + KOL[2] + KOL[3] + KOL[4], { span: 4 })
-    ]}));
+    const isi = susunIsiStruk(b, R, dibayar);
+    const { masaKerja, ringkasHadir } = isi;
+    const bagian = isi.bagian.map(x =>
+      x.t === 'header' ? rowHeader(x.kode, x.judul, x.persen)
+      : x.t === 'info' ? rowInfo(x.label, x.isi)
+      : x.t === 'item' ? rowItem(x.no, x.uraian, x.ket, x.nominal, x.persen)
+      : x.t === 'jumlah' ? rowJumlah(x.label, x.nominal, x.total ? { shade: BIRU, tebal: true, color: NAVY } : {})
+      : x.t === 'tunai' ? barisTunai(x.nilai)
+      : barisTerbilang(x.teks));
 
     const kop = tabel([900, 4700, 1900], [new TableRow({ children: [
       sel(dataLogo ? par(new ImageRun({ type: 'png', data: dataLogo, transformation: { width: 40, height: 40 } })) : teks(''), 900, { borders: garisKop }),
