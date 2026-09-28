@@ -1062,6 +1062,7 @@ function halTunjangan() {
     jalankan('Memuat…', muatSemua);
   };
   $$('[data-tj]').forEach(b => b.onclick = () => { ui.tunjanganTab = b.dataset.tj; ui.tunjanganCari = ''; gambar(); });
+  if ($('#tjUnduh')) $('#tjUnduh').onclick = () => jalankan('Menyiapkan berkas…', () => unduhMatriksTunjangan(tab));
   $('#tjTemplate').onclick = () => jalankan('Menyiapkan template…', () => unduhTemplateTunjangan(tab));
   $('#tjUnggahTombol').onclick = () => $('#tjUnggah').click();
   $('#tjUnggah').onchange = e => {
@@ -1070,6 +1071,83 @@ function halTunjangan() {
     if (berkas) jalankan('Membaca berkas…', () => unggahTemplateTunjangan(tab, berkas));
   };
   pasangAksiTunjangan();
+}
+
+/* Unduh (xlsx) matriks Tunjangan dan Potongan (28 September 2026): keadaan
+   pada tanggal acuan, berkop sekolah, seragam dengan unduhan lain. Menurut
+   pencarian yang sedang aktif. Berbeda dari template: ini laporan untuk
+   dibaca dan dicetak, bukan untuk diisi dan diunggah kembali. */
+async function unduhMatriksTunjangan(tab) {
+  if (!D.tunjangan) await muatTunjangan();
+  const spek = TJ_TAB[tab];
+  const q = (ui.tunjanganCari || '').trim().toLowerCase();
+  const cocok = nama => !q || String(nama || '').toLowerCase().includes(q);
+  let kepala, lebar, baris, jumlahKol, total = 0;
+  if (spek.jenis) {
+    const j = spek.jenis;
+    kepala = ['NO', 'NAMA', 'STATUS', 'BENTUK', 'NO. PESERTA', 'DARI SEKOLAH/BULAN', 'POTONGAN GURU/BULAN', 'BERLAKU MULAI'];
+    lebar = [5, 32, 26, 20, 18, 18, 19, 15];
+    let tPot = 0;
+    baris = D.tunjangan.hak.filter(h => h.jenis === j && cocok(h.nama)).map((h, i) => {
+      const sv = salurBerlaku(h.id, j, ui.acuan), a = angkaTunjangan(j, sv);
+      if (h.status === 'disahkan') { total += a.nominal; tPot += a.potongan; }
+      return [i + 1, h.nama,
+              h.status === 'disahkan' ? `disahkan, sejak ${blnIndo(h.mulai)}` : `terhenti: ${h.keterangan || ''}`,
+              sv ? sv.bentuk : `${bentukBawaan(j)} (bawaan)`, (sv && sv.nomor_peserta) || '—',
+              a.nominal, a.potongan, sv ? tglIndo(sv.berlaku_mulai) : '—'];
+    });
+    jumlahKol = { 6: total, 7: tPot };
+  } else {
+    const k = spek.kelompok, koperasi = k === 'koperasi', iuran = iuranBawaan(k);
+    kepala = ['NO', 'NAMA', 'TMT', 'JENIS POTONGAN', 'NOMINAL/BULAN', 'MULAI', 'SAMPAI', 'KETERANGAN'];
+    lebar = [5, 32, 13, 24, 17, 14, 14, 28];
+    baris = [];
+    let no = 0;
+    for (const g of D.tunjangan.guru.filter(x => cocok(x.nama))) {
+      const jalan = D.tunjangan.potongan.filter(p => p.kelompok === k && p.guru_id === g.id && keadaanPotongan(p, ui.acuan) === 'berjalan')
+        .sort((a, b) => a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+      const isi = jalan.map(p => [p.jenis, Number(p.nominal) || 0, blnIndo(p.berlaku_mulai), p.berlaku_sampai ? blnIndo(p.berlaku_sampai) : 'sampai diubah', p.keterangan || '']);
+      // Iuran keanggotaan bawaan berlaku bila orang itu tidak punya baris iuran sendiri.
+      if (koperasi && iuran > 0 && !jalan.some(p => p.jenis === IURAN_KOPERASI)) isi.unshift([IURAN_KOPERASI, iuran, '—', 'sampai diubah', 'bawaan']);
+      if (!isi.length) continue;
+      no += 1;
+      isi.forEach((x, i) => {
+        total += x[1];
+        baris.push([i === 0 ? no : '', i === 0 ? g.nama : '', i === 0 ? tglIndo(g.tmt_sekolah) : '', ...x]);
+      });
+    }
+    jumlahKol = { 5: total };
+  }
+
+  const ExcelJS = await muatExcelJS();
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(spek.nama.slice(0, 28), {
+    pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+                 margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } }
+  });
+  const F = 'Calibri';
+  ws.columns = lebar.map(w => ({ width: w }));
+  ws.views = [{ showGridLines: false }];
+  let r = kopBersama().kopExcel(ws, {
+    wb, logo: await ambilLogo(), profil: D.profil || {},
+    judul: `DAFTAR ${spek.nama.toUpperCase()}`,
+    sub: `Keadaan pada ${tglIndo(ui.acuan)}${q ? ` · pencarian "${ui.tunjanganCari.trim()}"` : ''}`,
+    kolomAkhir: kepala.length, font: F
+  });
+  kepalaExcel(ws, r, kepala, F);
+  ws.views = [{ state: 'frozen', ySplit: r, showGridLines: false }];
+  r += 1;
+  const sel = penulisSel(ws, F);
+  baris.forEach(isi => {
+    isi.forEach((v, c) => sel(r, c + 1, v, { fmt: typeof v === 'number' && c > 0 ? RP : undefined,
+                                            rata: c === 0 || /^\d{1,2} \w+ \d{4}$/.test(String(v)) ? 'center' : undefined }));
+    r += 1;
+  });
+  if (!baris.length) { sel(r, 1, 'Tidak ada data.'); ws.mergeCells(r, 1, r, kepala.length); r += 1; }
+  else {
+    for (let c = 1; c <= kepala.length; c++) sel(r, c, c === 2 ? 'JUMLAH' : jumlahKol[c] != null ? jumlahKol[c] : '', { tebal: true, abu: true, fmt: jumlahKol[c] != null ? RP : undefined });
+  }
+  await simpanBuku(wb, `${spek.nama} ${ui.acuan}.xlsx`);
 }
 
 /* ------------------------------ Tunjangan dan Potongan: template Excel */
@@ -1313,7 +1391,8 @@ function isiTabPenyaluran(jenis) {
 
     <div class="panel"><div class="panel-head"><h3>${esc(TJ_TAB[jenis].nama)} — berlaku ${esc(tglIndo(ui.acuan))}</h3>
       <div class="sp" style="flex:1"></div>
-      <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px"></div>
+      <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px">
+      <button class="btn btn-sm" id="tjUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
       <div class="scroll gulir-tegak"><table><thead><tr>
         <th class="lekat">Nama</th><th style="width:150px">Status</th>
         <th style="width:160px">Bentuk</th><th style="width:130px">No. peserta</th>
@@ -1417,7 +1496,8 @@ function isiTabPotongan(kelompok) {
 
     <div class="panel"><div class="panel-head"><h3>${esc(nama)} — bulan ${esc(blnIndo(ui.acuan))}</h3>
       <div class="sp" style="flex:1"></div>
-      <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px"></div>
+      <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px">
+      <button class="btn btn-sm" id="tjUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
       <div class="scroll gulir-tegak"><table><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th><th class="lekat">Nama</th><th style="width:100px">TMT</th>
         <th>Rincian</th>
