@@ -1544,16 +1544,17 @@ function isiTabPotongan(kelompok) {
           <td class="lekat" style="font-weight:500">${esc(g.nama)}</td>
           <td class="kecil">${esc(tglIndo(g.tmt_sekolah))}</td>
           <td class="kecil">${koperasi
-            /* Koperasi (28 September 2026): baris nama hanya total pembayaran ke koperasi; rinciannya di bawah. */
+            /* Baris nama hanya total (28 September 2026, kedua tab); rinciannya di bawah,
+               tambah/akhiri/hapus lewat tombol Cicilan. */
             ? (g.anggota ? 'Total pembayaran ke koperasi' : '<span style="color:var(--warn)">bukan anggota koperasi</span>')
-            : (g.cicilanJalan.length ? `${g.cicilanJalan.length} potongan berjalan` : '—')}${
-            !koperasi && g.selesai ? ` · <a href="#" class="kecil bRiwayatPot">riwayat (${g.selesai})</a>` : ''}</td>
+            : (g.nominal ? 'Total potongan lain-lain' : '—')}</td>
           <td class="num"${g.nominal ? ' style="font-weight:600"' : ''}>${g.nominal ? rupiah(g.nominal) : '<span class="kecil">Rp 0</span>'}${
             g.terakhir.length ? `<div class="kecil" style="font-weight:400;color:var(--warn)">bulan depan ${esc(rupiah(g.bulanDepan))}</div>` : ''}</td>
           <td class="kecil">—</td>
           <td class="kecil">—</td>
-          <td class="act"><button class="btn btn-sm bCicilan"${koperasi
-              ? ' title="Tambah, akhiri, atau hapus rincian pembayaran ke koperasi; keanggotaan"' : ''}>Cicilan</button></td></tr>${
+          <td class="act"><button class="btn btn-sm bCicilan" title="${koperasi
+              ? 'Tambah, akhiri, atau hapus rincian pembayaran ke koperasi; keanggotaan'
+              : 'Tambah, akhiri, atau hapus rincian potongan lain-lain'}">Cicilan</button></td></tr>${
           (koperasi && g.anggota ? `<tr class="cicilan"${g.iuranSendiri ? ` data-id="${g.iuranSendiri.id}"` : ''} data-kelompok="${esc(kelompok)}" data-guru="${esc(g.id)}">
           <td></td>
           <td class="kecil" style="text-align:right">↳</td>
@@ -1575,7 +1576,7 @@ function isiTabPotongan(kelompok) {
           <td class="kecil">${esc(blnIndo(p.berlaku_mulai))}</td>
           <td class="kecil">${p.berlaku_sampai ? esc(blnIndo(p.berlaku_sampai)) : 'sampai diubah'}${
             p.berlaku_sampai === bulanAcuan ? ' ' + selesaiTag : ''}</td>
-          <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button>${koperasi ? '' : ' <button class="btn btn-sm bAkhiriPot">Akhiri</button>'}</td></tr>`).join('')}`).join('')
+          <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button></td></tr>`).join('')}`).join('')
         : `<tr><td colspan="8"><div class="empty"><b>Tidak ada guru</b>
             ${semua.length ? 'Ubah pencarian.' : 'Belum ada guru aktif di Data Induk.'}</div></td></tr>`
       }</tbody></table></div></div>
@@ -1673,9 +1674,8 @@ function pasangAksiTunjangan() {
   });
   $$('.bCicilan').forEach(b => b.onclick = () => {
     const tr = b.closest('tr');
-    // Koperasi: daftar rincian pembayaran orang itu (tambah, akhiri, hapus, keanggotaan).
-    if (tr.dataset.kelompok === 'koperasi') dialogAturPotongan('koperasi', tr.dataset.guru);
-    else dialogPotongan(tr.dataset.kelompok, null, tr.dataset.guru);
+    // Daftar rincian potongan orang itu: tambah, akhiri, hapus (dan keanggotaan di koperasi).
+    dialogAturPotongan(tr.dataset.kelompok, tr.dataset.guru);
   });
   $$('.bUbahIuran').forEach(b => b.onclick = () => {
     const tr = b.closest('tr');
