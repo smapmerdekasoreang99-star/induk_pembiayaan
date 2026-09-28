@@ -2342,7 +2342,10 @@ function susunTabHadir(tab, h) {
       catatan: 'Hari kerja dihitung dari ketentuan Jam Kerja Staf di Data Induk pada rentang ini, di luar hari libur sekolah. '
              + 'Jam terjadwal = jumlah jam ketentuan pada hari kerja itu; Jam hadir = jam ketentuan pada hari ia hadir dikurangi '
              + 'menit terlambat dan pulang cepat (hadir di luar hari kerja dihitung dari jam masuk–pulang yang tercatat); '
-             + '% Hadir = Jam hadir ÷ Jam terjadwal.',
+             + '% Hadir = Jam hadir ÷ Jam terjadwal. '
+             + 'Jam ditulis desimal, bukan jam:menit seperti di Kehadiran Guru: menit ÷ 60, mis. 169 jam 37 menit = '
+             + '169,62 (37 ÷ 60 = 0,62); 15 menit = ,25; 30 menit = ,50; 45 menit = ,75. Untuk honor, Honor dan Transpor '
+             + 'memakai jam utuh yang dibulatkan ke bawah (169,62 → 169).',
       judul: `REKAP KEHADIRAN STAF — ${K.judul}`, berkas: `Kehadiran Staf ${namaTab}`, ttd: 'kurikulum'
     };
   }
