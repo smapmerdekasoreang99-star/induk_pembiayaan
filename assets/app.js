@@ -2628,7 +2628,7 @@ const REKAP = {
            + 'pelatih dari luar berdiri sendiri. Namanya memakai ejaan data induk. '
            + 'Yang tidak menerima apa pun pada periode ini tidak dicetak.',
     kolom: [
-      { k: 'jenis_orang', t: 'Jenis', w: 120, jumlah: false },
+      { k: 'jenis_orang', t: 'Jenis', w: 190, jumlah: false },
       // s = kolom nominal seandainya (staf), ditampilkan kecil di bawah angka yang dibayar.
       { k: 'mengajar', t: 'Honor Mengajar', w: 130, rp: true, s: 'mengajar_s' },
       { k: 'wali', t: 'Honor Wali Kelas', w: 130, rp: true, s: 'wali_s' },
@@ -2948,7 +2948,7 @@ REKAP.cetak_struk = {
          + 'TuSehat/TuKerja, bagian itu disetor sekolah langsung ke bank, dan sisanya diterima tunai (angka kecil di bawahnya, '
          + 'sama dengan baris Diterima Tunai di struk).',
   kolom: [
-    { k: 'jenis_orang', t: 'Jenis', w: 130, jumlah: false },
+    { k: 'jenis_orang', t: 'Jenis', w: 190, jumlah: false },
     { k: 'jumlah', t: 'Pendapatan', w: 140, rp: true },
     { k: 'potongan', t: 'Potongan', w: 130, rp: true },
     { k: 'bersih', t: 'Jumlah yang Diterima', w: 170, rp: true }
@@ -3048,7 +3048,7 @@ function panelCetakStruk(spek, baris, total) {
       <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th>
         <th class="lekat">Nama</th>
-        <th style="width:130px">Jenis</th>
+        <th style="width:190px">Jenis</th>
         <th style="width:140px" class="num">Pendapatan</th>
         <th style="width:130px" class="num">Potongan</th>
         <th style="width:170px" class="num">Jumlah yang Diterima</th>
@@ -3081,7 +3081,10 @@ function halRekap() {
   const subKunci = !induk.sub ? null
     : induk.sub[ui.rekapSub[ui.rekapJenis]] ? ui.rekapSub[ui.rekapJenis] : Object.keys(induk.sub)[0];
   const spek = subKunci ? { ...induk, ...induk.sub[subKunci], nama: `${induk.nama} — ${induk.sub[subKunci].nama}` } : induk;
-  const semua = urutMasaKerja(D.rekap && spek.ubah ? D.rekap.map(spek.ubah) : D.rekap);
+  /* Keseluruhan dan Cetak Struk: urut kelompok dari database (guru, pendukung, karyawan, staf khusus,
+     pimpinan, pelatih eksternal) lalu masa kerja. Tab lain tidak membawa urutan_kelompok, jadi tetap urut masa kerja. */
+  const semua = D.rekap && (urutMasaKerja(spek.ubah ? D.rekap.map(spek.ubah) : D.rekap) || [])
+    .sort((a, b) => (a.urutan_kelompok || 9) - (b.urutan_kelompok || 9));
   const bagian = spek.tab || 'guru';
   /* Pemegang tugas Staf berhonor nol di rekap ini — aturannya ditegakkan di
      fungsi database, bukan di layar. Yang disembunyikan hanya yang
