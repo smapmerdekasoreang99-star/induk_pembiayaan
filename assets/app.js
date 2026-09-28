@@ -30,7 +30,8 @@ let halaman = 'beranda';
 let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'mengajar',
            hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '', hadirIkutStaf: false,
            penggantiRinci: false, ekskulKategori: '', rekapBentuk: '',
-           tunjanganTab: 'kesehatan', tunjanganCari: '', gajiTab: 'guru', rekapSub: {}, setoranTab: 'bpjs_kesehatan' };
+           tunjanganTab: 'kesehatan', tunjanganCari: '', gajiTab: 'guru', rekapSub: {}, setoranTab: 'bpjs_kesehatan',
+           pekanPendukung: {} };   // { guru_id: { senin: 'YYYY-MM-DD', ikutAtas: bool } } untuk yang dibayar mingguan
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -163,7 +164,7 @@ async function muatSemua() {
   // Katalog jenis, besaran yang berlaku pada tanggal acuan, dan seluruh
   // versi — yang terakhir untuk menunjukkan versi yang BELUM berlaku, supaya
   // besaran yang baru disimpan untuk bulan depan tidak tampak hilang.
-  [D.jenis, D.tarif, D.tarifSemua, D.indeks, D.pendukung, D.orangPendukung, D.guruAktif] = await Promise.all([
+  [D.jenis, D.tarif, D.tarifSemua, D.indeks, D.pendukung, D.orangPendukung, D.guruAktif, D.periodeBayar] = await Promise.all([
     ambil('ip_jenis_tarif', 'select=*&order=urutan'),
     rpc('f_ip_tarif', { p_acuan: ui.acuan }),
     ambil('ip_tarif', 'select=kode,berlaku_mulai,batas_min,batas_maks,nilai&order=berlaku_mulai.asc,batas_min.asc'),
@@ -172,7 +173,9 @@ async function muatSemua() {
     // Honor tenaga pendukung per orang: komponennya, siapa yang berkelompok pendukung, dan daftar guru untuk menambah orang.
     ambil('ip_pendukung', 'select=id,guru_id,komponen,satuan,nilai,berlaku_mulai,berlaku_sampai,catatan&order=guru_id,komponen,berlaku_mulai.asc'),
     ambil('v_jam_kerja_guru', 'select=guru_id,nama,jabatan,kelompok_tarif&kelompok_tarif=eq.pendukung'),
-    ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif&order=nama')
+    ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif&order=nama'),
+    // Periode bayar tenaga pendukung (bulanan / mingguan); tanpa baris = bulanan.
+    ambil('ip_pendukung_orang', 'select=guru_id,periode_bayar').catch(() => [])
   ]);
 
   // RLS menolak dengan mengembalikan tabel kosong, bukan galat. Tanpa
@@ -541,6 +544,19 @@ function halNominal() {
     });
   });
   if ($('[data-pd-orang]')) $('[data-pd-orang]').onclick = dialogTambahOrangPendukung;
+  $$('[data-pd-periode]').forEach(sel => sel.onchange = () => {
+    const guruId = sel.dataset.pdPeriode, nilai = sel.value;
+    jalankan('Menyimpan…', async () => {
+      await api('/rest/v1/ip_pendukung_orang?on_conflict=guru_id', { method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify([{ guru_id: guruId, periode_bayar: nilai, diubah_pada: new Date().toISOString() }]) });
+      D.periodeBayar = await ambil('ip_pendukung_orang', 'select=guru_id,periode_bayar');
+      D.rekap = null; D.setoran = null;
+      toast(nilai === 'mingguan'
+        ? 'Dibayar mingguan: kartunya di Honor dan Transpor memakai pekan sendiri, dan tidak ikut Keseluruhan/struk bulanan.'
+        : 'Dibayar bulanan: ikut rentang Honor dan Transpor, Keseluruhan, dan struk.');
+    });
+  });
 }
 
 /* ------------------------------------ honor tenaga pendukung per orang */
@@ -552,6 +568,21 @@ function halNominal() {
    berversi: Ubah = versi baru sejak tanggal tertentu (versi lama diakhiri
    sehari sebelumnya), Akhiri = berhenti pada tanggal tertentu.           */
 const SATUAN_PENDUKUNG = ['per bulan', 'per jam hadir', 'per hari hadir'];
+/* Dibayar mingguan (28 September 2026): kartunya di Honor dan Transpor →
+   Pendukung punya pemilih pekan sendiri (bawaan pekan ini, Senin–Sabtu),
+   bisa "ikuti rentang atas", kuitansinya pekanan, dan ia tidak ikut
+   Keseluruhan maupun struk bulanan. */
+const mingguan = guruId => (D.periodeBayar || []).some(p => p.guru_id === guruId && p.periode_bayar === 'mingguan');
+function seninDari(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return isoLokal(d);
+}
+function pekanDari(guruId) {
+  const p = ui.pekanPendukung[guruId] || (ui.pekanPendukung[guruId] = { senin: seninDari(hariIniISO()), ikutAtas: false });
+  return p.ikutAtas ? { awal: ui.rekapAwal, akhir: ui.rekapAkhir, ikutAtas: true }
+                    : { awal: p.senin, akhir: geserHari(p.senin, 5), ikutAtas: false };
+}
 const KOMPONEN_PENDUKUNG = ['Gaji', 'Gaji Bulanan', 'Gaji Mingguan', 'Tunjangan Pendidikan', 'Transpor Kedatangan'];
 const isoLokal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const geserHari = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoLokal(d); };
@@ -604,7 +635,11 @@ function panelPendukung() {
         ${nanti.length ? `<div class="pg-berikut"><b>${nanti.length} versi berikutnya</b> mulai ${esc(tglIndo(nanti[0].berlaku_mulai))} —
           belum berlaku pada tanggal acuan.</div>` : ''}
         <p class="pg-penjelasan">${esc(catatan)}</p>
-        <div class="pg-aksi"><button class="btn btn-sm btn-p" data-pd-tambah="${esc(o.id)}">+ Komponen</button></div></article>`;
+        <div class="pg-aksi"><button class="btn btn-sm btn-p" data-pd-tambah="${esc(o.id)}">+ Komponen</button>
+          <label class="kecil" style="margin-left:auto;display:flex;align-items:center;gap:6px">Dibayar
+            <select class="field sempit" data-pd-periode="${esc(o.id)}" style="width:auto;padding:3px 6px">
+              <option value="bulanan" ${mingguan(o.id) ? '' : 'selected'}>Bulanan</option>
+              <option value="mingguan" ${mingguan(o.id) ? 'selected' : ''}>Mingguan</option></select></label></div></article>`;
     }).join('') : '<div class="empty" style="grid-column:1/-1"><b>Belum ada tenaga pendukung</b> Ketuk Tambah orang.</div>'}</div></section>`;
 }
 
@@ -2583,7 +2618,8 @@ const REKAP = {
     fungsi: 'f_ip_rekap_gabungan',
     // Struk gaji tidak lagi di sini (28 September 2026): pindah ke bagian Cetak Struk.
     judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA',
-    catatan: 'Menjumlahkan seluruh jenis pembiayaan menjadi satu baris per orang, kolomnya mengikuti '
+    catatan: 'Tenaga pendukung yang dibayar mingguan (kuitansi pekanan di Staf → Pendukung) tidak ikut di sini. '
+           + 'Menjumlahkan seluruh jenis pembiayaan menjadi satu baris per orang, kolomnya mengikuti '
            + 'tab di halaman ini. Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris '
            + 'gurunya, sehingga seorang yang menerima dari beberapa jalur tetap muncul satu kali; '
            + 'pelatih dari luar berdiri sendiri. Namanya memakai ejaan data induk. '
@@ -2922,6 +2958,18 @@ async function muatRekap() {
   const r = REKAP[ui.rekapJenis];
   const hasil = await rpc(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
+  if (r === REKAP.pendukung && D.rekap) {
+    const mg = [...new Set((D.pendukung || []).map(p => p.guru_id))].filter(mingguan);
+    const tandai = (baris, pk, pekanan) => baris.map(b => ({ ...b, periodeAwal: pk.awal, periodeAkhir: pk.akhir, mingguan: pekanan }));
+    let semua = tandai(D.rekap.filter(b => !mg.includes(b.guru_id)), { awal: ui.rekapAwal, akhir: ui.rekapAkhir }, false);
+    for (const id of mg) {
+      const pk = pekanDari(id);
+      const milik = pk.ikutAtas ? D.rekap.filter(b => b.guru_id === id)
+        : (await rpc('f_ip_honor_pendukung', { p_awal: pk.awal, p_akhir: pk.akhir }) || []).filter(b => b.guru_id === id);
+      semua = semua.concat(tandai(milik, pk, true));
+    }
+    D.rekap = semua;
+  }
 }
 
 const angkaSel = (b, k) => {
@@ -2939,7 +2987,11 @@ const ukuranTeks = k => k.satuan === 'per bulan' ? `${Number(k.ukuran) || 0} bul
 function orangDariKomponen(baris) {
   const per = new Map();
   (baris || []).forEach(b => {
-    if (!per.has(b.guru_id)) per.set(b.guru_id, { guru_id: b.guru_id, nama: b.nama, jabatan: b.jabatan, komponen: [], jumlah: 0 });
+    if (!per.has(b.guru_id)) per.set(b.guru_id, { guru_id: b.guru_id, nama: b.nama, jabatan: b.jabatan, komponen: [], jumlah: 0,
+      mingguan: !!b.mingguan, periodeAwal: b.periodeAwal, periodeAkhir: b.periodeAkhir,
+      // Kuitansi pekanan menyebut pekannya sendiri, bukan rentang di atas.
+      periodeLabel: b.mingguan ? `gaji mingguan pekan ${tglIndo(b.periodeAwal)} – ${tglIndo(b.periodeAkhir)}` : null,
+      tglAkhir: b.periodeAkhir });
     const o = per.get(b.guru_id);
     o.komponen.push(b);
     o.jumlah += Number(b.jumlah) || 0;
@@ -2956,12 +3008,24 @@ function kartuRekapOrang(induk, spek, baris, total) {
       <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh (xlsx)</button>
       <button class="btn btn-sm" id="rKuitansi" style="margin-left:6px" ${orang.length ? '' : 'disabled'}>Unduh semua kuitansi (xlsx)</button></div>
       ${orang.length ? `<div class="pg-grid" style="padding:16px">${orang.map(o => `<article class="pg-kartu${o.jumlah > 0 ? '' : ' kosong'}">
-        <div class="pg-kartu-atas"><h3>${esc(o.nama)}</h3><span class="pg-satuan">${esc(o.jabatan || 'tanpa tugas Staf')}</span></div>
+        <div class="pg-kartu-atas"><h3>${esc(o.nama)}</h3><span class="pg-satuan">${esc(o.mingguan ? 'Mingguan' : (o.jabatan || 'tanpa tugas Staf'))}</span></div>
+        ${o.mingguan ? `<div class="pg-pekan">
+          ${(ui.pekanPendukung[o.guru_id] || {}).ikutAtas
+            ? `<span>Rentang atas: ${esc(tglIndo(o.periodeAwal))} – ${esc(tglIndo(o.periodeAkhir))}</span>
+               <button class="btn btn-sm" data-pekan-ikut="${esc(o.guru_id)}">Kembali per pekan</button>`
+            : `<button class="btn btn-sm" data-pekan-geser="${esc(o.guru_id)}" data-arah="-1" title="Pekan sebelumnya">◀</button>
+               <span>Pekan ${esc(tglIndo(o.periodeAwal))} – ${esc(tglIndo(o.periodeAkhir))}</span>
+               <button class="btn btn-sm" data-pekan-geser="${esc(o.guru_id)}" data-arah="1" title="Pekan berikutnya">▶</button>
+               <button class="btn btn-sm" data-pekan-ikut="${esc(o.guru_id)}" title="Pakai rentang Dari–Sampai di atas">Ikuti rentang atas</button>`}
+        </div>` : ''}
         <table class="pg-jenjang"><tbody>${o.komponen.map(k => `<tr>
           <td>${esc(k.komponen)}<div class="kecil">${esc(ukuranTeks(k))} × ${esc(rupiah(k.nilai))} ${esc(k.satuan)}</div></td>
           <td>${esc(rupiah(k.jumlah))}</td></tr>`).join('')}</tbody></table>
         <div class="pg-nilai${o.jumlah > 0 ? '' : ' nol'}">${esc(rupiah(o.jumlah))}</div>
-        <div class="pg-meta">${o.jumlah > 0 ? 'diterima untuk ' + esc(periode) : 'nominal komponennya masih Rp 0 — isi di Nominal Penggajian Staf'}</div>
+        <div class="pg-meta">${o.jumlah > 0
+          ? 'diterima untuk ' + esc(o.mingguan ? `${tglIndo(o.periodeAwal)} – ${tglIndo(o.periodeAkhir)}` : periode)
+            + (o.mingguan ? ' · tidak ikut Keseluruhan dan struk bulanan' : '')
+          : 'nominal komponennya masih Rp 0 — isi di Nominal Penggajian Staf'}</div>
         <div class="pg-aksi"><button class="btn btn-sm btn-p" data-kuitansi="${esc(o.guru_id)}">Unduh kuitansi (xlsx)</button></div>
       </article>`).join('')}</div>`
       : `<div class="empty"><b>Tidak ada tenaga pendukung</b> Belum ada komponen yang berlaku pada periode ini
@@ -3180,6 +3244,17 @@ function halRekap() {
   const spekKuitansi = { ...spek, kuitansi: spek.kuitansiNama || spek.nama };
   if ($('#rKuitansi')) $('#rKuitansi').onclick = () => jalankan('Menyiapkan berkas…',
     () => unduhKuitansi(spekKuitansi, orangDariKomponen(baris)));
+  // Pemilih pekan pada kartu yang dibayar mingguan.
+  $$('[data-pekan-geser]').forEach(b => b.onclick = () => {
+    const id = b.dataset.pekanGeser, p = ui.pekanPendukung[id] || (ui.pekanPendukung[id] = { senin: seninDari(hariIniISO()) });
+    p.senin = geserHari(p.senin, 7 * Number(b.dataset.arah)); p.ikutAtas = false;
+    jalankan('Menghitung…', muatRekap);
+  });
+  $$('[data-pekan-ikut]').forEach(b => b.onclick = () => {
+    const id = b.dataset.pekanIkut, p = ui.pekanPendukung[id] || (ui.pekanPendukung[id] = { senin: seninDari(hariIniISO()) });
+    p.ikutAtas = !p.ikutAtas;
+    jalankan('Menghitung…', muatRekap);
+  });
   $$('[data-kuitansi]').forEach(b => b.onclick = () => jalankan('Menyiapkan berkas…', () => {
     const o = orangDariKomponen(baris).find(x => x.guru_id === b.dataset.kuitansi);
     return unduhKuitansi(spekKuitansi, o ? [o] : [], o ? o.nama : '');
@@ -3417,7 +3492,7 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
       return s;
     };
     const jumlah = Number(b.jumlah) || 0;
-    const untuk = `${spek.kuitansi} ${labelPeriodeRekap()}`
+    const untuk = `${spek.kuitansi} ${b.periodeLabel || labelPeriodeRekap()}`
       + (b.bulan != null ? ` (${b.bulan} bulan × ${rupiah(b.tarif)})` : '')
       + (b.rincian ? `: ${b.rincian}` : '');
 
@@ -3445,7 +3520,7 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
     // Tiga tanda tangan: setuju, lunas, menerima.
     tulis(r, 2, 'Setuju dibayar,');
     tulis(r, 4, 'LUNAS DIBAYAR', { tebal: true });
-    tulis(r, 6, `${p.kota || 'Soreang'}, ${tglIndo(ui.rekapAkhir)}`);
+    tulis(r, 6, `${p.kota || 'Soreang'}, ${tglIndo(b.tglAkhir || ui.rekapAkhir)}`);
     tulis(r + 1, 4, 'Pada tanggal : ……………');
     tulis(r + 2, 2, 'Kepala Sekolah,');
     tulis(r + 2, 4, 'Bendahara,');
@@ -3690,7 +3765,8 @@ async function rincianStruk() {
   (kop || []).forEach(b => orang(b.guru_id).koperasi.push(b));
   (sek || []).forEach(b => orang(b.guru_id).sekolah.push(b));
   (honorStaf || []).forEach(b => { orang(b.guru_id).staf = b; });
-  (honorPendukung || []).forEach(b => orang(b.guru_id).pendukung.push(b));
+  // Yang dibayar mingguan tidak ikut struk bulanan (kuitansinya pekanan).
+  (honorPendukung || []).filter(b => !mingguan(b.guru_id)).forEach(b => orang(b.guru_id).pendukung.push(b));
 
   /* Persentase kehadiran per orang: mengajar dan wali kelas sudah dihitung
      fungsi databasenya (berbobot: HTTM 100% · ST 20% · IT 10%); piket
