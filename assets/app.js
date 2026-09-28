@@ -1123,6 +1123,10 @@ async function unduhMatriksTunjangan(tab) {
       const isi = jalan.map(p => [p.jenis, Number(p.nominal) || 0, blnIndo(p.berlaku_mulai), p.berlaku_sampai ? blnIndo(p.berlaku_sampai) : 'sampai diubah', p.keterangan || '']);
       // Iuran keanggotaan bawaan berlaku bila orang itu tidak punya baris iuran sendiri.
       if (koperasi && iuran > 0 && !jalan.some(p => p.jenis === IURAN_KOPERASI)) isi.unshift([IURAN_KOPERASI, iuran, '—', 'sampai diubah', 'bawaan']);
+      /* Berkas hanya memuat yang benar-benar dipotong (28 September 2026): baris Rp 0 dibuang,
+         bukan anggota koperasi (iuran berjalan Rp 0) tidak dicantumkan, begitu pula yang tanpa potongan. */
+      if (koperasi && jalan.some(p => p.jenis === IURAN_KOPERASI && !(Number(p.nominal) > 0))) continue;
+      for (let x = isi.length - 1; x >= 0; x--) if (!(isi[x][1] > 0)) isi.splice(x, 1);
       if (!isi.length) continue;
       no += 1;
       isi.forEach((x, i) => {
@@ -1328,6 +1332,20 @@ async function unggahTemplateTunjangan(tab, berkas) {
       const mulai = awalBulan(mulaiT), sampai = sampaiT ? awalBulan(sampaiT) : null;
       if (sampai && sampai < mulai) { salah.push(`Baris ${n} (${g.nama}): Sampai mendahului Mulai.`); return; }
       const isi = { guru_id: gid, kelompok: k, jenis, nominal, berlaku_mulai: mulai, berlaku_sampai: sampai, keterangan: ket };
+      /* Aturan keanggotaan koperasi berlaku juga untuk unggahan. Iuran di berkas yang sama ikut
+         diperhitungkan: menjadikan anggota lalu menambah pinjaman dalam satu unggahan tetap sah. */
+      if (k === 'koperasi') {
+        const jenisAkhir = jenis || (no && milik.get(no) ? milik.get(no).jenis : '');
+        const iuranBerkas = tulis.find(t => t.isi.guru_id === gid && t.isi.jenis === IURAN_KOPERASI && t.isi.berlaku_mulai <= mulai);
+        const jadiAnggotaDiBerkas = iuranBerkas && iuranBerkas.isi.nominal > 0;
+        if (jenisAkhir !== IURAN_KOPERASI && nominal > 0 && bukanAnggotaPada(gid, mulai) && !jadiAnggotaDiBerkas) {
+          salah.push(`Baris ${n} (${g.nama}): bukan anggota koperasi pada ${blnIndo(mulai)} — tambahkan dulu Iuran keanggotaan > 0 atau jadikan anggota.`); return;
+        }
+        if (jenisAkhir === IURAN_KOPERASI && !(nominal > 0)) {
+          const lain = rincianKoperasiLain(gid, mulai, no ? Number(no) : undefined);
+          if (lain.length) { salah.push(`Baris ${n} (${g.nama}): iuran Rp 0 berarti bukan anggota, padahal masih ada ${sebutRincian(lain)} — hapus atau akhiri dulu.`); return; }
+        }
+      }
       if (no) {
         const lama = milik.get(no);
         if (!lama || lama.guru_id !== gid) { salah.push(`Baris ${n} (${g.nama}): No. baris ${no} tidak cocok.`); return; }
@@ -1579,12 +1597,46 @@ function isiTabPotongan(kelompok) {
    menggantikan bawaan Nominal Penggajian. Baris iuran yang sedang berlaku (nol atau
    nominal sendiri) diakhiri pada bulan sebelumnya — atau dihapus bila belum
    mulai — supaya bulan-bulan lalu tidak berubah. */
+/* Aturan keanggotaan koperasi (28 September 2026), satu untuk semua pintu —
+   tombol Anggota, formulir Tambah/Ubah, dan unggah isian:
+   - bukan anggota tidak boleh punya potongan koperasi lain (tabungan,
+     pinjaman, …) yang berjalan atau akan mulai;
+   - karena itu, menjadikan bukan anggota (iuran Rp 0) hanya boleh bila
+     rincian lain itu sudah dihapus atau diakhiri lebih dulu. */
+function rincianKoperasiLain(guruId, tgl, kecualiId) {
+  return D.tunjangan.potongan.filter(p => p.kelompok === 'koperasi' && p.guru_id === guruId && p.jenis !== IURAN_KOPERASI
+    && p.id !== kecualiId && Number(p.nominal) > 0 && (!p.berlaku_sampai || p.berlaku_sampai >= awalBulan(tgl)));
+}
+function bukanAnggotaPada(guruId, tgl) {
+  const b = awalBulan(tgl);
+  const iur = D.tunjangan.potongan.filter(p => p.kelompok === 'koperasi' && p.guru_id === guruId && p.jenis === IURAN_KOPERASI
+    && p.berlaku_mulai <= b && (!p.berlaku_sampai || p.berlaku_sampai >= b))
+    .sort((a, c) => c.berlaku_mulai.localeCompare(a.berlaku_mulai))[0];
+  return !!iur && !(Number(iur.nominal) > 0);
+}
+const sebutRincian = arr => arr.map(p => `${p.jenis} ${rupiah(p.nominal)}/bulan`).join(', ');
+
 function ubahKeanggotaan(guruId, jadiAnggota) {
   const g = D.tunjangan.guru.find(x => x.id === guruId);
   if (!g) return;
   const bulanAcuan = awalBulan(ui.acuan);
   const iuranRows = D.tunjangan.potongan.filter(p => p.kelompok === 'koperasi' && p.guru_id === guruId
     && p.jenis === IURAN_KOPERASI && (!p.berlaku_sampai || p.berlaku_sampai >= bulanAcuan));
+  if (!jadiAnggota) {
+    const lain = rincianKoperasiLain(guruId, bulanAcuan);
+    if (lain.length) {
+      window.alert(`${g.nama} belum bisa dijadikan bukan anggota koperasi.\n\nMasih ada rincian potongan koperasi yang berjalan atau akan mulai:\n`
+        + lain.map(p => `• ${p.jenis} ${rupiah(p.nominal)}/bulan, ${blnIndo(p.berlaku_mulai)}${p.berlaku_sampai ? '–' + blnIndo(p.berlaku_sampai) : ''}`).join('\n')
+        + `\n\nHapus atau akhiri rincian itu lebih dulu (Akhiri paling lambat ${blnIndo(bulanSebelum(bulanAcuan))}), lalu tekan Anggota lagi.`);
+      dialogAturPotongan('koperasi', guruId);
+      return;
+    }
+    if (!window.confirm(`Jadikan ${g.nama} BUKAN anggota koperasi mulai ${blnIndo(bulanAcuan)}?\n\nIuran keanggotaannya menjadi Rp 0 mulai bulan itu; bulan-bulan sebelumnya tidak berubah.`)) {
+      dialogAturPotongan('koperasi', guruId); return;
+    }
+  } else if (!window.confirm(`Jadikan ${g.nama} anggota koperasi kembali mulai ${blnIndo(bulanAcuan)}?\n\nIuran keanggotaannya mengikuti bawaan (${rupiah(iuranBawaan('koperasi'))}/bulan).`)) {
+    dialogAturPotongan('koperasi', guruId); return;
+  }
   jalankan('Menyimpan…', async () => {
     for (const p of iuranRows) {
       if (p.berlaku_mulai < bulanAcuan) await ubah('ip_potongan', `id=eq.${p.id}`, { berlaku_sampai: bulanSebelum(bulanAcuan) });
@@ -1786,7 +1838,12 @@ function dialogAturPotongan(kelompok, guruId) {
     </div>
     <div class="aksi"><button class="btn btn-p" id="m-tambah">+ Tambah potongan</button>${kelompok === 'koperasi'
         ? `<button class="btn${anggotaKop ? '' : ' btn-d'}" id="m-anggota" title="${anggotaKop
-            ? 'Jadikan bukan anggota sejak bulan acuan (iuran Rp 0)' : 'Jadikan anggota kembali sejak bulan acuan'}">${anggotaKop ? 'Anggota' : 'Non-Anggota'}</button>` : ''}
+            ? 'Jadikan bukan anggota sejak bulan acuan (iuran Rp 0)' : 'Jadikan anggota kembali sejak bulan acuan'}">${anggotaKop ? 'Anggota' : 'Non-Anggota'}</button>
+          <span class="kecil" style="max-width:340px;line-height:1.35">${anggotaKop
+            ? `Saat ini <b>anggota koperasi</b>. Tekan untuk menjadikannya <b>bukan anggota</b> mulai ${esc(blnIndo(ui.acuan))}:
+               iuran keanggotaan menjadi Rp 0. Tabungan dan pinjaman koperasi tidak ikut berubah.`
+            : `Saat ini <b>bukan anggota koperasi</b>. Tekan untuk menjadikannya <b>anggota</b> kembali mulai ${esc(blnIndo(ui.acuan))}:
+               iuran keanggotaan mengikuti bawaan.`}</span>` : ''}
       <div class="sp" style="flex:1"></div><button class="btn" id="m-batal">Tutup</button></div>`, true);
 
   $('#m-batal').onclick = tutupModal;
@@ -1882,6 +1939,13 @@ function dialogPotongan(kelompok, id, guruTetap, jenisAwal) {
       keterangan: $('#q-ket').value.trim() || null
     };
     const namaGuru = (guru.find(g => g.id === guruId) || {}).nama || guruId;
+    if (kelompok === 'koperasi' && isi.jenis !== IURAN_KOPERASI && isi.nominal > 0 && bukanAnggotaPada(guruId, mulai)) {
+      toast(`${namaGuru} bukan anggota koperasi pada ${blnIndo(mulai)}. Jadikan anggota dulu lewat tombol Non-Anggota, baru tambahkan ${isi.jenis}.`, true); return;
+    }
+    if (kelompok === 'koperasi' && isi.jenis === IURAN_KOPERASI && !(isi.nominal > 0)) {
+      const lain = rincianKoperasiLain(guruId, mulai, lama && lama.id);
+      if (lain.length) { toast(`Iuran Rp 0 berarti bukan anggota, padahal ${namaGuru} masih punya ${sebutRincian(lain)}. Hapus atau akhiri rincian itu lebih dulu.`, true); return; }
+    }
     tutupModal();
     jalankan('Menyimpan…', async () => {
       if (lama && mulai > lama.berlaku_mulai) {
