@@ -3363,12 +3363,16 @@ async function unduhRekap(spek, baris, total) {
   // `layar`: kolom yang hanya digambar di layar (mis. Indeks), tidak ikut diunduh.
   const kolom = spek.kolom.filter(k => !k.layar);
   const sesudah = spek.sesudah || [];  // kolom sesudah Jumlah (potongan, diterima)
-  const KOL = kolom.length + 4 + sesudah.length;   // No, Nama, …kolom…, Jumlah, …sesudah…, Tanda tangan
+  /* Cetak Struk sudah punya Pendapatan (= jumlah) di kolomnya sendiri; kolom JUMLAH
+     tambahan hanya mengulang angka yang sama, jadi tidak ditulis (28 September 2026). */
+  const JK = spek.cetak ? 0 : 1;
+  const KOL = kolom.length + 3 + JK + sesudah.length;   // No, Nama, …kolom…, [Jumlah], …sesudah…, Tanda tangan
   const kolTtd = KOL;
+  const kolSesudah = kolom.length + 3 + JK;
 
   ws.columns = [{ width: 5 }, { width: 30 },
                 ...kolom.map(k => ({ width: Math.max(9, Math.round(k.w / 8)) })),
-                { width: 15 },
+                ...(JK ? [{ width: 15 }] : []),
                 ...sesudah.map(k => ({ width: Math.max(9, Math.round(k.w / 8)) })),
                 { width: 22 }];
   ws.views = [{ showGridLines: false }];
@@ -3386,7 +3390,7 @@ async function unduhRekap(spek, baris, total) {
   });
 
   let r = baris1;
-  kepalaExcel(ws, r, ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), 'JUMLAH',
+  kepalaExcel(ws, r, ['NO', 'NAMA', ...kolom.map(k => k.t.toUpperCase()), ...(JK ? ['JUMLAH'] : []),
                       ...sesudah.map(k => k.t.toUpperCase()), 'TANDA TANGAN'], F);
   r += 1;
 
@@ -3411,7 +3415,7 @@ async function unduhRekap(spek, baris, total) {
       r += 1;
     }
     sel(r, 1, i + 1, { rata: 'center' });
-    sel(r, 2, b.nama + (b.staf && b.seandainya != null ? ' (Staf — seandainya ' + rupiah(b.seandainya) + ')' : ''));
+    sel(r, 2, b.nama);
     kolom.forEach((k, j) => {
       // `xls`: nilai Excel yang berbeda dari kunci mentahnya (mis. nama kelompok tarif).
       const v = k.xls ? k.xls(b) : b[k.k];
@@ -3419,8 +3423,8 @@ async function unduhRekap(spek, baris, total) {
       else if (k.num) sel(r, 3 + j, Number(v) || 0, { rata: 'center' });
       else sel(r, 3 + j, v == null ? '—' : String(v), { rata: 'center' });
     });
-    sel(r, kolom.length + 3, Number(b.jumlah) || 0, { fmt: RP, tebal: true });
-    sesudah.forEach((k, j) => sel(r, kolom.length + 4 + j, Number(b[k.k]) || 0, { fmt: RP, tebal: k.k === 'bersih' || k.k === 'tunai' }));
+    if (JK) sel(r, kolom.length + 3, Number(b.jumlah) || 0, { fmt: RP, tebal: true });
+    sesudah.forEach((k, j) => sel(r, kolSesudah + j, Number(b[k.k]) || 0, { fmt: RP, tebal: k.k === 'bersih' || k.k === 'tunai' }));
     sel(r, kolTtd, `${i + 1}. ……………………`);
     ws.getRow(r).height = 26;
     r += 1;
@@ -3433,48 +3437,33 @@ async function unduhRekap(spek, baris, total) {
     else if (k.rp) sel(r, 3 + j, total[k.k] || 0, { fmt: RP, tebal: true, abu: true });
     else sel(r, 3 + j, Math.round((total[k.k] || 0) * 100) / 100, { rata: 'center', tebal: true, abu: true });   // jumlah desimal dibulatkan 2 angka
   });
-  sel(r, kolom.length + 3, total.jumlah || 0, { fmt: RP, tebal: true, abu: true });
-  sesudah.forEach((k, j) => sel(r, kolom.length + 4 + j, total[k.k] || 0, { fmt: RP, tebal: true, abu: true }));
+  if (JK) sel(r, kolom.length + 3, total.jumlah || 0, { fmt: RP, tebal: true, abu: true });
+  sesudah.forEach((k, j) => sel(r, kolSesudah + j, total[k.k] || 0, { fmt: RP, tebal: true, abu: true }));
   sel(r, kolTtd, '', { abu: true });
   r += 1;
 
   ws.getCell(r, 1).value = 'Terbilang:';
   ws.getCell(r, 1).font = { name: F, size: 10, bold: true };
   ws.mergeCells(r, 2, r, KOL);
-  ws.getCell(r, 2).value = terbilang(total.jumlah || 0);
+  ws.getCell(r, 2).value = terbilang((spek.cetak ? total.bersih : total.jumlah) || 0);
   ws.getCell(r, 2).font = { name: F, size: 10, italic: true };
   r += 2;
 
-  ws.getCell(r, 2).value = 'Keterangan: ' + spek.catatan
-    + (baris.some(b => b.seandainya != null)
-        ? ' Baris bertanda Staf: Jumlah nol dan tidak masuk total; komponennya angka seandainya dibayar seperti guru biasa, untuk analisis.'
-        : '');
+  ws.getCell(r, 2).value = 'Keterangan: ' + spek.catatan;
   ws.getCell(r, 2).font = { name: F, size: 8, italic: true };
   ws.mergeCells(r, 2, r, KOL);
   ws.getRow(r).height = 24;
   ws.getCell(r, 2).alignment = { wrapText: true, vertical: 'top' };
-  r += 3;
+  r += 2;
 
   /* Yang menandatangani adalah pejabat yang berwenang atas isi dokumen —
-     untuk pembiayaan itu Bendahara — dan Kepala Sekolah mengetahui. */
-  const kolomKanan = Math.max(4, KOL - 3);
-  ws.getCell(r - 1, 2).value = 'Mengetahui,';
-  ws.getCell(r - 1, 2).font = { name: F, size: 10 };
-  ws.getCell(r - 1, 2).alignment = { horizontal: 'center' };
-  ws.getCell(r - 1, kolomKanan).value = `${p.kota || 'Soreang'}, ${tglIndo(ui.rekapAkhir)}`;
-  ws.getCell(r - 1, kolomKanan).font = { name: F, size: 10 };
-  ws.getCell(r - 1, kolomKanan).alignment = { horizontal: 'center' };
-  const ttd = (kl, jabatan, nama) => {
-    ws.getCell(r, kl).value = jabatan;
-    ws.getCell(r + 5, kl).value = nama || '……………………';
-    [r, r + 5].forEach(x => {
-      ws.getCell(x, kl).font = { name: F, size: 10, bold: x !== r, underline: x !== r };
-      ws.getCell(x, kl).alignment = { horizontal: 'center' };
-    });
-  };
-  ttd(2, 'Kepala Sekolah,', p.kepala_sekolah);
-  ttd(kolomKanan, 'Bendahara,', p.bendahara);
-  ws.pageSetup.printTitlesRow = '7:7';
+     untuk pembiayaan itu Bendahara — dan Kepala Sekolah mengetahui. Letaknya
+     proporsional terhadap lebar kop (kop-dokumen.js → ttdExcel). */
+  kopBersama().ttdExcel(ws, r, { kolomAkhir: KOL, font: F, blok: [
+    { atas: ['Mengetahui,', 'Kepala Sekolah,'], nama: p.kepala_sekolah },
+    { atas: [`${p.kota || 'Soreang'}, ${tglIndo(ui.rekapAkhir)}`, 'Bendahara,'], nama: p.bendahara }
+  ] });
+  ws.pageSetup.printTitlesRow = `${baris1}:${baris1}`;
 
   await simpanBuku(wb, `${spek.nama} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
 }
@@ -3511,7 +3500,8 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
       pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
                    margins: { left: 0.6, right: 0.6, top: 0.6, bottom: 0.6, header: 0.2, footer: 0.2 } }
     });
-    ws.columns = [{ width: 3 }, { width: 20 }, { width: 3 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 16 }, { width: 3 }];
+    // Kolom B dan G sama lebar supaya tanda tangan kiri dan kanan simetris di dalam bingkai.
+    ws.columns = [{ width: 3 }, { width: 20 }, { width: 3 }, { width: 16 }, { width: 16 }, { width: 12 }, { width: 20 }, { width: 3 }];
     ws.views = [{ showGridLines: false }];
 
     const r0 = kopBersama().kopExcel(ws, { wb, logo, profil: p, judul: 'KWITANSI', sub: '', kolomAkhir: KOL, font: F });
@@ -3554,17 +3544,12 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
     ws.getRow(r).height = 26;
     r += 2;
 
-    // Tiga tanda tangan: setuju, lunas, menerima.
-    tulis(r, 2, 'Setuju dibayar,');
-    tulis(r, 4, 'LUNAS DIBAYAR', { tebal: true });
-    tulis(r, 6, `${p.kota || 'Soreang'}, ${tglIndo(b.tglAkhir || ui.rekapAkhir)}`);
-    tulis(r + 1, 4, 'Pada tanggal : ……………');
-    tulis(r + 2, 2, 'Kepala Sekolah,');
-    tulis(r + 2, 4, 'Bendahara,');
-    tulis(r + 2, 6, 'Yang menerima,');
-    tulis(r + 7, 2, p.kepala_sekolah || '……………………', { tebal: true, garis: true });
-    tulis(r + 7, 4, p.bendahara || '……………………', { tebal: true, garis: true });
-    tulis(r + 7, 6, b.nama || '……………………', { tebal: true, garis: true });
+    // Tiga tanda tangan: setuju, lunas, menerima — simetris di dalam bingkai (kolom B–G).
+    kopBersama().ttdExcel(ws, r, { kolomAwal: 2, kolomAkhir: KOL - 1, font: F, blok: [
+      { atas: ['Setuju dibayar,', 'Kepala Sekolah,'], nama: p.kepala_sekolah },
+      { atas: [{ teks: 'LUNAS DIBAYAR', tebal: true }, 'Pada tanggal : ……………', 'Bendahara,'], nama: p.bendahara },
+      { atas: [`${p.kota || 'Soreang'}, ${tglIndo(b.tglAkhir || ui.rekapAkhir)}`, 'Yang menerima,'], nama: b.nama }
+    ] });
     r += 8;
 
     // Bingkai keliling kuitansi, dari kop sampai tanda tangan.
@@ -4335,21 +4320,13 @@ async function unduhHadir(isi) {
     r += 2;
   }
 
-  const kolomKiri = nomor ? 2 : 1;
-  const kolomKanan = Math.max(kolomKiri + 2, KOL - 2);
-  const tulis = (br, kl, v, tebal) => {
-    ws.getCell(br, kl).value = v;
-    ws.getCell(br, kl).font = { name: F, size: 10, bold: !!tebal, underline: !!tebal };
-    ws.getCell(br, kl).alignment = { horizontal: 'center' };
-  };
   const [jabatan, nama] = isi.ttd === 'kesiswaan'
     ? ['Wakasek Kesiswaan,', p.kesiswaan] : ['Wakasek Kurikulum,', p.kurikulum];
-  tulis(r, kolomKiri, 'Mengetahui,');
-  tulis(r, kolomKanan, `${p.kota || 'Soreang'}, ${tglIndo(h.akhir)}`);
-  tulis(r + 1, kolomKiri, 'Kepala Sekolah,');
-  tulis(r + 1, kolomKanan, jabatan);
-  tulis(r + 6, kolomKiri, p.kepala_sekolah || '……………………', true);
-  tulis(r + 6, kolomKanan, nama || '……………………', true);
+  // Proporsional terhadap lebar kop (kop-dokumen.js → ttdExcel).
+  kopBersama().ttdExcel(ws, r, { kolomAkhir: KOL, font: F, blok: [
+    { atas: ['Mengetahui,', 'Kepala Sekolah,'], nama: p.kepala_sekolah },
+    { atas: [`${p.kota || 'Soreang'}, ${tglIndo(h.akhir)}`, jabatan], nama }
+  ] });
   ws.pageSetup.printTitlesRow = `${baris1}:${baris1}`;
 
   await simpanBuku(wb, `${isi.berkas} ${h.awal} sd ${h.akhir}.xlsx`);
