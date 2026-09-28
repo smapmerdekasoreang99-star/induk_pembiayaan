@@ -2027,8 +2027,11 @@ const HADIR_TAB = {
   piket_meja:     { nama: 'Piket Meja Sekolah',      bagian: 'guru' },
   piket_unit:     { nama: 'Piket Guru Diperbantukan', bagian: 'guru' },
   piket_parkiran: { nama: 'Piket Parkiran',          bagian: 'guru' },
-  staf:      { nama: 'Hari Hadir Staf',     bagian: 'staf' },
-  karyawan:  { nama: 'Kehadiran Karyawan',  bagian: 'staf' },
+  // Empat kelompok seperti Honor dan Transpor → Staf (28 September 2026).
+  staf_pendukung:  { nama: 'Pendukung',   bagian: 'staf' },
+  staf_karyawan:   { nama: 'Karyawan',    bagian: 'staf' },
+  staf_khusus:     { nama: 'Staf Khusus', bagian: 'staf' },
+  staf_pimpinan:   { nama: 'Pimpinan',    bagian: 'staf' },
   kegiatan:  { nama: 'Per kegiatan',   bagian: 'ekskul' },
   pertemuan: { nama: 'Per pertemuan',  bagian: 'ekskul' },
   pembina:   { nama: 'Per pembina',    bagian: 'ekskul' }
@@ -2089,20 +2092,20 @@ const bobotHadir = b => b.hadir_tm + b.httm + b.st * 0.2 + b.it * 0.1;
    berpindah tab, dan sesudahnya berpindah tab tidak menunggu jaringan. */
 async function muatHadir() {
   const arg = { p_awal: ui.hadirAwal, p_akhir: ui.hadirAkhir };
-  const [hariKerja, kehadiran, wali, pengganti, piket, staf, honorStaf, sesi, ekskul] = await Promise.all([
+  const [hariKerja, kehadiran, wali, pengganti, piket, staf, jamStaf, sesi, ekskul] = await Promise.all([
     rpc('f_ip_hari_kerja', arg),
     rpc('f_ip_kehadiran_guru', arg),
     rpc('f_ip_kehadiran_wali', arg),
     rpc('f_ip_pengganti_rinci', arg),
     rpc('f_ip_pelaksanaan_piket', arg),
     rpc('f_ip_kehadiran_staf', arg),
-    rpc('f_ip_honor_staf', arg),   // hari/jam kerja dan hadir karyawan (tab Kehadiran Karyawan)
+    rpc('f_ip_kehadiran_staf_jam', arg),   // empat tab Kehadiran Staf: semua kelompok, termasuk pendukung
     rpc('f_ip_ekskul_pertemuan', arg),
     ambil('ekskul', 'select=id,nama,pembina_id,kategori,hari,jam_mulai,aktif&order=id')
   ]);
   D.hadir = { awal: ui.hadirAwal, akhir: ui.hadirAkhir, hariKerja: (hariKerja || []).length,
               kehadiran: kehadiran || [], wali: wali || [], pengganti: pengganti || [],
-              piket: piket || [], staf: staf || [], honorStaf: honorStaf || [],
+              piket: piket || [], staf: staf || [], jamStaf: jamStaf || [],
               sesi: sesi || [], ekskul: ekskul || [] };
 }
 
@@ -2269,75 +2272,43 @@ function susunTabHadir(tab, h) {
     };
   }
 
-  if (tab === 'staf') {
-    /* Hari hadir tenaga kependidikan yang honornya bergantung kedatangan.
-       Dicatat di Kehadiran Guru → Kehadiran Staf; hari kerja tiap orang
-       mengikuti ketentuan Jam Kerja Staf di Data Induk, jadi bisa berbeda
-       antar orang (ada yang bekerja Sabtu). */
-    const POLA = { bulanan: 'bulanan', bulanan_harian: 'bulanan + insentif kedatangan', harian: 'upah harian' };
-    const baris = urutMasaKerja(saring(h.staf)).map(r => ({ ...r, pola: POLA[r.pola_honor] || r.pola_honor || '—',
-      persen: persenDari(r.hadir, r.hari_kerja) }));
-    const total = jumlahkan(baris, ['hari_kerja', 'hadir', 'tidak_hadir', 'belum', 'terlambat']);
-    total.persen = persenDari(total.hadir, total.hari_kerja);
-    total.nama = `Total (${baris.length} staf)`;
+  /* ---- Kehadiran Staf: empat kelompok (28 September 2026) ----
+     Pendukung, Karyawan, Staf Khusus, Pimpinan — sama dengan Honor dan
+     Transpor → Staf. Satu sumber, f_ip_kehadiran_staf_jam; kolomnya
+     mengikuti bekas tab Kehadiran Karyawan, dengan satu persentase: % Hadir
+     menurut jam. */
+  const KELOMPOK_STAF = {
+    staf_pendukung: { saring: r => r.kelompok_tarif === 'pendukung', judul: 'TENAGA PENDUKUNG' },
+    staf_karyawan:  { saring: r => ['kepala_tu', 'tata_usaha', 'caraka_satpam'].includes(r.kelompok_tarif), judul: 'KARYAWAN' },
+    staf_khusus:    { saring: r => r.kelompok_tarif === 'staf' && r.jenis_ptk !== 'Pimpinan', judul: 'STAF KHUSUS' },
+    staf_pimpinan:  { saring: r => r.jenis_ptk === 'Pimpinan' || r.kelompok_tarif === 'kepala_sekolah' || r.kelompok_tarif === 'wakasek',
+                      judul: 'PIMPINAN' }
+  };
+  if (KELOMPOK_STAF[tab]) {
+    const K = KELOMPOK_STAF[tab], namaTab = HADIR_TAB[tab].nama;
+    const baris = urutMasaKerja(saring(h.jamStaf.filter(K.saring))).map(r => ({ ...r,
+      persen: persenDari(r.jam_hadir, r.jam_kerja) }));
+    const total = jumlahkan(baris, ['hari_kerja', 'jam_kerja', 'hari_hadir', 'jam_hadir']);
+    total.persen = persenDari(total.jam_hadir, total.jam_kerja);
+    total.nama = `Total (${baris.length} orang)`;
     return {
-      cari: 'Saring nama staf…', ringkas: periode,
+      cari: 'Saring nama…', ringkas: periode,
       kolom: [
         { k: 'nama', t: 'Nama', lekat: true },
-        { k: 'jabatan', t: 'Jabatan', w: 140, f: v => v || '—' },
-        { k: 'pola', t: 'Pola honor', w: 190, html: r => `${esc(r.pola)}${
-            r.sumber_hadir === 'fingerprint' ? ' <span class="kecil">fingerprint</span>' : ''}` },
-        angka('hari_kerja', 'Hari kerja', 85), angka('hadir', 'Hadir'), angka('tidak_hadir', 'Tidak hadir', 85),
-        angka('belum', 'Belum dicatat', 95), angka('terlambat', 'Terlambat', 80),
+        { k: 'jabatan', t: 'Jabatan', w: 150, f: v => v || '—' },
+        angka('masa_kerja', 'Masa kerja', 80, v => v == null ? '—' : v),
+        angka('hari_minggu', 'Hari/minggu', 85), angka('jam_minggu', 'Jam/minggu', 85, fmtJam),
+        angka('hari_kerja', 'Hari kerja', 80), angka('jam_kerja', 'Jam terjadwal', 95, fmtJam),
+        angka('hari_hadir', 'Hari hadir', 80), angka('jam_hadir', 'Jam hadir', 80, fmtJam),
         kolPersen('persen', '% Hadir')
       ],
       baris, total,
-      kosong: 'Belum ada staf yang hari hadirnya perlu dicatat, atau belum ada catatan pada rentang ini.',
-      catatan: 'Hanya staf berpola honor bulanan + insentif kedatangan atau upah harian; staf berpola '
-             + 'bulanan murni tidak bergantung hari hadir. Hari kerja dihitung dari ketentuan Jam Kerja '
-             + 'Staf di Data Induk untuk tiap orang, di luar hari libur sekolah. "Belum dicatat" adalah '
-             + 'hari kerja yang belum punya catatan — bukan tidak hadir. Terlambat = jam masuk tercatat '
-             + 'lebih lambat dari ketentuan. Dicatat di Kehadiran Guru → Kehadiran Staf, manual atau dari '
-             + 'rekaman fingerprint.',
-      judul: 'REKAP KEHADIRAN STAF', berkas: 'Rekap Kehadiran Staf', ttd: 'kurikulum'
-    };
-  }
-
-  if (tab === 'karyawan') {
-    /* Meniru sheet "Karyawan" (KEHADIRAN KARYAWAN) di struk bendahara: masa
-       kerja staf, rencana rutin per minggu (hari, jam), efektif bulan ini
-       (hari, jam kerja dalam rentang), kehadiran riil (hari, jam), persentase.
-       Datanya dari f_ip_honor_staf — angka yang sama yang dipakai daftar
-       honor karyawan di Honor dan Transpor. Karyawan = kelompok tarif Kepala
-       TU, Tata Usaha dan Toolman, Caraka dan Satpam. */
-    const baris = urutMasaKerja(saring(h.honorStaf.filter(r => r.karyawan))).map(r => ({ ...r,
-      kelompok: namaKelompokTarif(r.kelompok_tarif),
-      persen: persenDari(r.hari_hadir, r.hari_kerja),
-      persenJam: persenDari(r.jam_hadir, r.jam_kerja) }));
-    const total = jumlahkan(baris, ['hari_minggu', 'jam_minggu', 'hari_kerja', 'jam_kerja', 'hari_hadir', 'jam_hadir']);
-    total.persen = persenDari(total.hari_hadir, total.hari_kerja);
-    total.persenJam = persenDari(total.jam_hadir, total.jam_kerja);
-    total.nama = `Total (${baris.length} karyawan)`;
-    return {
-      cari: 'Saring nama karyawan…', ringkas: periode,
-      kolom: [
-        { k: 'nama', t: 'Nama', lekat: true },
-        { k: 'jabatan', t: 'Jabatan', w: 140, f: v => v || '—' },
-        { k: 'kelompok', t: 'Kelompok tarif', w: 150 },
-        angka('masa_kerja', 'Masa kerja', 80, v => v == null ? '—' : v),
-        angka('hari_minggu', 'Hari/minggu', 85), angka('jam_minggu', 'Jam/minggu', 85, fmtJam),
-        angka('hari_kerja', 'Hari efektif', 85), angka('jam_kerja', 'Jam efektif', 85, fmtJam),
-        angka('hari_hadir', 'Hari hadir', 80), angka('jam_hadir', 'Jam hadir', 80, fmtJam),
-        kolPersen('persen', '% Hari'), kolPersen('persenJam', '% Jam')
-      ],
-      baris, total,
-      kosong: 'Belum ada karyawan: tetapkan kelompok tarif Kepala TU, Tata Usaha, atau Caraka/Satpam di Data Induk → Jam Kerja Staf.',
-      catatan: 'Susunannya mengikuti sheet Kehadiran Karyawan pada struk bendahara. Hari dan jam per minggu dari '
-             + 'ketentuan Jam Kerja Staf di Data Induk; hari dan jam efektif = hari kerja orang itu dalam rentang, di '
-             + 'luar hari libur; hari dan jam hadir dari catatan Kehadiran Staf (fingerprint atau manual), jam hadir '
-             + 'dipotong pada ketentuan masuk–pulang sehingga lembur tidak dihitung. Masa kerja dari TMT staf di Data '
-             + 'Induk (bila kosong, TMT sekolah).',
-      judul: 'REKAP KEHADIRAN KARYAWAN', berkas: 'Kehadiran Karyawan', ttd: 'kurikulum'
+      kosong: `Belum ada ${namaTab.toLowerCase()} pada rentang ini. Kelompoknya ditetapkan di Data Induk → Jam Kerja Staf (kelompok tarif).`,
+      catatan: 'Hari kerja dihitung dari ketentuan Jam Kerja Staf di Data Induk pada rentang ini, di luar hari libur sekolah. '
+             + 'Jam terjadwal = jumlah jam ketentuan pada hari kerja itu; Jam hadir = jam ketentuan pada hari ia hadir dikurangi '
+             + 'menit terlambat dan pulang cepat (hadir di luar hari kerja dihitung dari jam masuk–pulang yang tercatat); '
+             + '% Hadir = Jam hadir ÷ Jam terjadwal.',
+      judul: `REKAP KEHADIRAN STAF — ${K.judul}`, berkas: `Kehadiran Staf ${namaTab}`, ttd: 'kurikulum'
     };
   }
 
