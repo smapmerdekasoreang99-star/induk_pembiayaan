@@ -376,3 +376,9 @@ table.st-isi tr.st-tunai td{background:var(--hadir-muda);color:var(--hadir-tua);
 .pg-pekan{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);
   background:var(--pg-muda, var(--kertas-3));border-radius:6px;padding:6px 8px}
 .pg-pekan span{font-weight:600;color:var(--ink)}
+
+/* Baris pemisah kelompok (Keseluruhan, Cetak Struk). Isi tetap terlihat saat tabel digeser mendatar. */
+table.rekap tr.pemisah-kelompok td{background:var(--gelap);color:var(--tinta-terang);padding:6px 10px;font-size:12px;
+  letter-spacing:.02em;border-top:6px solid var(--card, #fff)}
+table.rekap tr.pemisah-kelompok .pk-isi{position:sticky;left:10px}
+table.rekap tr.pemisah-kelompok b{letter-spacing:.06em;text-transform:uppercase}

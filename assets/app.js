@@ -3036,6 +3036,20 @@ function kartuRekapOrang(induk, spek, baris, total) {
       <div class="foot"><div class="info">${orang.length} orang · Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>`;
 }
 
+/* Baris pemisah antarkelompok (28 September 2026) di Keseluruhan dan Cetak
+   Struk: urutan_kelompok dari f_ip_rekap_gabungan. Menyebut nama kelompok,
+   jumlah orangnya, dan subtotal (Jumlah / Jumlah yang Diterima). */
+const NAMA_KELOMPOK = { 1: 'Guru', 2: 'Pembina Ekskul (luar sekolah)', 3: 'Staf Pendukung',
+                        4: 'Staf Karyawan', 5: 'Staf Khusus', 6: 'Staf Pimpinan' };
+function pemisahKelompok(baris, i, kolom, kunciSub) {
+  const b = baris[i], k = b.urutan_kelompok;
+  if (k == null || (i > 0 && baris[i - 1].urutan_kelompok === k)) return '';
+  const satu = baris.filter(x => x.urutan_kelompok === k);
+  const sub = satu.reduce((t, x) => t + (Number(x[kunciSub]) || 0), 0);
+  return `<tr class="pemisah-kelompok"><td colspan="${kolom}"><span class="pk-isi">
+    <b>${esc(NAMA_KELOMPOK[k] || 'Lainnya')}</b> · ${satu.length} orang · subtotal ${esc(rupiah(sub))}</span></td></tr>`;
+}
+
 function panelCetakStruk(spek, baris, total) {
   const periode = `${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`;
   const tunaiDari = b => (Number(b.bersih) || 0) - (Number(b.bpjs) || 0) - (Number(b.bpjs_tk) || 0);
@@ -3054,7 +3068,7 @@ function panelCetakStruk(spek, baris, total) {
         <th style="width:170px" class="num">Jumlah yang Diterima</th>
         <th style="width:100px"></th>
       </tr></thead><tbody>${
-        baris.length ? baris.map((b, i) => `<tr>
+        baris.length ? baris.map((b, i) => `${pemisahKelompok(baris, i, 7, 'bersih')}<tr>
           <td class="num lekat-no">${i + 1}</td>
           <td class="nama lekat" style="font-weight:500">${esc(b.nama)}</td>
           <td>${esc(b.jenis_orang || '—')}</td>
@@ -3192,7 +3206,7 @@ function halRekap() {
         ${sesudah.map(k => `<th style="width:${k.w}px" class="num">${esc(k.t)}</th>`).join('')}
         ${spek.struk ? '<th style="width:70px"></th>' : ''}
       </tr></thead><tbody>${
-        baris.length ? baris.map((b, i) => `<tr>
+        baris.length ? baris.map((b, i) => `${pemisahKelompok(baris, i, spek.kolom.length + 3 + sesudah.length + (spek.struk ? 1 : 0), 'jumlah')}<tr>
           <td class="num lekat-no">${i + 1}</td>
           <td class="nama lekat" style="font-weight:500">${esc(b.nama)}${
             b.staf ? ` <span class="tag tag-l">${b.mengajar_dibayar ? 'Staf · di luar tupoksi' : 'Staf'}</span>` : ''}${
@@ -3379,6 +3393,23 @@ async function unduhRekap(spek, baris, total) {
   const sel = penulisSel(ws, F);
 
   baris.forEach((b, i) => {
+    /* Baris pemisah kelompok (Keseluruhan, Cetak Struk), sama dengan di layar:
+       nama kelompok, jumlah orang, subtotal. Nomor urut tetap bersambung. */
+    const kel = b.urutan_kelompok;
+    if (kel != null && (i === 0 || baris[i - 1].urutan_kelompok !== kel)) {
+      const satu = baris.filter(x => x.urutan_kelompok === kel);
+      const kunciSub = spek.cetak ? 'bersih' : 'jumlah';
+      const sub = satu.reduce((t, x) => t + (Number(x[kunciSub]) || 0), 0);
+      ws.mergeCells(r, 1, r, KOL);
+      const c = ws.getCell(r, 1);
+      c.value = `${(NAMA_KELOMPOK[kel] || 'Lainnya').toUpperCase()}  ·  ${satu.length} orang  ·  subtotal ${rupiah(sub)}`;
+      c.font = { name: F, size: 10, bold: true, color: { argb: 'FFF7F3E9' } };
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D2A3A' } };
+      c.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+      c.border = KOTAK;
+      ws.getRow(r).height = 20;
+      r += 1;
+    }
     sel(r, 1, i + 1, { rata: 'center' });
     sel(r, 2, b.nama + (b.staf && b.seandainya != null ? ' (Staf — seandainya ' + rupiah(b.seandainya) + ')' : ''));
     kolom.forEach((k, j) => {
