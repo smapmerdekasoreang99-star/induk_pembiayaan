@@ -3340,9 +3340,10 @@ const KOLOM_SETORAN = [
   { k: 'nomor_peserta', t: 'No. peserta', w: 130, jumlah: false, html: r => esc(r.nomor_peserta || '—') },
   { k: 'bulan', t: 'Bulan', w: 65, num: true },
   { k: 'tarif', t: 'Dari sekolah/bulan', w: 130, rp: true, jumlah: false },
-  { k: 'potongan_bulan', t: 'Potongan guru/bulan', w: 135, rp: true, jumlah: false },
-  { k: 'sekolah', t: 'Dari sekolah', w: 130, rp: true },
-  { k: 'potongan', t: 'Potongan guru', w: 130, rp: true }
+  { k: 'potongan_bulan', t: 'Potongan guru/bulan', w: 135, rp: true, jumlah: false }
+  /* Kolom Dari sekolah dan Potongan guru untuk seluruh periode dihapus (28
+     September 2026): mengulang angka per bulan × Bulan. Totalnya tetap di
+     kartu ringkasan di atas tabel; Setoran = keduanya. */
 ];
 
 async function muatSetoran() {
