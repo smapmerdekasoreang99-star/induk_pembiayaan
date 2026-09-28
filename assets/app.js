@@ -2800,7 +2800,7 @@ function kartuRekapOrang(induk, spek, baris, total) {
   return `<div class="panel"><div class="panel-head"><h3>${esc(induk.nama)}</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(periode)}</div>
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh Format (xlsx)</button>
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh (xlsx)</button>
       <button class="btn btn-sm" id="rKuitansi" style="margin-left:6px" ${orang.length ? '' : 'disabled'}>Unduh semua kuitansi (xlsx)</button></div>
       ${orang.length ? `<div class="pg-grid" style="padding:16px">${orang.map(o => `<article class="pg-kartu${o.jumlah > 0 ? '' : ' kosong'}">
         <div class="pg-kartu-atas"><h3>${esc(o.nama)}</h3><span class="pg-satuan">${esc(o.jabatan || 'tanpa tugas Staf')}</span></div>
@@ -2822,7 +2822,7 @@ function panelCetakStruk(spek, baris, total) {
   return `<div class="panel"><div class="panel-head"><h3>Rekapitulasi Pendapatan per Guru dan Staf</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(periode)}</div>
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh Format (xlsx)</button>
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh (xlsx)</button>
       <button class="btn btn-sm btn-p" id="rStruk" style="margin-left:6px" ${baris.length ? '' : 'disabled'}>Unduh struk (docx)</button></div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar. Kepala tabel dan kolom nama tetap terlihat saat digeser.</div>
       <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
@@ -2957,7 +2957,7 @@ function halRekap() {
         <option value="">Semua bentuk</option>
         ${bentukAda.map(b => `<option value="${esc(b)}" ${b === bentukPilih ? 'selected' : ''}>${esc(b)}</option>`).join('')}
       </select>` : ''}
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh Format (xlsx)'}</button>${
+      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh (xlsx)'}</button>${
         spek.struk ? '<button class="btn btn-sm" id="rStruk" style="margin-left:6px">Unduh struk (docx)</button>' : ''}</div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
         seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
@@ -3402,7 +3402,7 @@ function halSetoran() {
     <div class="panel"><div class="panel-head"><h3>${esc(spekTab.nama)}</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div>
-      <button class="btn btn-sm" id="sUnduh" style="margin-left:10px">Unduh Format (xlsx)</button></div>
+      <button class="btn btn-sm" id="sUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat seluruh kolom.</div>
       <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th>
