@@ -985,7 +985,9 @@ function urutanJenisPotongan(kelompok, jenis) {
 }
 const bandingPotongan = (kelompok, turun) => (a, b) =>
   urutanJenisPotongan(kelompok, a.jenis) - urutanJenisPotongan(kelompok, b.jenis)
-  || (turun ? b.berlaku_mulai.localeCompare(a.berlaku_mulai) : a.berlaku_mulai.localeCompare(b.berlaku_mulai));
+  // Tanggal bisa kosong: baris iuran bawaan dari f_ip_potongan tidak punya berlaku_mulai.
+  || (turun ? String(b.berlaku_mulai || '').localeCompare(String(a.berlaku_mulai || ''))
+            : String(a.berlaku_mulai || '').localeCompare(String(b.berlaku_mulai || '')));
 const KODE_IURAN = 'iuran_koperasi';
 const iuranBawaan = kelompok => kelompok === 'koperasi' ? tarifBawaan(KODE_IURAN) : 0;
 
