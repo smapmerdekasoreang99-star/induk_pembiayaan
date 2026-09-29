@@ -977,9 +977,14 @@ function dialogRiwayat(kode) {
         menambah baris baru, supaya rekap bulan lalu tidak berubah.
    Semua potongan dikurangkan dari pendapatan di Keseluruhan.      */
 const TUNJANGAN = { kesehatan: 'TuSehat', ketenagakerjaan: 'TuKerja' };
+/* Bentuk penyaluran utama sekaligus tujuan rincian tambahan (29 September 2026:
+   ditambah Lain-lain). Rincian tambahan — ip_tunjangan_rincian — membagi anggaran
+   tunjangan yang sama ke tujuan lain, mis. TuKerja ke BPJS Ketenagakerjaan DAN ke
+   Simponi BNI; matriksnya meniru Potongan Koperasi: baris total, penyaluran utama,
+   lalu tiap rincian tambahan. */
 const BENTUK = {
-  kesehatan:       ['BPJS Kesehatan', 'Simponi BNI', 'DPLK BJB'],
-  ketenagakerjaan: ['BPJS Ketenagakerjaan', 'Simponi BNI', 'DPLK BJB']
+  kesehatan:       ['BPJS Kesehatan', 'Simponi BNI', 'DPLK BJB', 'Lain-lain'],
+  ketenagakerjaan: ['BPJS Ketenagakerjaan', 'Simponi BNI', 'DPLK BJB', 'Lain-lain']
 };
 // Kode besaran di Nominal Penggajian yang menjadi bawaan nominal dan potongan.
 const KODE_TUNJANGAN = {
@@ -1028,21 +1033,22 @@ const iuranBawaan = kelompok => kelompok === 'koperasi' ? tarifBawaan(KODE_IURAN
 
 async function muatTunjangan() {
   try {
-    const [hak, salur, potongan, guru] = await Promise.all([
+    const [hak, salur, rincian, potongan, guru] = await Promise.all([
       // Urut masa kerja (TMT sekolah, kosong paling akhir, nama pemecah seri) — kebiasaan semua aplikasi.
       ambil('v_guru_bpjs', 'select=id,nama,jenis,status,mulai,keterangan,tmt_dasar,tanggal_syarat,tmt_sekolah'
                           + '&status=in.(disahkan,terhenti)&order=tmt_sekolah.asc.nullslast,nama.asc'),
       ambil('ip_tunjangan_penyaluran', 'select=*&order=berlaku_mulai.desc,id.desc'),
+      ambil('ip_tunjangan_rincian', 'select=*&order=berlaku_mulai.asc,id.asc'),
       ambil('ip_potongan', 'select=*&order=berlaku_mulai.desc,id.desc'),
       // Urutan guru menurut masa kerja, seperti di semua aplikasi.
       ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif'
                      + '&order=tmt_sekolah.asc.nullslast,nama.asc')
     ]);
-    D.tunjangan = { hak: hak || [], salur: salur || [], potongan: potongan || [], guru: guru || [], galat: null };
+    D.tunjangan = { hak: hak || [], salur: salur || [], rincian: rincian || [], potongan: potongan || [], guru: guru || [], galat: null };
   } catch (e) {
     // Disimpan sebagai galat, bukan dibiarkan kosong: halaman yang memuat
     // ulang terus-menerus lebih membingungkan daripada satu pesan.
-    D.tunjangan = { hak: [], salur: [], potongan: [], guru: [], galat: e.message };
+    D.tunjangan = { hak: [], salur: [], rincian: [], potongan: [], guru: [], galat: e.message };
   }
 }
 
@@ -1139,13 +1145,18 @@ async function unduhMatriksTunjangan(tab) {
     kepala = ['NO', 'NAMA', 'STATUS', 'BENTUK', 'NO. PESERTA', 'DARI SEKOLAH/BULAN', 'POTONGAN GURU/BULAN', 'BERLAKU MULAI'];
     lebar = [5, 32, 26, 20, 18, 18, 19, 15];
     let tPot = 0;
-    baris = D.tunjangan.hak.filter(h => h.jenis === j && cocok(h.nama)).map((h, i) => {
+    baris = [];
+    D.tunjangan.hak.filter(h => h.jenis === j && cocok(h.nama)).forEach((h, i) => {
       const sv = salurBerlaku(h.id, j, ui.acuan), a = angkaTunjangan(j, sv);
-      if (h.status === 'disahkan') { total += a.nominal; tPot += a.potongan; }
-      return [i + 1, h.nama,
+      // Rincian tambahan yang berjalan: satu baris di bawah penyaluran utama, seperti di layar.
+      const tambah = rincianTambahan(h.id, j).filter(r => r.keadaan === 'berjalan');
+      if (h.status === 'disahkan') { total += a.nominal + tambah.reduce((t, r) => t + Number(r.nominal), 0); tPot += a.potongan; }
+      baris.push([i + 1, h.nama,
               h.status === 'disahkan' ? `disahkan, sejak ${blnIndo(h.mulai)}` : `terhenti: ${h.keterangan || ''}`,
               sv ? sv.bentuk : `${bentukBawaan(j)} (bawaan)`, (sv && sv.nomor_peserta) || '—',
-              a.nominal, a.potongan, sv ? tglIndo(sv.berlaku_mulai) : '—'];
+              a.nominal, a.potongan, sv ? tglIndo(sv.berlaku_mulai) : '—']);
+      tambah.forEach(r => baris.push(['', '', r.keterangan || 'rincian tambahan', r.tujuan, r.nomor_peserta || '—',
+              Number(r.nominal) || 0, '', r.berlaku_sampai ? `${blnIndo(r.berlaku_mulai)} – ${blnIndo(r.berlaku_sampai)}` : blnIndo(r.berlaku_mulai)]));
     });
     jumlahKol = { 6: total, 7: tPot };
   } else {
@@ -1425,14 +1436,28 @@ async function unggahTemplateTunjangan(tab, berkas) {
   toast(`${tulis.length} perubahan ${spek.nama} tersimpan${salah.length ? `; ${salah.length} baris dilewati` : ''}.`);
 }
 
-/* Penyaluran satu jenis tunjangan: satu tab untuk TuSehat, satu untuk TuKerja. */
+/* Penyaluran satu jenis tunjangan: satu tab untuk TuSehat, satu untuk TuKerja.
+   Matriks seperti Potongan Koperasi (29 September 2026): tiap penerima satu
+   BARIS TOTAL, lalu baris PENYALURAN UTAMA (bentuk, nomor peserta, nominal dan
+   potongan — tombol Atur), lalu satu baris per RINCIAN TAMBAHAN yang berjalan
+   atau akan mulai (tujuan, nominal, Mulai, Sampai — tombol Ubah). Tombol
+   Rincian pada baris total menambah, mengakhiri, atau menghapus rinciannya. */
 function isiTabPenyaluran(jenis) {
   const { hak, salur } = D.tunjangan;
   const q = (ui.tunjanganCari || '').trim().toLowerCase();
+  const bulanAcuan = awalBulan(ui.acuan);
   const semua = hak.filter(h => h.jenis === jenis)
-    .map(h => ({ ...h, s: salurBerlaku(h.id, jenis, ui.acuan),
-                 versi: salur.filter(s => s.guru_id === h.id && s.jenis === jenis).length }))
-    .map(h => ({ ...h, a: angkaTunjangan(jenis, h.s) }));
+    .map(h => {
+      const s = salurBerlaku(h.id, jenis, ui.acuan);
+      const a = angkaTunjangan(jenis, s);
+      const tambahan = rincianTambahan(h.id, jenis).filter(r => r.keadaan !== 'selesai');
+      const tambahJalan = tambahan.filter(r => r.keadaan === 'berjalan');
+      const terakhir = tambahJalan.filter(r => r.berlaku_sampai === bulanAcuan);
+      const total = a.nominal + tambahJalan.reduce((t, r) => t + Number(r.nominal), 0);
+      return { ...h, s, a, tambahan, tambahJalan, terakhir, total,
+               bulanDepan: total - terakhir.reduce((t, r) => t + Number(r.nominal), 0),
+               versi: salur.filter(x => x.guru_id === h.id && x.jenis === jenis).length };
+    });
   const baris = semua.filter(h => !q || h.nama.toLowerCase().includes(q));
   const perBentuk = {};
   semua.forEach(h => {
@@ -1441,19 +1466,26 @@ function isiTabPenyaluran(jenis) {
   });
   const aktif = semua.filter(h => h.status === 'disahkan');
   const belumDiatur = aktif.filter(h => !h.s).length;
-  const totalNominal = aktif.reduce((t, h) => t + h.a.nominal, 0);
+  const totalNominal = aktif.reduce((t, h) => t + h.total, 0);
   const totalPotongan = aktif.reduce((t, h) => t + h.a.potongan, 0);
+  const berTambahan = aktif.filter(h => h.tambahJalan.length).length;
+  const bulanTerakhir = aktif.filter(h => h.terakhir.length).length;
   const k = KODE_TUNJANGAN[jenis];
   const sel = (nilai, khusus) => `${rupiah(nilai)}${khusus ? '' : ' <span class="kecil">(bawaan)</span>'}`;
+  const selesaiTag = '<span class="kecil" style="color:var(--warn);font-weight:600">bulan terakhir</span>';
 
   return `
     ${belumDiatur ? `<div class="info-box"><b>${belumDiatur} penerima belum diatur penyalurannya.</b>
       Selama belum diatur, dianggap ${esc(bentukBawaan(jenis))} dengan nominal dan potongan bawaan.
-      Ketuk <b>Atur</b> pada barisnya.</div>` : ''}
+      Ketuk <b>Atur</b> pada baris penyalurannya.</div>` : ''}
+
+    ${bulanTerakhir ? `<div class="info-box"><b>${bulanTerakhir} penerima berada pada bulan terakhir rincian tambahannya.</b>
+      Mulai ${esc(blnIndo(bulanSesudah(bulanAcuan)))} rincian itu tidak dibayar lagi. Barisnya bertanda <i>bulan terakhir</i>.</div>` : ''}
 
     <div class="kartu-baris">
       <div class="kartu"><b>${aktif.length}</b><span>penerima ${TUNJANGAN[jenis]}</span></div>
       ${Object.entries(perBentuk).sort().map(([b, n]) => `<div class="kartu"><b>${n}</b><span>${esc(b)}</span></div>`).join('')}
+      ${berTambahan ? `<div class="kartu"><b>${berTambahan}</b><span>dengan rincian tambahan</span></div>` : ''}
       <div class="kartu"><b>${rupiah(totalNominal)}</b><span>dari sekolah per bulan</span></div>
       <div class="kartu"><b>${rupiah(totalPotongan)}</b><span>potongan guru per bulan</span></div>
     </div>
@@ -1463,25 +1495,48 @@ function isiTabPenyaluran(jenis) {
       <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px">
       <button class="btn btn-sm" id="tjUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
       <div class="scroll gulir-tegak"><table><thead><tr>
-        <th class="lekat">Nama</th><th style="width:150px">Status</th>
-        <th style="width:160px">Bentuk</th><th style="width:130px">No. peserta</th>
+        <th style="width:40px" class="num lekat-no">No</th><th class="lekat">Nama</th><th style="width:150px">Status</th>
+        <th>Rincian</th><th style="width:130px">No. peserta</th>
         <th style="width:150px" class="num">Dari sekolah/bulan</th>
         <th style="width:150px" class="num">Potongan guru/bulan</th>
-        <th style="width:120px">Berlaku mulai</th>
-        <th style="width:80px"></th>
+        <th style="width:95px">Mulai</th><th style="width:130px">Sampai</th>
+        <th style="width:90px"></th>
       </tr></thead><tbody>${
-        baris.length ? baris.map(h => `<tr class="${h.status === 'terhenti' ? 'mati' : ''}" data-guru="${esc(h.id)}" data-jenis="${esc(jenis)}">
+        baris.length ? baris.map((h, i) => `<tr class="${h.status === 'terhenti' ? 'mati' : ''}" data-guru="${esc(h.id)}" data-jenis="${esc(jenis)}">
+          <td class="num kecil lekat-no">${i + 1}</td>
           <td class="lekat" style="font-weight:500">${esc(h.nama)}</td>
           <td class="kecil">${h.status === 'disahkan'
             ? `disahkan, sejak ${blnIndo(h.mulai)}`
             : `<span style="color:var(--warn)">terhenti: ${esc(h.keterangan || '')}</span>`}</td>
-          <td>${h.s ? esc(h.s.bentuk) : `<span class="kecil">${esc(bentukBawaan(jenis))} (bawaan)</span>`}</td>
+          <td class="kecil">Total ${TUNJANGAN[jenis]}</td>
+          <td class="kecil">—</td>
+          <td class="num" style="font-weight:600">${rupiah(h.total)}${
+            h.terakhir.length ? `<div class="kecil" style="font-weight:400;color:var(--warn)">bulan depan ${esc(rupiah(h.bulanDepan))}</div>` : ''}</td>
+          <td class="num">${rupiah(h.a.potongan)}</td>
+          <td class="kecil">—</td><td class="kecil">—</td>
+          <td class="act"><button class="btn btn-sm bRincianTj" title="Tambah, akhiri, atau hapus rincian tambahan ${TUNJANGAN[jenis]}">Rincian</button></td></tr>
+          <tr class="cicilan${h.status === 'terhenti' ? ' mati' : ''}" data-guru="${esc(h.id)}" data-jenis="${esc(jenis)}">
+          <td></td><td class="kecil" style="text-align:right">↳</td><td></td>
+          <td class="kecil"><b>${esc(h.s ? h.s.bentuk : bentukBawaan(jenis))}</b>${h.s ? '' : ' (bawaan)'}${h.s && h.s.catatan ? ' — ' + esc(h.s.catatan) : ''}${
+            h.versi > 1 ? ` <span class="kecil">(${h.versi} versi)</span>` : ''}</td>
           <td>${h.s && h.s.nomor_peserta ? esc(h.s.nomor_peserta) : '<span class="kecil">—</span>'}</td>
           <td class="num">${sel(h.a.nominal, h.a.nominalKhusus)}</td>
           <td class="num">${sel(h.a.potongan, h.a.potonganKhusus)}</td>
-          <td class="kecil">${h.s ? esc(tglIndo(h.s.berlaku_mulai)) : '—'}${h.versi > 1 ? ` <span class="kecil">(${h.versi} versi)</span>` : ''}</td>
-          <td class="act"><button class="btn btn-sm bAtur">Atur</button></td></tr>`).join('')
-        : `<tr><td colspan="8"><div class="empty"><b>Tidak ada penerima</b>
+          <td class="kecil">${h.s ? esc(blnIndo(h.s.berlaku_mulai)) : '—'}</td>
+          <td class="kecil">sampai diubah</td>
+          <td class="act"><button class="btn btn-sm bAtur">Atur</button></td></tr>${
+          h.tambahan.map(r => `<tr class="cicilan${h.status === 'terhenti' ? ' mati' : ''}" data-id="${r.id}" data-guru="${esc(h.id)}" data-jenis="${esc(jenis)}">
+          <td></td><td class="kecil" style="text-align:right">↳</td><td></td>
+          <td class="kecil"><b>${esc(r.tujuan)}</b>${r.keterangan ? ' — ' + esc(r.keterangan) : ''}${
+            r.keadaan === 'nanti' ? ' <span class="tag tag-l">mulai nanti</span>' : ''}</td>
+          <td>${r.nomor_peserta ? esc(r.nomor_peserta) : '<span class="kecil">—</span>'}</td>
+          <td class="num">${rupiah(r.nominal)}</td>
+          <td class="num kecil">—</td>
+          <td class="kecil">${esc(blnIndo(r.berlaku_mulai))}</td>
+          <td class="kecil">${r.berlaku_sampai ? esc(blnIndo(r.berlaku_sampai)) : 'sampai diubah'}${
+            r.berlaku_sampai === bulanAcuan ? ' ' + selesaiTag : ''}</td>
+          <td class="act"><button class="btn btn-sm bUbahRincianTj">Ubah</button></td></tr>`).join('')}`).join('')
+        : `<tr><td colspan="10"><div class="empty"><b>Tidak ada penerima</b>
             ${semua.length ? 'Ubah pencarian.' : 'Belum ada yang disahkan di Data Induk.'}</div></td></tr>`
       }</tbody></table></div></div>
 
@@ -1492,7 +1547,20 @@ function isiTabPenyaluran(jenis) {
       dan ikut berubah bila bawaannya diubah; yang ditetapkan sendiri lewat <b>Atur</b> tetap sampai diubah lagi.
       Potongan adalah porsi guru per bulan (termasuk anggota keluarga tambahan yang ditanggung guru), dicatat sebagai
       nominal — sistem tidak menghitung rumus BPJS — dan dikurangkan di Keseluruhan. Mengubah penyaluran selalu
-      menambah versi baru dengan tanggal berlaku, supaya rekap periode lama tetap memakai angka yang berlaku waktu itu.</p>`;
+      menambah versi baru dengan tanggal berlaku, supaya rekap periode lama tetap memakai angka yang berlaku waktu itu.
+      Tombol <b>Rincian</b> menambah baris di bawah penyaluran utama bila sebagian ${TUNJANGAN[jenis]} orang itu
+      disalurkan ke tujuan lain (${esc(BENTUK[jenis].join(', '))}) dari anggaran yang sama: nominal dari sekolah per bulan,
+      bulan Mulai, dan bulan Sampai (kosong = sampai diubah). Baris total = penyaluran utama + rincian tambahan yang berjalan,
+      dan itulah ${TUNJANGAN[jenis]} orang itu di Keseluruhan dan struk.</p>`;
+}
+
+/* Rincian tambahan satu orang untuk satu jenis tunjangan, dengan keadaannya
+   pada tanggal acuan (berjalan / nanti / selesai), urut tujuan lalu mulai. */
+function rincianTambahan(guruId, jenis) {
+  return (D.tunjangan.rincian || []).filter(r => r.guru_id === guruId && r.jenis === jenis)
+    .map(r => ({ ...r, keadaan: keadaanPotongan(r, ui.acuan) }))
+    .sort((a, b) => BENTUK[jenis].indexOf(a.tujuan) - BENTUK[jenis].indexOf(b.tujuan)
+                    || String(a.berlaku_mulai).localeCompare(String(b.berlaku_mulai)));
 }
 
 /* Keadaan satu potongan pada tanggal acuan: berjalan, mulai nanti, atau selesai. */
@@ -1700,6 +1768,15 @@ function pasangAksiTunjangan() {
     const tr = b.closest('tr');
     dialogPenyaluran(tr.dataset.guru, tr.dataset.jenis);
   });
+  // Rincian TuSehat/TuKerja: daftar rincian orang itu (tambah, akhiri, hapus), dan Ubah satu rincian tambahan.
+  $$('.bRincianTj').forEach(b => b.onclick = () => {
+    const tr = b.closest('tr');
+    dialogRincianTunjangan(tr.dataset.guru, tr.dataset.jenis);
+  });
+  $$('#isi .bUbahRincianTj').forEach(b => b.onclick = () => {
+    const tr = b.closest('tr');
+    dialogRincianTambahan(tr.dataset.jenis, Number(tr.dataset.id), tr.dataset.guru);
+  });
   // Bawaan TuSehat/TuKerja (nominal + potongan) dan iuran koperasi: formulir versi baru yang sama dengan Nominal Penggajian.
   $$('.bBawaan').forEach(b => b.onclick = () => formTarif(b.dataset.kode));
   $$('.bRiwayatPot').forEach(b => b.onclick = e => {
@@ -1819,6 +1896,192 @@ function dialogPenyaluran(guruId, jenis) {
       toast(`${h.nama}: ${isi.bentuk}, dari sekolah ${rupiah(a.nominal)}${a.nominalKhusus ? '' : ' (bawaan)'}, `
         + `potongan ${rupiah(a.potongan)}${a.potonganKhusus ? '' : ' (bawaan)'}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
         + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(isi.berlaku_mulai)} supaya terlihat.` : ''));
+    });
+  };
+}
+
+/* Semua rincian TuSehat/TuKerja satu orang (29 September 2026): penyaluran
+   utama (diatur lewat Atur) dan rincian tambahan yang berjalan, mulai nanti,
+   dan yang sudah berakhir — dengan tombol tambah, ubah, akhiri, hapus. Dibuka
+   dari tombol Rincian pada baris total matriks. */
+function dialogRincianTunjangan(guruId, jenis) {
+  const h = D.tunjangan.hak.find(x => x.id === guruId && x.jenis === jenis);
+  if (!h) return;
+  const s = salurBerlaku(guruId, jenis, ui.acuan), a = angkaTunjangan(jenis, s);
+  const semua = rincianTambahan(guruId, jenis);
+  const total = a.nominal + semua.filter(r => r.keadaan === 'berjalan').reduce((t, r) => t + Number(r.nominal), 0);
+  const bulanAcuan = awalBulan(ui.acuan);
+  const TEKS = { berjalan: 'berjalan', nanti: 'mulai nanti', selesai: 'berakhir' };
+
+  bukaModal(`<h2>${esc(TJ_TAB[jenis].nama)} — ${esc(h.nama)}</h2><div class="body">
+    <p class="msg kecil">${TUNJANGAN[jenis]} per bulan pada ${esc(blnIndo(ui.acuan))}: <b>${esc(rupiah(total))}</b> dari sekolah.
+      Penyaluran utama ditambah rincian tambahan — sebagian anggaran ${TUNJANGAN[jenis]} yang disalurkan ke tujuan lain,
+      mis. ke Simponi BNI di samping ${esc(bentukBawaan(jenis))}. Mengubah nominal dengan bulan mulai yang lebih baru
+      mengakhiri baris lama dan menambah baris baru.</p>
+    <div class="fg penuh">
+      <table class="log"><thead><tr><th>Tujuan</th><th>No. peserta</th><th>Keterangan</th><th style="text-align:right">Nominal/bulan</th>
+        <th>Mulai</th><th>Sampai</th><th></th><th></th></tr></thead>
+      <tbody><tr>
+        <td>${esc(s ? s.bentuk : bentukBawaan(jenis))}</td><td class="kecil">${esc((s && s.nomor_peserta) || '')}</td>
+        <td class="kecil">penyaluran utama${a.nominalKhusus ? '' : ', nominal bawaan'}</td>
+        <td style="text-align:right;font-weight:600">${esc(rupiah(a.nominal))}</td>
+        <td class="kecil">${s ? esc(blnIndo(s.berlaku_mulai)) : '—'}</td><td class="kecil">sampai diubah</td>
+        <td class="kecil"><span class="tag tag-l">berjalan</span></td>
+        <td class="act"><button class="btn btn-sm" id="m-utama">Atur</button></td></tr>${
+      semua.map(r => `<tr class="${r.keadaan === 'selesai' ? 'mati' : ''}" data-id="${r.id}">
+        <td>${esc(r.tujuan)}</td><td class="kecil">${esc(r.nomor_peserta || '')}</td><td class="kecil">${esc(r.keterangan || '')}</td>
+        <td style="text-align:right;font-weight:600">${esc(rupiah(r.nominal))}</td>
+        <td class="kecil">${esc(blnIndo(r.berlaku_mulai))}</td>
+        <td class="kecil">${r.berlaku_sampai ? esc(blnIndo(r.berlaku_sampai)) : 'sampai diubah'}</td>
+        <td class="kecil">${r.keadaan === 'berjalan'
+          ? (r.berlaku_sampai === bulanAcuan
+              ? '<span class="kecil" style="color:var(--warn);font-weight:600">bulan terakhir</span>'
+              : '<span class="tag tag-l">berjalan</span>')
+          : esc(TEKS[r.keadaan])}</td>
+        <td class="act"><button class="btn btn-sm bUbahRincianTj">Ubah</button>${
+          r.keadaan === 'selesai' ? '' : ' <button class="btn btn-sm bAkhiriRincianTj">Akhiri</button>'
+          } <button class="btn btn-sm btn-d bHapusRincianTj" title="Hapus baris ini seluruhnya">Hapus</button></td></tr>`).join('')
+      }</tbody></table></div>
+    </div>
+    <div class="aksi"><button class="btn btn-p" id="m-tambah">+ Tambah rincian</button>
+      <div class="sp" style="flex:1"></div><button class="btn" id="m-batal">Tutup</button></div>`, true);
+
+  $('#m-batal').onclick = tutupModal;
+  $('#m-utama').onclick = () => dialogPenyaluran(guruId, jenis);
+  $('#m-tambah').onclick = () => dialogRincianTambahan(jenis, null, guruId);
+  const barisId = b => Number(b.closest('tr').dataset.id);
+  $$('#modal-root .bUbahRincianTj').forEach(b => b.onclick = () => dialogRincianTambahan(jenis, barisId(b), guruId));
+  $$('#modal-root .bAkhiriRincianTj').forEach(b => b.onclick = () => dialogAkhiriRincian(barisId(b)));
+  $$('#modal-root .bHapusRincianTj').forEach(b => b.onclick = () => {
+    const r = D.tunjangan.rincian.find(x => x.id === barisId(b));
+    if (r && hapusRincian(r)) tutupModal();
+  });
+}
+
+const namaGuruTj = guruId => ((D.tunjangan.hak.find(h => h.id === guruId) || D.tunjangan.guru.find(g => g.id === guruId)) || {}).nama || guruId;
+
+/* Tambah (id kosong) atau ubah satu rincian tambahan — aturan versinya sama
+   dengan potongan: mulai yang lebih baru mengakhiri baris lama pada bulan
+   sebelumnya dan menambah baris baru; mulai yang sama atau lebih awal menulis
+   ulang barisnya. */
+function dialogRincianTambahan(jenis, id, guruId) {
+  const lama = id ? D.tunjangan.rincian.find(r => r.id === id) : null;
+  if (id && !lama) return;
+  if (lama) { jenis = lama.jenis; guruId = lama.guru_id; }
+  const nama = namaGuruTj(guruId);
+  const pilihan = BENTUK[jenis];
+  const awal = lama ? lama.tujuan : BENTUK[jenis][1];
+
+  bukaModal(`<h2>${lama ? 'Ubah' : 'Tambah'} rincian ${TUNJANGAN[jenis]} — ${esc(nama)}</h2>
+    <div class="body">
+    <div class="fg"><label>Tujuan <span style="color:var(--danger)">*</span></label>
+      <select class="field" id="r-tujuan">${pilihan.map((b, i) =>
+        `<option value="${esc(b)}" ${awal === b ? 'selected' : ''}>${i + 1}. ${esc(b)}</option>`).join('')}</select>
+      <div class="hint">Ke mana bagian ${TUNJANGAN[jenis]} ini disalurkan. Dananya dari anggaran ${esc(TJ_TAB[jenis].nama)}
+        yang sama dan ikut dijumlahkan dengan penyaluran utama.</div></div>
+    <div class="fg"><label>Nomor peserta</label>
+      <input class="field" id="r-nomor" value="${esc(lama ? lama.nomor_peserta || '' : '')}" placeholder="nomor peserta / rekening program">
+      <div class="hint">Untuk daftar setoran ke tujuannya.</div></div>
+    <div class="fg"><label>Nominal dari sekolah per bulan <span style="color:var(--danger)">*</span></label>
+      <input class="field num" type="number" min="0" step="1000" id="r-nominal" value="${lama ? Number(lama.nominal) : ''}">
+      <div class="hint">Dibayarkan tiap bulan selama berlaku dan selama orangnya masih berhak.</div></div>
+    <div class="fg"><label>Mulai bulan <span style="color:var(--danger)">*</span></label>
+      <input class="field" type="date" id="r-mulai" value="${esc(lama ? lama.berlaku_mulai : awalBulan(ui.acuan))}">
+      <div class="hint">${lama
+        ? 'Tanggal yang lebih baru dari mulai semula mengakhiri baris lama pada bulan sebelumnya dan menyimpan nominal baru sejak tanggal ini. Tanggal yang sama atau lebih awal menulis ulang baris ini.'
+        : `Tanggal 1 suatu bulan; bawaannya bulan acuan (${esc(blnIndo(ui.acuan))}).`}</div></div>
+    <div class="fg"><label>Sampai bulan (opsional)</label>
+      <input class="field" type="date" id="r-sampai" value="${esc(lama && lama.berlaku_sampai ? lama.berlaku_sampai : '')}">
+      <div class="hint">Bulan terakhir yang masih dibayar. Kosongkan bila berjalan sampai diubah.</div></div>
+    <div class="fg penuh"><label>Keterangan (opsional)</label>
+      <input class="field" id="r-ket" value="${esc(lama ? lama.keterangan || '' : '')}" placeholder="Mis. tabungan hari tua dari anggaran TuKerja">
+    </div>
+    </div>
+    <div class="aksi">${lama ? '<button class="btn btn-d" id="m-hapus">Hapus</button><div class="sp" style="flex:1"></div>' : ''}
+      <button class="btn" id="m-batal">Batal</button>
+      <button class="btn btn-p" id="m-simpan">Simpan</button></div>`, true);
+
+  $('#m-batal').onclick = tutupModal;
+  if ($('#m-hapus')) $('#m-hapus').onclick = () => { if (hapusRincian(lama)) tutupModal(); };
+  $('#m-simpan').onclick = () => {
+    const nominalTeks = $('#r-nominal').value.trim();
+    if (nominalTeks === '') { $('#r-nominal').focus(); return; }
+    if (!$('#r-mulai').value) { $('#r-mulai').focus(); return; }
+    const mulai = awalBulan($('#r-mulai').value);
+    const sampai = $('#r-sampai').value ? awalBulan($('#r-sampai').value) : null;
+    if (sampai && sampai < mulai) { toast('Bulan Sampai mendahului bulan Mulai.', true); return; }
+    const isi = {
+      guru_id: guruId, jenis,
+      tujuan: $('#r-tujuan').value,
+      nomor_peserta: $('#r-nomor').value.trim() || null,
+      nominal: Math.max(0, Number(nominalTeks) || 0),
+      berlaku_mulai: mulai, berlaku_sampai: sampai,
+      keterangan: $('#r-ket').value.trim() || null
+    };
+    tutupModal();
+    jalankan('Menyimpan…', async () => {
+      if (lama && mulai > lama.berlaku_mulai) {
+        await ubah('ip_tunjangan_rincian', `id=eq.${lama.id}`, { berlaku_sampai: bulanSebelum(mulai) });
+        await simpanBaru('ip_tunjangan_rincian', [isi]);
+      } else if (lama) {
+        await ubah('ip_tunjangan_rincian', `id=eq.${lama.id}`, isi);
+      } else {
+        await simpanBaru('ip_tunjangan_rincian', [isi]);
+      }
+      const acuanPindah = mulai > ui.acuan;
+      if (acuanPindah) { ui.acuan = mulai; await muatSemua(); }
+      await muatTunjangan();
+      D.rekap = null; D.setoran = null;
+      toast(`${nama}: ${TUNJANGAN[jenis]} ke ${isi.tujuan} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
+        + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
+        + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(mulai)} supaya terlihat.` : ''));
+    });
+  };
+}
+
+/* Menghapus satu rincian tambahan seluruhnya (salah catat). Yang memang pernah
+   dibayar sebaiknya di-Akhiri supaya rekap bulan lalu tetap benar. */
+function hapusRincian(r) {
+  const nama = namaGuruTj(r.guru_id);
+  if (!confirm(`Hapus rincian ${TUNJANGAN[r.jenis]} ke ${r.tujuan} ${rupiah(r.nominal)}/bulan milik ${nama} (mulai ${blnIndo(r.berlaku_mulai)}) seluruhnya?\n\n`
+    + 'Untuk menghentikan rincian yang memang pernah dibayar, pakai Akhiri — supaya rekap bulan lalu tetap benar.')) return false;
+  jalankan('Menghapus…', async () => {
+    await buang('ip_tunjangan_rincian', `id=eq.${r.id}`);
+    await muatTunjangan();
+    D.rekap = null; D.setoran = null;
+    toast(`Rincian ${TUNJANGAN[r.jenis]} ke ${r.tujuan} milik ${nama} dihapus.`);
+  });
+  return true;
+}
+
+/* Mengakhiri rincian tambahan: menetapkan bulan terakhirnya, barisnya tetap ada. */
+function dialogAkhiriRincian(id) {
+  const r = D.tunjangan.rincian.find(x => x.id === id);
+  if (!r) return;
+  const nama = namaGuruTj(r.guru_id);
+  const bawaan = awalBulan(ui.acuan) >= r.berlaku_mulai ? awalBulan(ui.acuan) : r.berlaku_mulai;
+
+  bukaModal(`<h2>Akhiri rincian — ${esc(nama)}</h2><div class="body">
+    <p class="msg kecil">${TUNJANGAN[r.jenis]} ke ${esc(r.tujuan)} ${esc(rupiah(r.nominal))}/bulan, mulai ${esc(blnIndo(r.berlaku_mulai))}.
+      Barisnya tetap tersimpan sebagai riwayat; yang ditetapkan hanya bulan terakhirnya.</p>
+    <div class="fg"><label>Bulan terakhir dibayar <span style="color:var(--danger)">*</span></label>
+      <input class="field" type="date" id="r-sampai" value="${esc(bawaan)}">
+      <div class="hint">Bulan ini masih dibayar; mulai bulan berikutnya tidak lagi.</div></div>
+    </div>
+    <div class="aksi"><button class="btn" id="m-batal">Batal</button>
+      <button class="btn btn-p" id="m-simpan">Akhiri</button></div>`);
+
+  $('#m-batal').onclick = tutupModal;
+  $('#m-simpan').onclick = () => {
+    if (!$('#r-sampai').value) { $('#r-sampai').focus(); return; }
+    const sampai = awalBulan($('#r-sampai').value);
+    if (sampai < r.berlaku_mulai) { toast('Bulan terakhir mendahului bulan mulai.', true); return; }
+    tutupModal();
+    jalankan('Menyimpan…', async () => {
+      await ubah('ip_tunjangan_rincian', `id=eq.${r.id}`, { berlaku_sampai: sampai });
+      await muatTunjangan();
+      D.rekap = null; D.setoran = null;
+      toast(`${nama}: ${TUNJANGAN[r.jenis]} ke ${r.tujuan} berakhir ${blnIndo(sampai)}.`);
     });
   };
 }
@@ -3604,14 +3867,17 @@ const KOLOM_SETORAN = [
 
 async function muatSetoran() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
-  const [kesehatan, ketenagakerjaan, kopr, lain] = await Promise.all([
+  const [kesehatan, ketenagakerjaan, kopr, lain, rincSehat, rincKerja] = await Promise.all([
     rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
     rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
     rpc('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
-    rpc('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' })
+    rpc('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
+    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }),
+    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' })
   ]);
   D.setoran = { awal: ui.rekapAwal, akhir: ui.rekapAkhir, kesehatan: kesehatan || [], ketenagakerjaan: ketenagakerjaan || [],
-                koperasi: kopr || [], sekolah: lain || [] };
+                koperasi: kopr || [], sekolah: lain || [],
+                rincian: { kesehatan: rincSehat || [], ketenagakerjaan: rincKerja || [] } };
 }
 
 function halSetoran() {
@@ -3627,6 +3893,11 @@ function halSetoran() {
       .filter(r => r.bentuk === spekTab.bentuk)
       .map(r => ({ ...r, program: TUNJANGAN[j], sekolah: Number(r.jumlah) || 0,
                    jumlah: (Number(r.jumlah) || 0) + (Number(r.potongan) || 0) }))),
+    // Rincian tambahan TuSehat/TuKerja yang tujuannya tab ini (29 September 2026): seluruhnya dari sekolah.
+    ...spekTab.jenis.flatMap(j => ((semua.rincian || {})[j] || [])
+      .filter(r => r.tujuan === spekTab.bentuk && Number(r.jumlah) > 0)
+      .map(r => ({ ...r, program: `${TUNJANGAN[j]} (rincian)`, tarif: Number(r.nominal) || 0, potongan_bulan: 0,
+                   sekolah: Number(r.jumlah) || 0, potongan: 0, jumlah: Number(r.jumlah) || 0 }))),
     ...(spekTab.koperasi ? (semua.koperasi || []).filter(r => Number(r.jumlah) > 0).sort(bandingPotongan('koperasi')).map(dariPotongan) : []),
     ...(spekTab.tabungan ? (semua.sekolah || []).filter(r => r.jenis === spekTab.tabungan && Number(r.jumlah) > 0).map(dariPotongan) : [])
   ]);
@@ -3642,7 +3913,8 @@ function halSetoran() {
            + `Setoran ${spekTab.nama} untuk ${labelPeriodeRekap()}: nominal dari sekolah ditambah potongan porsi guru, `
            + 'keduanya dari penyaluran per orang di halaman Tunjangan dan Potongan (bila belum ditetapkan, bawaan dari '
            + 'Nominal Penggajian). Jumlah bulan mengikuti aturan bulan yang lebih dari setengah harinya masuk periode. '
-           + 'Hanya orang yang bentuk penyalurannya ' + spekTab.nama + ' dan berhak pada periode ini.' };
+           + 'Hanya orang yang bentuk penyalurannya ' + spekTab.nama + ' dan berhak pada periode ini, ditambah rincian '
+           + 'tambahan TuSehat/TuKerja yang tujuannya ' + spekTab.nama + ' (Program bertanda "rincian", seluruhnya dari sekolah).' };
 
   $('#isi').innerHTML = `
     <div class="head"><div><h1>Nominal Setoran Wajib</h1>
@@ -3744,7 +4016,7 @@ function judulPeriodeRekap() {
 async function rincianStruk() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
   const [mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek, jadwal, mapel,
-         hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung] = await Promise.all([
+         hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung, rincSehat, rincKerja] = await Promise.all([
     rpc('f_ip_honor_mengajar', arg),
     rpc('f_ip_honor_wali_kelas', arg),
     rpc('f_ip_honor_diperbantukan', arg),
@@ -3767,10 +4039,13 @@ async function rincianStruk() {
     rpc('f_ip_pelaksanaan_piket', arg).catch(() => []),
     // Honor staf (gaji, tunjangan jabatan, transpor, insentif, konsumsi) dan tenaga pendukung.
     rpc('f_ip_honor_staf', arg),
-    rpc('f_ip_honor_pendukung', arg)
+    rpc('f_ip_honor_pendukung', arg),
+    // Rincian tambahan TuSehat/TuKerja: hanya untuk menyebut tujuannya; nominalnya sudah di Keseluruhan.
+    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }).catch(() => []),
+    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }).catch(() => [])
   ]);
   const R = {};
-  const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [] });
+  const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [], sehatTambah: [], kerjaTambah: [] });
   const dibayar = b => Number(b.jumlah) > 0;
   (mengajar || []).forEach(b => { orang(b.guru_id).mengajar = b; });
   (wali || []).forEach(b => { orang(b.guru_id).wali = b; });
@@ -3784,6 +4059,8 @@ async function rincianStruk() {
   (parkir || []).forEach(b => { orang(b.guru_id).parkir = b; });
   (sehat || []).forEach(b => { orang(b.guru_id).sehat = b; });
   (kerja || []).forEach(b => { orang(b.guru_id).kerja = b; });
+  (rincSehat || []).forEach(b => orang(b.guru_id).sehatTambah.push(b));
+  (rincKerja || []).forEach(b => orang(b.guru_id).kerjaTambah.push(b));
   (kop || []).forEach(b => orang(b.guru_id).koperasi.push(b));
   (sek || []).forEach(b => orang(b.guru_id).sekolah.push(b));
   (honorStaf || []).forEach(b => { orang(b.guru_id).staf = b; });
@@ -3985,8 +4262,10 @@ function susunIsiStruk(b, R, dibayar) {
     if (E > 0) {
       const k = kode();
       bagian.push(RH(k, 'TUNJANGAN'));
-      bagian.push(RT(1, 'Tunjangan Kesehatan (TuSehat)', r.sehat ? [r.sehat.bentuk, `${r.sehat.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs));
-      bagian.push(RT(2, 'Tunjangan Ketenagakerjaan (TuKerja)', r.kerja ? [r.kerja.bentuk, `${r.kerja.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs_tk));
+      // Tujuan penyaluran: utama, lalu tujuan rincian tambahan (mis. "BPJS Ketenagakerjaan + Simponi BNI").
+      const tujuanTj = (u, tambah) => [...new Set([u && u.bentuk, ...(tambah || []).map(t => t.tujuan)].filter(Boolean))].join(' + ');
+      bagian.push(RT(1, 'Tunjangan Kesehatan (TuSehat)', r.sehat ? [tujuanTj(r.sehat, r.sehatTambah), `${r.sehat.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs));
+      bagian.push(RT(2, 'Tunjangan Ketenagakerjaan (TuKerja)', r.kerja ? [tujuanTj(r.kerja, r.kerjaTambah), `${r.kerja.bulan} bulan`].filter(Boolean).join(' · ') : '', b.bpjs_tk));
       bagian.push(RJ(`Jumlah ${k}`, E));
     }
     const rumus = huruf > 1 ? ` (${Array.from({ length: huruf }, (_, i) => String.fromCharCode(65 + i)).join(' + ')})` : '';
