@@ -3691,6 +3691,21 @@ async function unduhRekap(spek, baris, total) {
     sel(r, kolTtd, `${i + 1}. ……………………`);
     ws.getRow(r).height = 26;
     r += 1;
+    // Rincian sumber dana (Nominal Setoran Wajib): baris kecil di bawah orangnya, tanpa nomor dan tanda tangan.
+    (b.sumberDana || []).forEach(x => {
+      sel(r, 1, '');
+      sel(r, 2, '   ↳');
+      kolom.forEach((k, j) => {
+        const v = k.xls ? k.xls(x) : x[k.k];
+        if (k.rp) sel(r, 3 + j, v == null ? '—' : Number(v) || 0, { fmt: v == null ? undefined : RP, rata: v == null ? 'center' : undefined });
+        else if (k.num) sel(r, 3 + j, Number(v) || 0, { rata: 'center' });
+        else sel(r, 3 + j, v == null ? '—' : String(v), { rata: 'center' });
+      });
+      if (JK) sel(r, kolom.length + 3, Number(x.jumlah) || 0, { fmt: RP });
+      sesudah.forEach((k, j) => sel(r, kolSesudah + j, Number(x[k.k]) || 0, { fmt: RP }));
+      sel(r, kolTtd, '');
+      r += 1;
+    });
   });
 
   sel(r, 1, 'JUMLAH', { rata: 'center', tebal: true, abu: true });
@@ -3888,7 +3903,7 @@ function halSetoran() {
   // Potongan (koperasi, tabungan): seluruhnya dari gaji guru; tidak ada bagian dari sekolah.
   const dariPotongan = r => ({ ...r, program: r.jenis, nomor_peserta: r.keterangan || null, tarif: null,
     potongan_bulan: Number(r.nominal) || 0, sekolah: 0, potongan: Number(r.jumlah) || 0, jumlah: Number(r.jumlah) || 0 });
-  const baris = !semua ? null : urutMasaKerja([
+  const sumber = !semua ? null : urutMasaKerja([
     ...spekTab.jenis.flatMap(j => (semua[j] || [])
       .filter(r => r.bentuk === spekTab.bentuk)
       .map(r => ({ ...r, program: TUNJANGAN[j], sekolah: Number(r.jumlah) || 0,
@@ -3901,6 +3916,26 @@ function halSetoran() {
     ...(spekTab.koperasi ? (semua.koperasi || []).filter(r => Number(r.jumlah) > 0).sort(bandingPotongan('koperasi')).map(dariPotongan) : []),
     ...(spekTab.tabungan ? (semua.sekolah || []).filter(r => r.jenis === spekTab.tabungan && Number(r.jumlah) > 0).map(dariPotongan) : [])
   ]);
+  /* Satu orang satu baris (29 September 2026), seperti matriks Tunjangan dan Potongan:
+     orang yang setorannya berasal dari lebih dari satu sumber dana mendapat baris
+     Total setoran, lalu satu baris per sumber di bawahnya (`sumberDana`). Hanya dilihat. */
+  const baris = !sumber ? null : [];
+  if (sumber) {
+    const perOrang = new Map();
+    sumber.forEach(r => {
+      if (!perOrang.has(r.guru_id)) perOrang.set(r.guru_id, []);
+      perOrang.get(r.guru_id).push(r);
+    });
+    perOrang.forEach(isi => {
+      if (isi.length === 1) { baris.push(isi[0]); return; }
+      const jml = k => isi.reduce((t, r) => t + (Number(r[k]) || 0), 0);
+      baris.push({ guru_id: isi[0].guru_id, nama: isi[0].nama, tmt_sekolah: isi[0].tmt_sekolah,
+        program: 'Total setoran', nomor_peserta: null,
+        bulan: Math.max(...isi.map(r => Number(r.bulan) || 0)),
+        tarif: isi.some(r => r.tarif != null) ? jml('tarif') : null, potongan_bulan: jml('potongan_bulan'),
+        sekolah: jml('sekolah'), potongan: jml('potongan'), jumlah: jml('jumlah'), sumberDana: isi });
+    });
+  }
   const total = (baris || []).reduce((t, r) => {
     for (const k of ['bulan', 'sekolah', 'potongan', 'jumlah']) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
     return t;
@@ -3955,8 +3990,14 @@ function halSetoran() {
         baris.length ? baris.map((b, i) => `<tr>
           <td class="num lekat-no">${i + 1}</td>
           <td class="nama lekat" style="font-weight:500">${esc(b.nama)}</td>
-          ${KOLOM_SETORAN.map(k => `<td class="${k.num || k.rp ? 'num' : ''}">${k.html ? k.html(b) : angkaSel(b, k)}</td>`).join('')}
-          <td class="num" style="font-weight:600">${rupiah(b.jumlah)}</td></tr>`).join('')
+          ${KOLOM_SETORAN.map(k => `<td class="${k.num || k.rp ? 'num' : ''}"${b.sumberDana && k.k === 'program' ? ' style="font-weight:600"' : ''}>${
+            b.sumberDana && k.k === 'nomor_peserta' ? '<span class="kecil">—</span>' : k.html ? k.html(b) : angkaSel(b, k)}</td>`).join('')}
+          <td class="num" style="font-weight:600">${rupiah(b.jumlah)}</td></tr>${
+          (b.sumberDana || []).map(r => `<tr class="cicilan">
+          <td></td>
+          <td class="kecil" style="text-align:right">↳</td>
+          ${KOLOM_SETORAN.map(k => `<td class="${k.num || k.rp ? 'num' : ''}${k.k === 'program' ? ' kecil' : ''}">${k.html ? k.html(r) : angkaSel(r, k)}</td>`).join('')}
+          <td class="num">${rupiah(r.jumlah)}</td></tr>`).join('')}`).join('')
         : `<tr><td colspan="${KOLOM_SETORAN.length + 3}"><div class="empty"><b>Tidak ada peserta</b>
             ${spekTab.koperasi ? 'Tidak ada potongan koperasi pada periode ini.'
               : `Tidak ada yang bentuk penyalurannya ${esc(spekTab.nama)} atau menabung ke sana pada periode ini.`}</div></td></tr>`
