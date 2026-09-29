@@ -1104,8 +1104,8 @@ function halTunjangan() {
     </div>
 
     <div class="bar"><span class="label">Isi massal lewat Excel</span>
-      <button class="btn btn-sm" id="tjTemplate">Unduh template (xlsx)</button>
-      <button class="btn btn-sm" id="tjUnggahTombol">Unggah isian (xlsx)</button>
+      <button class="btn-unduh" data-fmt="xlsx" id="tjTemplate">Unduh template</button>
+      <button class="btn-unduh unggah" data-fmt="xlsx" id="tjUnggahTombol">Unggah isian</button>
       <input type="file" id="tjUnggah" accept=".xlsx" hidden></div>
 
     ${galat ? `<div class="info-box"><b>Data tunjangan tidak terbaca.</b> ${esc(galat)}</div>` : ''}
@@ -1493,7 +1493,7 @@ function isiTabPenyaluran(jenis) {
     <div class="panel"><div class="panel-head"><h3>${esc(TJ_TAB[jenis].nama)} — berlaku ${esc(tglIndo(ui.acuan))}</h3>
       <div class="sp" style="flex:1"></div>
       <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px">
-      <button class="btn btn-sm" id="tjUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
+      <button class="btn-unduh" data-fmt="xlsx" id="tjUnduh" style="margin-left:10px">Unduh</button></div>
       <div class="scroll gulir-tegak"><table><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th><th class="lekat">Nama</th><th style="width:150px">Status</th>
         <th>Rincian</th><th style="width:130px">No. peserta</th>
@@ -1634,7 +1634,7 @@ function isiTabPotongan(kelompok) {
     <div class="panel"><div class="panel-head"><h3>${esc(nama)} — bulan ${esc(blnIndo(ui.acuan))}</h3>
       <div class="sp" style="flex:1"></div>
       <input class="field" id="tjCari" placeholder="Cari nama…" value="${esc(ui.tunjanganCari || '')}" style="width:220px">
-      <button class="btn btn-sm" id="tjUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
+      <button class="btn-unduh" data-fmt="xlsx" id="tjUnduh" style="margin-left:10px">Unduh</button></div>
       <div class="scroll gulir-tegak"><table><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th><th class="lekat">Nama</th><th style="width:100px">TMT</th>
         <th>Rincian</th>
@@ -2821,7 +2821,7 @@ function halHadir() {
       ${isi.cari ? `<input class="field sempit" type="search" id="hCari" placeholder="${esc(isi.cari)}" value="${esc(ui.hadirSaring)}" autocomplete="off">` : ''}
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(isi.ringkas)}</div>
-      <button class="btn btn-sm" id="hUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
+      <button class="btn-unduh utama" data-fmt="xlsx" id="hUnduh" style="margin-left:10px">Unduh rekap</button></div>
       <div class="gulir-petunjuk">Geser mendatar bila tabel lebih lebar dari layar. Kolom pertama tetap terlihat saat digeser.</div>
       <div class="scroll gulir-tegak" id="hTabel">${tabelHadir(isi)}</div>
       ${isi.catatan ? `<div class="foot"><div class="info">${esc(isi.catatan)}</div></div>` : ''}
@@ -3271,8 +3271,8 @@ function kartuRekapOrang(induk, spek, baris, total) {
   return `<div class="panel"><div class="panel-head"><h3>${esc(induk.nama)}</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(periode)}</div>
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh (xlsx)</button>
-      <button class="btn btn-sm" id="rKuitansi" style="margin-left:6px" ${orang.length ? '' : 'disabled'}>Unduh semua kuitansi (xlsx)</button></div>
+      <button class="btn-unduh utama" data-fmt="xlsx" id="rUnduh" style="margin-left:10px">Unduh rekap</button>
+      <button class="btn-unduh" data-fmt="xlsx" id="rKuitansi" style="margin-left:6px" ${orang.length ? '' : 'disabled'}>Unduh semua kuitansi</button></div>
       ${orang.length ? `<div class="pg-grid" style="padding:16px">${orang.map(o => `<article class="pg-kartu${o.jumlah > 0 ? '' : ' kosong'}">
         <div class="pg-kartu-atas"><h3>${esc(o.nama)}</h3><span class="pg-satuan">${esc(o.mingguan ? 'Mingguan' : (o.jabatan || 'tanpa tugas Staf'))}</span></div>
         ${o.mingguan ? `<div class="pg-pekan">
@@ -3292,7 +3292,7 @@ function kartuRekapOrang(induk, spek, baris, total) {
           ? 'diterima untuk ' + esc(o.mingguan ? `${tglIndo(o.periodeAwal)} – ${tglIndo(o.periodeAkhir)}` : periode)
             + (o.mingguan ? ' · tidak ikut Keseluruhan dan struk bulanan' : '')
           : 'nominal komponennya masih Rp 0 — isi di Nominal Penggajian Staf'}</div>
-        <div class="pg-aksi"><button class="btn btn-sm btn-p" data-kuitansi="${esc(o.guru_id)}">Unduh kuitansi (xlsx)</button></div>
+        <div class="pg-aksi"><button class="btn-unduh" data-fmt="xlsx" data-kuitansi="${esc(o.guru_id)}">Unduh kuitansi</button></div>
       </article>`).join('')}</div>`
       : `<div class="empty"><b>Tidak ada tenaga pendukung</b> Belum ada komponen yang berlaku pada periode ini
         (Nominal Penggajian Staf → Honor Tenaga Pendukung).</div>`}
@@ -3319,8 +3319,8 @@ function panelCetakStruk(spek, baris, total) {
   return `<div class="panel"><div class="panel-head"><h3>Rekapitulasi Pendapatan per Guru dan Staf</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(periode)}</div>
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">Unduh (xlsx)</button>
-      <button class="btn btn-sm btn-p" id="rStruk" style="margin-left:6px" ${baris.length ? '' : 'disabled'}>Unduh struk (docx)</button></div>
+      <button class="btn-unduh" data-fmt="xlsx" id="rUnduh" style="margin-left:10px">Unduh daftar</button>
+      <button class="btn-unduh utama" data-fmt="docx" id="rStruk" style="margin-left:6px" ${baris.length ? '' : 'disabled'}>Unduh struk</button></div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar. Kepala tabel dan kolom nama tetap terlihat saat digeser.</div>
       <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th>
@@ -3457,8 +3457,8 @@ function halRekap() {
         <option value="">Semua bentuk</option>
         ${bentukAda.map(b => `<option value="${esc(b)}" ${b === bentukPilih ? 'selected' : ''}>${esc(b)}</option>`).join('')}
       </select>` : ''}
-      <button class="btn btn-sm" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi (xlsx)' : 'Unduh (xlsx)'}</button>${
-        spek.struk ? '<button class="btn btn-sm" id="rStruk" style="margin-left:6px">Unduh struk (docx)</button>' : ''}</div>
+      <button class="btn-unduh utama" data-fmt="xlsx" id="rUnduh" style="margin-left:10px">${spek.kuitansi ? 'Unduh kuitansi' : 'Unduh rekap'}</button>${
+        spek.struk ? '<button class="btn-unduh" data-fmt="docx" id="rStruk" style="margin-left:6px">Unduh struk</button>' : ''}</div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
         seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
       <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
@@ -3480,7 +3480,7 @@ function halRekap() {
           <td class="num" style="font-weight:600">${rupiah(b.jumlah)}${
             b.seandainya != null && Number(b.seandainya) !== Number(b.jumlah) ? kecilRp(b.seandainya) : ''}</td>${
           sesudah.map(k => `<td class="num" style="${(k.k === 'bersih' || k.k === 'tunai') ? 'font-weight:600' : ''}">${rupiah(b[k.k])}</td>`).join('')}${
-          spek.struk ? `<td>${adaStruk(b) ? `<button class="btn btn-sm" data-struk="${i}" title="Unduh struk gaji ${esc(b.nama)} (docx)">Struk</button>` : ''}</td>` : ''}</tr>`).join('')
+          spek.struk ? `<td>${adaStruk(b) ? `<button class="btn-unduh" data-struk="${i}" title="Unduh struk gaji ${esc(b.nama)} (docx)">Struk</button>` : ''}</td>` : ''}</tr>`).join('')
         : `<tr><td colspan="${spek.kolom.length + 3 + sesudah.length + (spek.struk ? 1 : 0)}"><div class="empty"><b>Tidak ada penerima</b>
             Tidak ada catatan untuk jenis pembiayaan ini pada periode tersebut.</div></td></tr>`
       }</tbody>
@@ -3979,7 +3979,7 @@ function halSetoran() {
     <div class="panel"><div class="panel-head"><h3>${esc(spekTab.nama)}</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div>
-      <button class="btn btn-sm" id="sUnduh" style="margin-left:10px">Unduh (xlsx)</button></div>
+      <button class="btn-unduh utama" data-fmt="xlsx" id="sUnduh" style="margin-left:10px">Unduh setoran</button></div>
       <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat seluruh kolom.</div>
       <div class="scroll gulir-tegak"><table class="rekap"><thead><tr>
         <th style="width:40px" class="num lekat-no">No</th>
@@ -4365,7 +4365,7 @@ async function lihatStruk(b) {
     <table class="st-isi"><tbody>${baris}</tbody></table>
     </div>
     <div class="aksi"><button class="btn" id="m-batal">Tutup</button>
-      <button class="btn btn-p" id="m-unduh">Unduh struk ini (docx)</button></div>`, true);
+      <button class="btn-unduh utama" data-fmt="docx" id="m-unduh">Unduh struk ini</button></div>`, true);
   $('#m-batal').onclick = tutupModal;
   $('#m-unduh').onclick = () => { tutupModal(); jalankan('Menyiapkan struk…', () => unduhStruk([b])); };
 }
