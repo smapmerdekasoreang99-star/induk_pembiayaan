@@ -3083,7 +3083,8 @@ const REKAP = {
         saring: r => r.jenis === 'Imtaq',
         judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBIMBING TAHFIDZ',
         catatan: dasar + ' Nominalnya tersendiri (Transport Pembimbing Imtaq), satu skala untuk '
-               + 'pembimbing dari dalam maupun luar sekolah.',
+               + 'pembimbing dari dalam maupun luar sekolah. Jumlah per orang digenapkan ke bawah ke ribuan '
+               + '(bagian per pertemuan dijumlahkan dulu, baru digenapkan sekali).',
         kolom
       }
     };
