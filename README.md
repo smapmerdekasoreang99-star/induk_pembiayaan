@@ -85,6 +85,36 @@ baris lama, baris baru), yang hanya bisa dibaca operator/bendahara dan tidak
 bisa ditulis siapa pun lewat aplikasi. Baris yang dibuat sebelum tanggal ini
 `akun`-nya kosong.
 
+**Kunci periode yang sudah dibayar (4 Oktober 2026).** Di Honor dan Transpor,
+sesudah sebuah periode dibayarkan, tombol **Kunci periode ini** meminta database
+menghitung seluruh hasil periode itu (semua tab, Keseluruhan, rincian struk,
+Setoran — 19 hitungan, dari daftar yang sama dengan halaman-halamannya) dan
+menyimpannya sebagai arsip di `ip_rekap_beku` lewat `ip_kunci_periode`. Selama
+kuncinya berlaku, halaman membaca dari arsip: koreksi kehadiran, TMT, atau status
+di belakang hari tidak menggeser angka yang sudah dibayarkan. Arsip hanya bisa
+dibuat oleh fungsi itu (peramban tidak bisa mengirim angka) dan tidak pernah
+diubah; **Buka kunci…** (`ip_buka_kunci`) hanya mencatat siapa, kapan, dan
+alasannya — arsipnya tetap ada. Hak mengunci memakai `boleh_pembiayaan_tulis()`.
+
+**TuSehat/TuKerja dan pencabutan pengesahan.** Pengesahan yang dicabut kini
+tetap dihitung untuk bulan-bulan sebelum tanggal cabutnya (`f_ip_pengesahan_bpjs`)
+— dulu mencabut berarti seluruh bulan sebelumnya ikut hilang dari rekap. Status
+aktif, jenis PTK, dan tugas Staf tidak menyimpan tanggal perubahan, jadi untuk
+itu yang menjaga angka bulan lalu adalah kunci periode.
+
+**Riwayat Perubahan.** Halaman baru yang membaca `ip_log`: siapa mengubah apa
+dan kapan (nilai lama → baru) untuk semua tabel `ip_*`, ditambah riwayat kunci
+periode. Hanya membaca.
+
+**Hanya bendahara yang mengubah (menunggu).** Keputusan 4 Oktober 2026: operator
+cukup melihat. Migrasinya ada di `database/menunggu/` dan baru bisa diterapkan
+sesudah akun bendahara didaftarkan (lihat **Mendaftarkan bendahara baru** di atas);
+ia menolak diterapkan bila belum ada bendahara.
+
+**Content Security Policy.** `index.html` membatasi skrip pada situs ini dan dua
+CDN pustaka (keduanya dengan SRI), dan koneksi data pada Supabase sekolah. Bila
+menambah pustaka atau layanan dari alamat lain, tambahkan alamatnya di sana.
+
 **Jaringan lambat (4 Oktober 2026).** Hasil fungsi hitung `f_ip_*` disimpan di
 memori halaman per nama + argumen dan dipakai bersama oleh Honor dan Transpor,
 Cetak Struk, Nominal Setoran Wajib, dan Kehadiran dan Piket: pindah tab, View

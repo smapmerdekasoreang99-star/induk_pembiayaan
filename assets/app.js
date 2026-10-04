@@ -261,6 +261,9 @@ let rincianStrukSimpan = null;   // rincian struk satu periode, lihat rincianStr
 let antreanHitung = null;
 const PAKET_MAKS = 40;   // sama dengan batas di f_ip_paket
 function hitung(nama, argumen) {
+  // Periode yang dikunci: angkanya dari arsip (ip_rekap_beku), bukan dihitung ulang.
+  const arsip = D.beku && D.beku.peta && D.beku.peta.get(kunciArsip(nama, argumen));
+  if (arsip !== undefined) return Promise.resolve(structuredClone(arsip));
   const kunci = nama + JSON.stringify(argumen);
   if (!tembolokHitung.has(kunci)) {
     if (!antreanHitung) { antreanHitung = []; queueMicrotask(kirimAntreanHitung); }
@@ -287,6 +290,80 @@ function buangHitungan() {
   tembolokHitung.clear();
   rincianStrukSimpan = null;
   D.rekap = null; D.setoran = null;
+  D.beku = null;   // status kunci periode dibaca ulang juga
+}
+
+/* Pembekuan rekap (4 Oktober 2026). Periode yang sudah dibayar dikunci:
+   seluruh hasil hitungannya disimpan database sebagai arsip (ip_rekap_beku,
+   dihitung oleh database sendiri lewat ip_kunci_periode), dan selama
+   kuncinya berlaku halaman membaca dari arsip itu — koreksi kehadiran, TMT,
+   atau status di belakang hari tidak lagi menggeser angka yang sudah
+   dibayarkan. Kunci arsip memakai argumen yang kuncinya diurutkan, karena
+   jsonb menyusun ulang urutan kunci. */
+const kunciArsip = (nama, arg) => nama + JSON.stringify(Object.keys(arg || {}).sort()
+  .reduce((o, k) => (o[k] = arg[k], o), {}));
+async function pastikanBeku() {
+  const kunci = ui.rekapAwal + '|' + ui.rekapAkhir;
+  if (!ui.rekapAwal || !ui.rekapAkhir || (D.beku && D.beku.kunci === kunci)) return;
+  let baris = null;
+  try {
+    const d = await ambil('ip_rekap_beku', `select=id,isi,dikunci_oleh,dikunci_pada,catatan&awal=eq.${enc(ui.rekapAwal)}`
+      + `&akhir=eq.${enc(ui.rekapAkhir)}&dibuka_pada=is.null&limit=1`);
+    baris = (d && d[0]) || null;
+  } catch (e) {
+    // Tabel belum ada (migrasi belum diterapkan) atau gagal dibaca: hitung seperti biasa.
+    console.warn('Status kunci periode tidak terbaca:', e.message);
+  }
+  D.beku = { kunci, baris, peta: baris ? new Map((baris.isi || []).map(x => [kunciArsip(x.fungsi, x.arg), x.hasil])) : null };
+}
+// Semua hitungan satu periode yang diarsipkan saat dikunci: tiap tab Honor
+// dan Transpor, rincian struk, dan Setoran — dari daftar yang sama dengan
+// yang dipakai halaman-halamannya.
+function daftarPanggilanPeriode(awal, akhir) {
+  const arg = { p_awal: awal, p_akhir: akhir };
+  const peta = new Map();
+  const tambah = (fungsi, a) => peta.set(kunciArsip(fungsi, a), { fungsi, arg: a });
+  Object.values(REKAP).forEach(r => tambah(r.fungsi, { ...arg, ...(r.arg || {}) }));
+  PANGGILAN_STRUK(arg).forEach(([f, a]) => tambah(f, a));
+  PANGGILAN_SETORAN(arg).forEach(([f, a]) => tambah(f, a));
+  return [...peta.values()];
+}
+// Keterangan kunci untuk kepala halaman Honor dan Transpor dan Setoran.
+function htmlBeku(denganTombol) {
+  if (!ui.rekapAwal || !ui.rekapAkhir || !D.beku || D.beku.kunci !== ui.rekapAwal + '|' + ui.rekapAkhir) return '';
+  const b = D.beku.baris;
+  if (b) return `<div class="info-box"><b>Periode ini dikunci</b> sejak ${esc(tglIndo(String(b.dikunci_pada).slice(0, 10)))}
+      oleh ${esc(b.dikunci_oleh || '—')}${b.catatan ? ' — ' + esc(b.catatan) : ''}. Semua angka di bawah dibaca dari arsip
+      saat dikunci; perubahan data sesudahnya tidak menggesernya.
+      ${denganTombol ? '<button class="btn btn-sm" id="bBukaKunci" style="margin-left:8px">Buka kunci…</button>' : ''}</div>`;
+  return denganTombol ? `<div class="bar"><span class="kecil">Sesudah periode ini dibayarkan, kunci supaya angkanya tidak bergeser oleh koreksi di belakang hari.</span>
+      <button class="btn btn-sm" id="bKunci">Kunci periode ini</button></div>` : '';
+}
+function pasangBeku(sesudah) {
+  if ($('#bKunci')) $('#bKunci').onclick = () => {
+    const daftar = daftarPanggilanPeriode(ui.rekapAwal, ui.rekapAkhir);
+    const catatan = window.prompt(`Kunci periode ${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}?\n\n`
+      + `Seluruh hasil hitungan periode ini (${daftar.length} hitungan: semua tab Honor dan Transpor, Keseluruhan, struk, Setoran) `
+      + 'diarsipkan, dan halaman ini akan membaca dari arsip itu.\n\nCatatan (boleh kosong, mis. "dibayar 5 Oktober"):', '');
+    if (catatan === null) return;
+    jalankan('Mengunci periode…', async () => {
+      await rpc('ip_kunci_periode', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, p_panggilan: daftar, p_catatan: catatan });
+      buangHitungan();
+      await sesudah();
+      toast('Periode dikunci. Angkanya kini dibaca dari arsip.');
+    });
+  };
+  if ($('#bBukaKunci')) $('#bBukaKunci').onclick = () => {
+    const alasan = window.prompt('Buka kunci periode ini? Angkanya akan dihitung ulang dari data sekarang.\n\n'
+      + 'Arsipnya tidak dihapus; siapa, kapan, dan alasannya dicatat. Alasan:', '');
+    if (alasan === null) return;
+    jalankan('Membuka kunci…', async () => {
+      await rpc('ip_buka_kunci', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, p_alasan: alasan });
+      buangHitungan();
+      await sesudah();
+      toast('Kunci dibuka. Angka dihitung ulang dari data sekarang.');
+    });
+  };
 }
 
 /* -------------------------------------------------------- muat semua */
@@ -427,7 +504,7 @@ function layarUtama() {
 function gambar() {
   if (!$('#isi')) return;
   ({ beranda: halBeranda, hadir: halHadir, nominal: halNominal, tunjangan: halTunjangan,
-     rekap: halRekap, setoran: halSetoran, identitas: halIdentitas }[halaman] || halBeranda)();
+     rekap: halRekap, setoran: halSetoran, riwayat: halRiwayat, identitas: halIdentitas }[halaman] || halBeranda)();
 }
 
 /* ---------------------------------------------------------- beranda */
@@ -1181,21 +1258,31 @@ const bandingPotongan = (kelompok, turun) => (a, b) =>
 const KODE_IURAN = 'iuran_koperasi';
 const iuranBawaan = kelompok => kelompok === 'koperasi' ? tarifBawaan(KODE_IURAN) : 0;
 
-async function muatTunjangan() {
+/* bagian (4 Oktober 2026): sesudah menyimpan di halaman ini, cukup tabel
+   yang memang berubah yang dibaca ulang — mis. ['potongan'] — bukan kelima
+   daftar (penerima dan guru tidak berubah karena simpanan di sini). Tanpa
+   bagian, atau bila belum pernah termuat, semuanya dibaca. Umur muatan
+   (dimuat) hanya diperbarui pembacaan penuh, karena yang menuanya justru
+   daftar penerima dari Data Induk. */
+const KUERI_TUNJANGAN = {
+  // Urut masa kerja (TMT sekolah, kosong paling akhir, nama pemecah seri) — kebiasaan semua aplikasi.
+  hak: () => ambil('v_guru_bpjs', 'select=id,nama,jenis,status,mulai,keterangan,tmt_dasar,tanggal_syarat,tmt_sekolah'
+                    + '&status=in.(disahkan,terhenti)&order=tmt_sekolah.asc.nullslast,nama.asc'),
+  salur: () => ambil('ip_tunjangan_penyaluran', 'select=*&order=berlaku_mulai.desc,id.desc'),
+  rincian: () => ambil('ip_tunjangan_rincian', 'select=*&order=berlaku_mulai.asc,id.asc'),
+  potongan: () => ambil('ip_potongan', 'select=*&order=berlaku_mulai.desc,id.desc'),
+  // Urutan guru menurut masa kerja, seperti di semua aplikasi.
+  guru: () => ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif'
+                   + '&order=tmt_sekolah.asc.nullslast,nama.asc')
+};
+async function muatTunjangan(bagian) {
+  const sebagian = Array.isArray(bagian) && D.tunjangan && !D.tunjangan.galat;
+  const nama = sebagian ? bagian : Object.keys(KUERI_TUNJANGAN);
   try {
-    const [hak, salur, rincian, potongan, guru] = await Promise.all([
-      // Urut masa kerja (TMT sekolah, kosong paling akhir, nama pemecah seri) — kebiasaan semua aplikasi.
-      ambil('v_guru_bpjs', 'select=id,nama,jenis,status,mulai,keterangan,tmt_dasar,tanggal_syarat,tmt_sekolah'
-                          + '&status=in.(disahkan,terhenti)&order=tmt_sekolah.asc.nullslast,nama.asc'),
-      ambil('ip_tunjangan_penyaluran', 'select=*&order=berlaku_mulai.desc,id.desc'),
-      ambil('ip_tunjangan_rincian', 'select=*&order=berlaku_mulai.asc,id.asc'),
-      ambil('ip_potongan', 'select=*&order=berlaku_mulai.desc,id.desc'),
-      // Urutan guru menurut masa kerja, seperti di semua aplikasi.
-      ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif'
-                     + '&order=tmt_sekolah.asc.nullslast,nama.asc')
-    ]);
-    D.tunjangan = { hak: hak || [], salur: salur || [], rincian: rincian || [], potongan: potongan || [], guru: guru || [], galat: null,
-                    dimuat: Date.now() };
+    const hasil = await Promise.all(nama.map(n => KUERI_TUNJANGAN[n]()));
+    const baru = sebagian ? { ...D.tunjangan } : { galat: null, dimuat: Date.now() };
+    nama.forEach((n, i) => { baru[n] = hasil[i] || []; });
+    D.tunjangan = baru;
   } catch (e) {
     // Disimpan sebagai galat, bukan dibiarkan kosong: halaman yang memuat
     // ulang terus-menerus lebih membingungkan daripada satu pesan.
@@ -1584,7 +1671,7 @@ async function unggahTemplateTunjangan(tab, berkas) {
     return [langkah.tambah('ip_potongan', [t.isi])];
   });
   await tulisBersama(daftar);
-  await muatTunjangan();
+  await muatTunjangan(spek.jenis ? ['salur'] : ['potongan']);
   buangHitungan();
   toast(`${tulis.length} perubahan ${spek.nama} tersimpan${salah.length ? `; ${salah.length} baris dilewati` : ''}.`);
 }
@@ -1903,7 +1990,7 @@ function ubahKeanggotaan(guruId, jadiAnggota) {
       berlaku_mulai: bulanAcuan, berlaku_sampai: null, keterangan: 'Bukan anggota koperasi'
     }]));
     if (daftar.length) await tulisBersama(daftar);
-    await muatTunjangan();
+    await muatTunjangan(['potongan']);
     buangHitungan();
     toast(`${g.nama}: ${jadiAnggota ? 'anggota koperasi, iuran mengikuti bawaan' : 'bukan anggota koperasi, iuran Rp 0'} sejak ${blnIndo(bulanAcuan)}.`);
   });
@@ -2045,7 +2132,7 @@ function dialogPenyaluran(guruId, jenis) {
     tutupModal();
     jalankan('Menghapus…', async () => {
       await buang('ip_tunjangan_penyaluran', `id=eq.${r.id}`);
-      await muatTunjangan();
+      await muatTunjangan(['salur']);
       buangHitungan();
       gambar();
       toast(`${h.nama}: versi ${tglIndo(r.berlaku_mulai)} dihapus`);
@@ -2073,7 +2160,7 @@ function dialogPenyaluran(guruId, jenis) {
         langkah.tambah('ip_tunjangan_penyaluran', [isi])]);
       const acuanPindah = isi.berlaku_mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = isi.berlaku_mulai; await muatSemua(); }
-      await muatTunjangan();
+      await muatTunjangan(['salur']);
       buangHitungan();   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
       const a = angkaTunjangan(jenis, isi);
       toast(`${h.nama}: ${isi.bentuk}, dari sekolah ${rupiah(a.nominal)}${a.nominalKhusus ? '' : ' (bawaan)'}, `
@@ -2214,7 +2301,7 @@ function dialogRincianTambahan(jenis, id, guruId) {
       }
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = mulai; await muatSemua(); }
-      await muatTunjangan();
+      await muatTunjangan(['rincian']);
       buangHitungan();
       toast(`${nama}: ${TUNJANGAN[jenis]} ke ${isi.tujuan} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
         + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
@@ -2231,7 +2318,7 @@ function hapusRincian(r) {
     + 'Untuk menghentikan rincian yang memang pernah dibayar, pakai Akhiri — supaya rekap bulan lalu tetap benar.')) return false;
   jalankan('Menghapus…', async () => {
     await buang('ip_tunjangan_rincian', `id=eq.${r.id}`);
-    await muatTunjangan();
+    await muatTunjangan(['rincian']);
     buangHitungan();
     toast(`Rincian ${TUNJANGAN[r.jenis]} ke ${r.tujuan} milik ${nama} dihapus.`);
   });
@@ -2263,7 +2350,7 @@ function dialogAkhiriRincian(id) {
     tutupModal();
     jalankan('Menyimpan…', async () => {
       await ubah('ip_tunjangan_rincian', `id=eq.${r.id}`, { berlaku_sampai: sampai });
-      await muatTunjangan();
+      await muatTunjangan(['rincian']);
       buangHitungan();
       toast(`${nama}: ${TUNJANGAN[r.jenis]} ke ${r.tujuan} berakhir ${blnIndo(sampai)}.`);
     });
@@ -2351,7 +2438,7 @@ function hapusPotongan(p) {
     + 'Untuk menghentikan potongan yang memang pernah berjalan, pakai Akhiri — supaya rekap bulan lalu tetap benar.')) return false;
   jalankan('Menghapus…', async () => {
     await buang('ip_potongan', `id=eq.${p.id}`);
-    await muatTunjangan();
+    await muatTunjangan(['potongan']);
     buangHitungan();
     toast(`Potongan ${p.jenis} milik ${namaGuru} dihapus.`);
   });
@@ -2444,7 +2531,7 @@ function dialogPotongan(kelompok, id, guruTetap, jenisAwal) {
       }
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = mulai; await muatSemua(); }
-      await muatTunjangan();
+      await muatTunjangan(['potongan']);
       buangHitungan();
       toast(`${namaGuru}: ${isi.jenis} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
         + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
@@ -2479,7 +2566,7 @@ function dialogAkhiriPotongan(id) {
     tutupModal();
     jalankan('Menyimpan…', async () => {
       await ubah('ip_potongan', `id=eq.${p.id}`, { berlaku_sampai: sampai });
-      await muatTunjangan();
+      await muatTunjangan(['potongan']);
       buangHitungan();
       toast(`${namaGuru}: ${p.jenis} berakhir ${blnIndo(sampai)}.`);
     });
@@ -3409,6 +3496,7 @@ const rekapDiBagian = tab => Object.entries(REKAP).filter(([, v]) => (v.tab || '
 
 async function muatRekap() {
   const r = REKAP[ui.rekapJenis];
+  await pastikanBeku();
   const hasil = await hitung(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
   if (r === REKAP.pendukung && D.rekap) {
@@ -3613,6 +3701,7 @@ function halRekap() {
         <input class="field" type="date" id="rAkhir" value="${esc(ui.rekapAkhir)}" style="width:auto">
         <button class="btn btn-p" id="rHitung">Hitung</button>
       </div></div>
+    ${htmlBeku(true)}
 
     <div class="bagian-bar">${Object.entries(REKAP_BAGIAN).map(([k, nama]) =>
       `<button class="bagian${k === bagian ? ' on' : ''}" data-rbagian="${k}">${esc(nama)}</button>`).join('')}
@@ -3689,6 +3778,7 @@ function halRekap() {
 
     <p class="kecil">${esc(spek.catatan)}</p>`}`;
 
+  pasangBeku(() => muatRekap());
   $('#rHitung').onclick = () => {
     ui.rekapAwal = $('#rAwal').value || ui.rekapAwal;
     ui.rekapAkhir = $('#rAkhir').value || ui.rekapAkhir;
@@ -4090,16 +4180,50 @@ const KOLOM_SETORAN = [
      kartu ringkasan di atas tabel; Setoran = keduanya. */
 ];
 
+/* Fungsi hitung yang dipakai Setoran dan rincian struk, sebagai daftar
+   bersama: halaman-halamannya memanggil dari sini, dan mengunci periode
+   (daftarPanggilanPeriode) mengarsipkan persis daftar yang sama — tidak
+   mungkin ada hitungan yang terlewat dari arsip. [fungsi, argumen, pelengkap] */
+const PANGGILAN_SETORAN = arg => [
+  ['f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }],
+  ['f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }],
+  ['f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }],
+  ['f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }],
+  ['f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }],
+  ['f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }]
+];
+const PANGGILAN_STRUK = arg => [
+  ['f_ip_honor_mengajar', arg],
+  ['f_ip_honor_wali_kelas', arg],
+  ['f_ip_honor_diperbantukan', arg],
+  ['f_ip_transport_piket', { ...arg, p_jenis: 'Meja Sekolah' }],
+  ['f_ip_honor_pengganti', arg],
+  ['f_ip_transport_pembina', arg],
+  ['f_ip_transport_piket', { ...arg, p_jenis: 'Parkiran' }],
+  ['f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }],
+  ['f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }],
+  ['f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }],
+  ['f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }],
+  // Persentase kehadiran untuk struk — fungsi yang sama dengan halaman
+  // Kehadiran dan Piket, supaya angkanya tidak berbeda. Pelengkap: bila
+  // gagal, struk tetap terbit tanpa persentase.
+  ['f_ip_kehadiran_guru', arg, true],
+  ['f_ip_kehadiran_wali', arg, true],
+  ['f_ip_pelaksanaan_piket', arg, true],
+  // Honor staf (gaji, tunjangan jabatan, transpor, insentif, konsumsi) dan tenaga pendukung.
+  ['f_ip_honor_staf', arg],
+  ['f_ip_honor_pendukung', arg],
+  // Rincian tambahan TuSehat/TuKerja: hanya untuk menyebut tujuannya; nominalnya sudah di Keseluruhan.
+  ['f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }, true],
+  ['f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }, true]
+];
+const jalankanPanggilan = daftar => Promise.all(daftar.map(([f, a, pelengkap]) =>
+  pelengkap ? hitung(f, a).catch(() => []) : hitung(f, a)));
+
 async function muatSetoran() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
-  const [kesehatan, ketenagakerjaan, kopr, lain, rincSehat, rincKerja] = await Promise.all([
-    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
-    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
-    hitung('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
-    hitung('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
-    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }),
-    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' })
-  ]);
+  await pastikanBeku();
+  const [kesehatan, ketenagakerjaan, kopr, lain, rincSehat, rincKerja] = await jalankanPanggilan(PANGGILAN_SETORAN(arg));
   D.setoran = { awal: ui.rekapAwal, akhir: ui.rekapAkhir, kesehatan: kesehatan || [], ketenagakerjaan: ketenagakerjaan || [],
                 koperasi: kopr || [], sekolah: lain || [],
                 rincian: { kesehatan: rincSehat || [], ketenagakerjaan: rincKerja || [] } };
@@ -4173,6 +4297,7 @@ function halSetoran() {
         <input class="field" type="date" id="sAkhir" value="${esc(ui.rekapAkhir)}" style="width:auto">
         <button class="btn btn-p" id="sHitung">Hitung</button>
       </div></div>
+    ${htmlBeku(false)}
 
     <div class="bar">${Object.entries(SETORAN).map(([k, v]) =>
       `<button class="chip${k === tab ? ' on' : ''}" data-setoran="${k}">${esc(v.nama)}</button>`).join('')}</div>
@@ -4258,34 +4383,13 @@ function judulPeriodeRekap() {
    seandainya, bukan yang dibayarkan. */
 async function rincianStruk() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
-  const [mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek, jadwal, mapel,
-         hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung, rincSehat, rincKerja] = await Promise.all([
-    hitung('f_ip_honor_mengajar', arg),
-    hitung('f_ip_honor_wali_kelas', arg),
-    hitung('f_ip_honor_diperbantukan', arg),
-    hitung('f_ip_transport_piket', { ...arg, p_jenis: 'Meja Sekolah' }),
-    hitung('f_ip_honor_pengganti', arg),
-    hitung('f_ip_transport_pembina', arg),
-    hitung('f_ip_transport_piket', { ...arg, p_jenis: 'Parkiran' }),
-    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
-    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
-    hitung('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
-    hitung('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
+  await pastikanBeku();
+  const [[mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek,
+          hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung, rincSehat, rincKerja], jadwal, mapel] = await Promise.all([
+    jalankanPanggilan(PANGGILAN_STRUK(arg)),
     // Mata pelajaran hanya pelengkap; kegagalannya tidak menggagalkan struk.
     ambil('jadwal_kbm', 'select=guru_id,mapel_id').catch(() => []),
-    ambil('mapel', 'select=id,nama_mapel').catch(() => []),
-    // Persentase kehadiran untuk struk — fungsi yang sama dengan halaman
-    // Kehadiran dan Piket, supaya angkanya tidak berbeda. Pelengkap: bila
-    // gagal, struk tetap terbit tanpa persentase.
-    hitung('f_ip_kehadiran_guru', arg).catch(() => []),
-    hitung('f_ip_kehadiran_wali', arg).catch(() => []),
-    hitung('f_ip_pelaksanaan_piket', arg).catch(() => []),
-    // Honor staf (gaji, tunjangan jabatan, transpor, insentif, konsumsi) dan tenaga pendukung.
-    hitung('f_ip_honor_staf', arg),
-    hitung('f_ip_honor_pendukung', arg),
-    // Rincian tambahan TuSehat/TuKerja: hanya untuk menyebut tujuannya; nominalnya sudah di Keseluruhan.
-    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }).catch(() => []),
-    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }).catch(() => [])
+    ambil('mapel', 'select=id,nama_mapel').catch(() => [])
   ]);
   const R = {};
   const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [], sehatTambah: [], kerjaTambah: [] });
@@ -4860,6 +4964,128 @@ async function unduhHadir(isi) {
 }
 
 /* -------------------------------------------------- identitas dokumen */
+/* ------------------------------------------------ riwayat perubahan
+   (4 Oktober 2026) Setiap tambah, ubah, dan hapus pada tabel ip_* dicatat
+   database di ip_log — siapa, kapan, baris lama dan baris baru — oleh pemicu
+   yang tidak bisa dilewati aplikasi. Halaman ini hanya MEMBACA catatan itu,
+   supaya bendahara bisa menjawab "siapa mengubah besaran ini, dan kapan"
+   tanpa membuka database. Arsip kunci periode (ip_rekap_beku) tidak ikut di
+   daftar umum karena isinya besar; riwayat kuncinya ditampilkan tersendiri. */
+const LABEL_TABEL_LOG = {
+  ip_tarif: 'Besaran', ip_indeks: 'Indeks staf', ip_jenis_tarif: 'Jenis pembiayaan',
+  ip_pendukung: 'Komponen pendukung', ip_pendukung_orang: 'Periode bayar pendukung',
+  ip_tunjangan_penyaluran: 'Penyaluran tunjangan', ip_tunjangan_rincian: 'Rincian tunjangan',
+  ip_potongan: 'Potongan'
+};
+const AKSI_LOG = { insert: 'tambah', update: 'ubah', delete: 'hapus' };
+const KOLOM_TAK_DIRINGKAS = ['id', 'akun', 'dibuat_pada', 'diubah_pada'];
+const KOLOM_UTAMA_LOG = ['kode', 'jenis', 'kelompok', 'komponen', 'tujuan', 'bentuk', 'satuan', 'periode_bayar',
+  'batas_min', 'batas_maks', 'nilai', 'nominal', 'potongan', 'kenaikan', 'maksimum',
+  'berlaku_mulai', 'berlaku_sampai', 'keterangan', 'catatan'];
+const RIWAYAT_PER_HALAMAN = 100;
+
+async function muatRiwayat(lanjut) {
+  const r = D.riwayat && lanjut ? D.riwayat : { baris: [], habis: false, tabel: (D.riwayat && D.riwayat.tabel) || '' };
+  const saring = r.tabel ? `&tabel=eq.${enc(r.tabel)}` : '&tabel=neq.ip_rekap_beku';
+  const [baru, kunci] = await Promise.all([
+    ambil('ip_log', `select=id,waktu,akun,tabel,aksi,lama,baru${saring}&order=id.desc`
+      + `&limit=${RIWAYAT_PER_HALAMAN}&offset=${r.baris.length}`),
+    lanjut ? Promise.resolve(null)
+      : ambil('ip_rekap_beku', 'select=id,awal,akhir,dikunci_oleh,dikunci_pada,catatan,dibuka_oleh,dibuka_pada,alasan_buka&order=id.desc&limit=50')
+          .catch(() => [])   // tabel kunci periode belum ada: bagian itu kosong
+  ]);
+  r.baris = r.baris.concat(baru || []);
+  r.habis = (baru || []).length < RIWAYAT_PER_HALAMAN;
+  if (kunci) r.kunci = kunci;
+  D.riwayat = r;
+}
+
+function namaOrangLog(id) {
+  if (!id) return '';
+  const g = (D.guruAktif || []).find(x => x.id === id)
+    || ((D.tunjangan && D.tunjangan.guru) || []).find(x => x.id === id);
+  return g ? g.nama : id;
+}
+function nilaiLog(k, v) {
+  if (v === null || v === undefined || v === '') return '—';
+  if (['nilai', 'nominal', 'potongan'].includes(k) && !isNaN(Number(v))) return rupiah(v);
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+// Ringkasan satu catatan: yang berubah (ubah), atau isi pokoknya (tambah/hapus).
+function ringkasLog(c) {
+  if (c.aksi === 'update' && c.lama && c.baru) {
+    const beda = Object.keys(c.baru).filter(k => !KOLOM_TAK_DIRINGKAS.includes(k)
+      && JSON.stringify(c.lama[k]) !== JSON.stringify(c.baru[k]));
+    return beda.length ? beda.map(k => `${esc(k)}: ${esc(nilaiLog(k, c.lama[k]))} → <b>${esc(nilaiLog(k, c.baru[k]))}</b>`).join('<br>')
+      : '<span class="kecil">tanpa perubahan isi</span>';
+  }
+  const isi = c.baru || c.lama || {};
+  return KOLOM_UTAMA_LOG.filter(k => isi[k] !== undefined && isi[k] !== null && isi[k] !== '')
+    .map(k => `${esc(k)}: ${esc(nilaiLog(k, isi[k]))}`).join(' · ') || '<span class="kecil">—</span>';
+}
+function waktuLog(t) {
+  const d = new Date(t);
+  if (isNaN(d)) return esc(String(t || ''));
+  const p = n => String(n).padStart(2, '0');
+  return `${esc(tglIndo(`${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`))} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function halRiwayat() {
+  if (!D.riwayat) { jalankan('Memuat riwayat…', () => muatRiwayat(false)); return; }
+  const r = D.riwayat;
+  $('#isi').innerHTML = `
+    <div class="head"><div><h1>Riwayat Perubahan</h1>
+      <p>Setiap perubahan data pembiayaan, dicatat database: siapa, kapan, dan apa yang berubah.
+         Catatan ini tidak bisa diubah atau dihapus dari aplikasi mana pun.</p></div>
+      <div class="sp"></div>
+      <div class="mx-pilih">
+        <label class="kecil">Data</label>
+        <select class="field" id="rwTabel" style="width:auto">
+          <option value="">Semua</option>
+          ${Object.entries(LABEL_TABEL_LOG).map(([k, v]) => `<option value="${esc(k)}" ${r.tabel === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}
+        </select>
+        <button class="btn" id="rwUlang">Muat ulang</button>
+      </div></div>
+
+    <div class="panel"><div class="panel-head"><h3>Perubahan terbaru</h3>
+      <div class="sp" style="flex:1"></div><div class="info">${r.baris.length} catatan${r.habis ? '' : ' (ada yang lebih lama)'}</div></div>
+      <div class="scroll"><table><thead><tr>
+        <th style="width:150px">Waktu</th><th style="width:200px">Akun</th><th style="width:170px">Data</th>
+        <th style="width:70px">Aksi</th><th style="width:200px">Orang</th><th>Perubahan</th>
+      </tr></thead><tbody>${
+        r.baris.length ? r.baris.map(c => {
+          const isi = c.baru || c.lama || {};
+          return `<tr>
+            <td class="kecil">${waktuLog(c.waktu)}</td>
+            <td class="kecil">${esc(c.akun || '—')}</td>
+            <td>${esc(LABEL_TABEL_LOG[c.tabel] || c.tabel)}</td>
+            <td><span class="tag tag-l">${esc(AKSI_LOG[c.aksi] || c.aksi)}</span></td>
+            <td>${esc(namaOrangLog(isi.guru_id))}</td>
+            <td class="kecil">${ringkasLog(c)}</td></tr>`;
+        }).join('')
+        : '<tr><td colspan="6"><div class="empty"><b>Belum ada catatan</b>Perubahan sejak 4 Oktober 2026 tercatat di sini.</div></td></tr>'
+      }</tbody></table></div>
+      ${r.habis ? '' : '<div class="foot"><div class="sp" style="flex:1"></div><button class="btn btn-sm" id="rwLagi">Muat lebih banyak</button></div>'}
+    </div>
+
+    <div class="panel"><div class="panel-head"><h3>Kunci periode</h3></div>
+      <div class="scroll"><table><thead><tr>
+        <th style="width:190px">Periode</th><th>Dikunci</th><th>Dibuka</th>
+      </tr></thead><tbody>${
+        (r.kunci || []).length ? r.kunci.map(k => `<tr>
+          <td>${esc(tglIndo(k.awal))} – ${esc(tglIndo(k.akhir))}</td>
+          <td class="kecil">${waktuLog(k.dikunci_pada)} · ${esc(k.dikunci_oleh || '—')}${k.catatan ? ' — ' + esc(k.catatan) : ''}</td>
+          <td class="kecil">${k.dibuka_pada ? `${waktuLog(k.dibuka_pada)} · ${esc(k.dibuka_oleh || '—')} — ${esc(k.alasan_buka || '')}`
+            : '<b>masih dikunci</b>'}</td></tr>`).join('')
+        : '<tr><td colspan="3"><div class="empty"><b>Belum ada periode yang dikunci</b>Kunci periode dari halaman Honor dan Transpor sesudah dibayarkan.</div></td></tr>'
+      }</tbody></table></div></div>`;
+
+  $('#rwTabel').onchange = e => { D.riwayat.tabel = e.target.value; jalankan('Memuat riwayat…', () => muatRiwayat(false)); };
+  $('#rwUlang').onclick = () => jalankan('Memuat riwayat…', () => muatRiwayat(false));
+  if ($('#rwLagi')) $('#rwLagi').onclick = () => jalankan('Memuat riwayat…', () => muatRiwayat(true));
+}
+
 function halIdentitas() {
   const p = D.profil;
   const baris = (label, nilai) => `<tr><td style="width:220px;font-weight:500">${esc(label)}</td>
