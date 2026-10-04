@@ -1456,6 +1456,8 @@ async function unduhTemplateTunjangan(tab) {
   const kepala = ws.getRow(4);
   kolom.forEach(([t], i) => { const c = kepala.getCell(i + 1); c.value = t; c.font = tebal;
     c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9EEF6' } }; c.border = { bottom: { style: 'thin' } }; });
+  // Kepala tabel: kata tidak terpotong di tengah (pasKepalaExcel, 4 Oktober 2026).
+  pasKepalaExcel(ws, 4, 4, { kolomAkhir: kolom.length });
   baris.forEach((isi, r) => {
     const row = ws.getRow(5 + r);
     isi.forEach((v, i) => {
@@ -3798,6 +3800,8 @@ function kepalaExcel(ws, r, judul, F) {
     c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
   });
   ws.getRow(r).height = 30;
+  // Kepala tabel: kata tidak terpotong di tengah (pasKepalaExcel, 4 Oktober 2026).
+  pasKepalaExcel(ws, r, r, { kolomAkhir: judul.length });
 }
 const penulisSel = (ws, F) => (br, kl, nilai, opsi = {}) => {
   const c = ws.getCell(br, kl);
