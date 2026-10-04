@@ -101,11 +101,13 @@ function toast(pesan, salah) {
 }
 function sibuk(t) { $('#busy-root').innerHTML = t ? `<div class="sibuk">${esc(t)}</div>` : ''; }
 
+let sedangBekerja = 0;   // jumlah jalankan() yang belum selesai
 async function jalankan(pesan, fn) {
+  sedangBekerja++;
   sibuk(pesan);
   try { await fn(); }
   catch (e) { toast(pesanRamah(e), true); }
-  finally { sibuk(''); gambar(); }
+  finally { sedangBekerja--; sibuk(''); gambar(); }
 }
 function pesanRamah(e) {
   const m = e && e.message ? e.message : String(e);
@@ -117,23 +119,88 @@ function pesanRamah(e) {
 }
 
 /* ------------------------------------------------------------ database */
-async function api(jalur, opsi = {}) {
-  const r = await fetch(KONFIG.url + jalur, {
-    ...opsi,
-    cache: 'no-store',   // data selalu segar dari server, tidak pernah dari cache peramban
-    headers: {
-      apikey: KONFIG.anonKey,
-      Authorization: 'Bearer ' + (sesi.token || KONFIG.anonKey),
-      'Content-Type': 'application/json',
-      ...(opsi.headers || {})
-    }
-  });
-  const teks = await r.text();
+/* Jaringan sekolah sering lambat atau putus-sambung (4 Oktober 2026).
+   Permintaan yang macet tidak boleh menahan layar "Memuat…" selamanya: ia
+   dibatalkan setelah batas waktu. Pembacaan (GET dan fungsi hitung f_ip_*)
+   dicoba sekali lagi bila sambungan putus, habis waktu, atau server sibuk.
+   Penulisan TIDAK diulang otomatis — bisa saja sudah tersimpan di server
+   walaupun jawabannya tidak sampai. */
+const BATAS_BACA = 45000, BATAS_TULIS = 90000;
+const jeda = ms => new Promise(s => setTimeout(s, ms));
+const bolehUlang = (jalur, opsi) => !opsi.method || opsi.method === 'GET'
+  || (jalur.startsWith('/rest/v1/rpc/f_ip_') && !jalur.startsWith('/rest/v1/rpc/f_ip_tulis'));
+
+async function api(jalur, opsi = {}, percobaan = 0) {
+  // Token akses Supabase berumur satu jam; diperbarui diam-diam semenit
+  // sebelum habis supaya pekerjaan yang sedang diisi tidak hilang.
+  if (sesi.segar && sesi.habis && Date.now() > sesi.habis - 60000) {
+    try { await segarkanSesi(); } catch (e) { sesiBerakhir(); throw new Error('Sesi berakhir'); }
+  }
+  const baca = bolehUlang(jalur, opsi);
+  const henti = new AbortController();
+  const jam = setTimeout(() => henti.abort(), baca ? BATAS_BACA : BATAS_TULIS);
+  let r, teks;
+  try {
+    r = await fetch(KONFIG.url + jalur, {
+      ...opsi,
+      signal: henti.signal,
+      cache: 'no-store',   // data selalu segar dari server, tidak pernah dari cache peramban
+      headers: {
+        apikey: KONFIG.anonKey,
+        Authorization: 'Bearer ' + (sesi.token || KONFIG.anonKey),
+        'Content-Type': 'application/json',
+        ...(opsi.headers || {})
+      }
+    });
+    teks = await r.text();
+  } catch (e) {
+    if (baca && percobaan < 1) { await jeda(1500); return api(jalur, opsi, percobaan + 1); }
+    const habis = e && e.name === 'AbortError';
+    throw new Error(baca
+      ? (habis ? 'Server terlalu lama menjawab.' : 'Sambungan internet terputus.') + ' Periksa jaringan lalu coba lagi.'
+      : (habis ? 'Server terlalu lama menjawab saat menyimpan.' : 'Sambungan terputus saat menyimpan.')
+        + ' Perubahan mungkin sudah tersimpan — muat ulang halaman ini dan periksa sebelum mengulang.');
+  } finally { clearTimeout(jam); }
   let data = null;
   try { data = teks ? JSON.parse(teks) : null; } catch (e) {}
-  if (r.status === 401) { sesi.token = ''; layarMasuk('Sesi berakhir. Silakan masuk kembali.'); throw new Error('Sesi berakhir'); }
+  if (r.status === 401) {
+    // Ditolak sebelum dijalankan, jadi aman diulang sekali sesudah token baru.
+    if (sesi.segar && percobaan < 1) {
+      const segar = await segarkanSesi().then(() => true, () => false);
+      if (segar) return api(jalur, opsi, percobaan + 1);
+    }
+    sesiBerakhir();
+    throw new Error('Sesi berakhir');
+  }
+  if (baca && percobaan < 1 && [502, 503, 504].includes(r.status)) { await jeda(1500); return api(jalur, opsi, percobaan + 1); }
   if (!r.ok) throw new Error((data && (data.message || data.hint || data.error_description)) || `Gagal (HTTP ${r.status})`);
   return data;
+}
+function sesiBerakhir() {
+  sesi.token = ''; sesi.segar = ''; sesi.habis = 0;
+  layarMasuk('Sesi berakhir. Silakan masuk kembali.');
+}
+/* Token hanya di memori halaman (tidak di localStorage), termasuk token
+   penyegarnya; menutup tab berarti keluar. Satu penyegaran untuk semua
+   permintaan yang menunggu bersamaan — token penyegar Supabase sekali pakai. */
+function simpanToken(d) {
+  sesi.token = d.access_token;
+  sesi.segar = d.refresh_token || '';
+  sesi.habis = Date.now() + (Number(d.expires_in) || 3600) * 1000;
+}
+let penyegaran = null;
+function segarkanSesi() {
+  if (!penyegaran) penyegaran = (async () => {
+    const r = await fetch(KONFIG.url + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: { apikey: KONFIG.anonKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: sesi.segar })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.access_token) throw new Error('Sesi berakhir');
+    simpanToken(d);
+  })().finally(() => { penyegaran = null; });
+  return penyegaran;
 }
 const ambil = (tabel, query = '') => api(`/rest/v1/${tabel}?${query}`);
 const simpanBaru = (tabel, isi) =>
@@ -145,6 +212,18 @@ const ubah = (tabel, syarat, isi) =>
    berlaku pada tanggal ini", dan itulah dasar seluruh perhitungan. */
 const rpc = (nama, argumen) =>
   api(`/rest/v1/rpc/${nama}`, { method: 'POST', body: JSON.stringify(argumen) });
+/* Penyimpanan yang lebih dari satu langkah (hapus versi bertanggal sama lalu
+   sisipkan, akhiri baris lama lalu tambah yang baru, unggah isian) dikirim
+   sekaligus ke f_ip_tulis: satu transaksi, satu perjalanan jaringan. Bila
+   sambungan putus di tengah, tidak ada yang tersimpan — bukan versi lama
+   terhapus sementara versi barunya belum masuk. Syarat ubah/hapus selalu
+   "kolom sama dengan nilai". */
+const langkah = {
+  tambah: (tabel, isi) => ({ tabel, aksi: 'tambah', isi }),
+  ubah:   (tabel, syarat, isi) => ({ tabel, aksi: 'ubah', syarat, isi }),
+  hapus:  (tabel, syarat) => ({ tabel, aksi: 'hapus', syarat })
+};
+const tulisBersama = daftar => rpc('f_ip_tulis', { p_langkah: daftar });
 
 async function masuk(email, sandi) {
   const r = await fetch(KONFIG.url + '/auth/v1/token?grant_type=password', {
@@ -154,8 +233,36 @@ async function masuk(email, sandi) {
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(d.error_description || d.msg || 'Email atau kata sandi salah.');
-  sesi.token = d.access_token;
+  simpanToken(d);
+  // Masuk kembali sesudah sesi berakhir bisa dengan akun lain: apa pun yang
+  // dimuat atas nama akun sebelumnya dibuang.
+  if (sesi.email && sesi.email !== email) {
+    sesi.nama = ''; sesi.peran = '';
+    buangHitungan(); D.tunjangan = null; D.hadir = null;
+  }
   sesi.email = email;
+}
+
+/* Hasil fungsi hitung f_ip_* disimpan di memori per nama + argumen, dipakai
+   bersama oleh tab Honor dan Transpor, Cetak Struk, Setoran, dan Kehadiran:
+   pindah tab atau membuka struk sesudah tabnya tidak menunggu jaringan lagi,
+   dan servernya tidak menghitung hal yang sama dua kali. Hanya di memori
+   halaman, tidak pernah di penyimpanan peramban. Dibuang seluruhnya oleh
+   buangHitungan() — setiap kali ada yang disimpan, tombol Hitung ditekan,
+   atau kembali ke tab ini sesudah beberapa saat. Tiap pemakai mendapat
+   salinan, jadi baris yang diubah di satu tempat tidak mengotori yang lain. */
+const tembolokHitung = new Map();
+let rincianStrukSimpan = null;   // rincian struk satu periode, lihat rincianStrukTembolok()
+function hitung(nama, argumen) {
+  const kunci = nama + JSON.stringify(argumen);
+  if (!tembolokHitung.has(kunci))
+    tembolokHitung.set(kunci, rpc(nama, argumen).catch(e => { tembolokHitung.delete(kunci); throw e; }));
+  return tembolokHitung.get(kunci).then(h => structuredClone(h));
+}
+function buangHitungan() {
+  tembolokHitung.clear();
+  rincianStrukSimpan = null;
+  D.rekap = null; D.setoran = null;
 }
 
 /* -------------------------------------------------------- muat semua */
@@ -164,7 +271,11 @@ async function muatSemua() {
   // Katalog jenis, besaran yang berlaku pada tanggal acuan, dan seluruh
   // versi — yang terakhir untuk menunjukkan versi yang BELUM berlaku, supaya
   // besaran yang baru disimpan untuk bulan depan tidak tampak hilang.
-  [D.jenis, D.tarif, D.tarifSemua, D.indeks, D.pendukung, D.orangPendukung, D.guruAktif, D.periodeBayar] = await Promise.all([
+  // Identitas dokumen (milik Data Induk) dan nama petugas ikut dalam satu
+  // gelombang yang sama — dulu menunggu dua perjalanan jaringan lagi sesudahnya.
+  // Kegagalan keduanya tidak menjatuhkan halaman: kop kosong, sudut berisi email.
+  let pr, o;
+  [D.jenis, D.tarif, D.tarifSemua, D.indeks, D.pendukung, D.orangPendukung, D.guruAktif, D.periodeBayar, pr, o] = await Promise.all([
     ambil('ip_jenis_tarif', 'select=*&order=urutan'),
     rpc('f_ip_tarif', { p_acuan: ui.acuan }),
     ambil('ip_tarif', 'select=kode,berlaku_mulai,batas_min,batas_maks,nilai&order=berlaku_mulai.asc,batas_min.asc'),
@@ -175,7 +286,10 @@ async function muatSemua() {
     ambil('v_jam_kerja_guru', 'select=guru_id,nama,jabatan,kelompok_tarif&kelompok_tarif=eq.pendukung'),
     ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif&order=nama'),
     // Periode bayar tenaga pendukung (bulanan / mingguan); tanpa baris = bulanan.
-    ambil('ip_pendukung_orang', 'select=guru_id,periode_bayar').catch(() => [])
+    ambil('ip_pendukung_orang', 'select=guru_id,periode_bayar').catch(() => []),
+    ambil('v_penanda_tangan', 'select=*&limit=1').catch(e => ({ galat: e.message })),
+    // Nama petugas cukup sekali per masuk, bukan setiap muat ulang.
+    sesi.peran ? null : ambil('operator_data', `select=nama,peran&email=eq.${enc(sesi.email)}&limit=1`).catch(() => null)
   ]);
 
   // RLS menolak dengan mengembalikan tabel kosong, bukan galat. Tanpa
@@ -186,22 +300,10 @@ async function muatSemua() {
     'Akun ini belum berhak membuka Induk Pembiayaan. Emailnya perlu didaftarkan '
     + 'di operator_data dengan peran operator atau bendahara.');
 
-  // Identitas dokumen milik Data Induk. Kegagalannya tidak menjatuhkan
-  // halaman lain — hanya kop dokumen yang kosong.
-  try {
-    const pr = await ambil('v_penanda_tangan', 'select=*&limit=1');
-    D.profil = (pr && pr[0]) || null;
-  } catch (e) {
-    D.profil = null;
-    D.galat.profil = e.message;
-  }
-
-  // Nama petugas diambil dari operator_data bila ada, supaya yang tampil di
-  // sudut bukan alamat email.
-  try {
-    const o = await ambil('operator_data', `select=nama,peran&email=eq.${enc(sesi.email)}&limit=1`);
-    if (o && o[0]) { sesi.nama = o[0].nama || sesi.email; sesi.peran = o[0].peran; }
-  } catch (e) { /* bukan penghalang */ }
+  if (pr && pr.galat) { D.profil = null; D.galat.profil = pr.galat; }
+  else D.profil = (pr && pr[0]) || null;
+  // Nama petugas dari operator_data bila ada, supaya yang tampil di sudut bukan alamat email.
+  if (o && o[0]) { sesi.nama = o[0].nama || sesi.email; sesi.peran = o[0].peran; }
   if (!sesi.nama) sesi.nama = sesi.email;
 }
 
@@ -238,19 +340,37 @@ function layarUtama() {
   $('#layar').appendChild($('#tpl-utama').content.cloneNode(true));
   $('#fPetugas').textContent = sesi.nama;
   $('#fPeran').textContent = sesi.peran === 'bendahara' ? 'Bendahara' : 'Operator';
-  $('#bKeluar').onclick = () => { sesi = { token: '', email: '', nama: '' }; layarMasuk(); };
+  /* Keluar mencabut sesi di server (token penyegarnya tidak bisa dipakai
+     lagi) lalu memuat ulang halaman, supaya angka gaji yang sudah dimuat
+     tidak tertinggal di memori tab. */
+  $('#bKeluar').onclick = async () => {
+    sibuk('Keluar…');
+    const henti = new AbortController();
+    setTimeout(() => henti.abort(), 5000);
+    try {
+      await fetch(KONFIG.url + '/auth/v1/logout', { method: 'POST', signal: henti.signal,
+        headers: { apikey: KONFIG.anonKey, Authorization: 'Bearer ' + sesi.token } });
+    } catch (e) { /* tetap keluar walau server tidak terjangkau */ }
+    sesi = { token: '', email: '', nama: '' };
+    location.reload();
+  };
   /* Kembali ke tab ini sesudah beberapa saat (26 September 2026): data yang
      diubah di aplikasi lain — pengesahan TuSehat/TuKerja dan jam kerja di Data
      Induk, kehadiran di Kehadiran Guru — tidak akan terlihat bila halaman
      memakai hasil muatan lama. Hitungan yang tersimpan dibuang dan halaman
-     yang sedang dibuka dimuat ulang dengan periode yang sama. */
+     yang sedang dibuka dimuat ulang dengan periode yang sama.
+     Sejak 4 Oktober 2026 batasnya 5 menit, bukan 15 detik: membalas WhatsApp
+     sebentar tidak perlu memuat ulang seluruh halaman lewat jaringan yang
+     lambat. Tidak dimuat ulang selama masih ada pekerjaan berjalan
+     (menyimpan, membaca berkas isian), supaya keduanya tidak bertabrakan. */
   let tersembunyiSejak = 0;
   document.onvisibilitychange = () => {
     if (document.hidden) { tersembunyiSejak = Date.now(); return; }
-    if (!tersembunyiSejak || Date.now() - tersembunyiSejak < 15000 || $('#modal-root').innerHTML) return;
+    if (!tersembunyiSejak || Date.now() - tersembunyiSejak < 300000 || $('#modal-root').innerHTML || sedangBekerja) return;
     tersembunyiSejak = 0;
-    D.tunjangan = null; D.rekap = null; D.setoran = null;
-    if (halaman === 'rekap' && ui.rekapAwal && ui.rekapAkhir) jalankan('Memuat ulang…', muatRekap);
+    D.tunjangan = null; buangHitungan();
+    if (halaman === 'tunjangan') jalankan('Memuat ulang…', muatTunjangan);
+    else if (halaman === 'rekap' && ui.rekapAwal && ui.rekapAkhir) jalankan('Memuat ulang…', muatRekap);
     else if (halaman === 'setoran' && ui.rekapAwal && ui.rekapAkhir) jalankan('Memuat ulang…', muatSetoran);
     else if (halaman === 'hadir' && D.hadir) jalankan('Memuat ulang…', muatHadir);
     else jalankan('Memuat ulang…', muatSemua);
@@ -538,7 +658,7 @@ function halNominal() {
     if (!window.confirm(`Hapus komponen ${p.komponen} (${rupiah(p.nilai)} ${p.satuan}, berlaku ${tglIndo(p.berlaku_mulai)})? Tidak bisa dibatalkan.`)) return;
     jalankan('Menghapus…', async () => {
       await buang('ip_pendukung', `id=eq.${p.id}`);
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       await muatSemua();
       toast(`Komponen ${p.komponen} dihapus`);
     });
@@ -551,7 +671,7 @@ function halNominal() {
         headers: { Prefer: 'resolution=merge-duplicates' },
         body: JSON.stringify([{ guru_id: guruId, periode_bayar: nilai, diubah_pada: new Date().toISOString() }]) });
       D.periodeBayar = await ambil('ip_pendukung_orang', 'select=guru_id,periode_bayar');
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       toast(nilai === 'mingguan'
         ? 'Dibayar mingguan: kartunya di Honor dan Transpor memakai pekan sendiri, dan tidak ikut Keseluruhan/struk bulanan.'
         : 'Dibayar bulanan: ikut rentang Honor dan Transpor, Keseluruhan, dan struk.');
@@ -677,18 +797,21 @@ function formPendukung(guruId, lama) {
                   berlaku_mulai: mulai, catatan: $('#pd-catatan').value.trim() || null };
     tutupModal();
     jalankan('Menyimpan…', async () => {
+      const daftar = [];
       if (lama) {
         const sampai = geserHari(mulai, -1);
         // Versi lama berhenti sehari sebelum versi baru; bila versi baru mulai
         // lebih awal dari versi lama, versi lama tidak pernah berlaku — dibuang.
-        if (sampai >= lama.berlaku_mulai) await ubah('ip_pendukung', `id=eq.${lama.id}`, { berlaku_sampai: sampai });
-        else await buang('ip_pendukung', `id=eq.${lama.id}`);
+        daftar.push(sampai >= lama.berlaku_mulai
+          ? langkah.ubah('ip_pendukung', { id: lama.id }, { berlaku_sampai: sampai })
+          : langkah.hapus('ip_pendukung', { id: lama.id }));
       }
-      await buang('ip_pendukung', `guru_id=eq.${enc(guruId)}&komponen=eq.${enc(komponen)}&berlaku_mulai=eq.${enc(mulai)}`);
-      await simpanBaru('ip_pendukung', [isi]);
+      daftar.push(langkah.hapus('ip_pendukung', { guru_id: guruId, komponen, berlaku_mulai: mulai }),
+                  langkah.tambah('ip_pendukung', [isi]));
+      await tulisBersama(daftar);
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) ui.acuan = mulai;
-      D.rekap = null; D.setoran = null;   // rekap yang sudah dihitung memakai komponen lama
+      buangHitungan();   // rekap yang sudah dihitung memakai komponen lama
       await muatSemua();
       toast(`${orang.nama}: ${komponen} ${rupiah(isi.nilai)} ${isi.satuan}, berlaku ${tglIndo(mulai)}`
         + (acuanPindah ? `. Tanggal acuan halaman dipindahkan ke ${tglIndo(mulai)}.` : ''));
@@ -714,7 +837,7 @@ function akhiriPendukung(p) {
     tutupModal();
     jalankan('Menyimpan…', async () => {
       await ubah('ip_pendukung', `id=eq.${p.id}`, { berlaku_sampai: sampai });
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       await muatSemua();
       toast(`${orang.nama}: ${p.komponen} berakhir ${tglIndo(sampai)}`);
     });
@@ -882,20 +1005,19 @@ function formTarif(kode) {
     jalankan('Menyimpan…', async () => {
       // Versi dengan tanggal berlaku yang sama ditulis ulang seluruhnya,
       // supaya jenjang yang dihapus di formulir ikut hilang.
-      const kodeSemua = kodePot ? `in.(${enc(kode)},${enc(kodePot)})` : `eq.${enc(kode)}`;
-      await buang('ip_tarif', `kode=${kodeSemua}&berlaku_mulai=eq.${enc(mulai)}`);
-      await simpanBaru('ip_tarif', baris);
-      if (barisIndeks) {
-        await buang('ip_indeks', `kode=eq.${enc(kode)}&berlaku_mulai=eq.${enc(mulai)}`);
-        await simpanBaru('ip_indeks', [barisIndeks]);
-      }
+      const daftar = [kode, ...(kodePot ? [kodePot] : [])]
+        .map(k => langkah.hapus('ip_tarif', { kode: k, berlaku_mulai: mulai }));
+      daftar.push(langkah.tambah('ip_tarif', baris));
+      if (barisIndeks) daftar.push(langkah.hapus('ip_indeks', { kode, berlaku_mulai: mulai }),
+                                   langkah.tambah('ip_indeks', [barisIndeks]));
+      await tulisBersama(daftar);
       /* Bila versi barunya belum berlaku pada tanggal acuan, halaman akan
          tetap menampilkan versi lama dan besaran yang baru saja disimpan
          tampak hilang. Tanggal acuannya dipindahkan ke tanggal berlakunya,
          dan pemindahan itu disebut di pesan. */
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) ui.acuan = mulai;
-      D.rekap = null; D.setoran = null;   // rekap yang sudah dihitung memakai besaran lama
+      buangHitungan();   // rekap yang sudah dihitung memakai besaran lama
       await muatSemua();
       toast(`${j.nama}: besaran baru berlaku ${tglIndo(mulai)}`
         + (acuanPindah ? `. Tanggal acuan halaman dipindahkan ke ${tglIndo(mulai)} supaya besaran itu terlihat.` : ''));
@@ -945,10 +1067,11 @@ function dialogRiwayat(kode) {
       if (!window.confirm(`Hapus versi ${j.nama} yang berlaku mulai ${tglIndo(mulai)}? Tidak bisa dibatalkan.`)) return;
       tutupModal();
       jalankan('Menghapus…', async () => {
-        const kodeSemua = kodePot ? `in.(${enc(kode)},${enc(kodePot)})` : `eq.${enc(kode)}`;
-        await buang('ip_tarif', `kode=${kodeSemua}&berlaku_mulai=eq.${enc(mulai)}`);
-        if (j.bentuk === 'indeks') await buang('ip_indeks', `kode=eq.${enc(kode)}&berlaku_mulai=eq.${enc(mulai)}`);
-        D.rekap = null; D.setoran = null;
+        const daftar = [kode, ...(kodePot ? [kodePot] : [])]
+          .map(k => langkah.hapus('ip_tarif', { kode: k, berlaku_mulai: mulai }));
+        if (j.bentuk === 'indeks') daftar.push(langkah.hapus('ip_indeks', { kode, berlaku_mulai: mulai }));
+        await tulisBersama(daftar);
+        buangHitungan();
         await muatSemua();
         toast(`${j.nama}: versi ${tglIndo(mulai)} dihapus`);
         dialogRiwayat(kode);
@@ -1418,21 +1541,21 @@ async function unggahTemplateTunjangan(tab, berkas) {
   if (!window.confirm(`Simpan ${tulis.length} perubahan ${spek.nama}?\n\n${ringkas}${tulis.length > 12 ? `\n… dan ${tulis.length - 12} lagi` : ''}`
       + (salah.length ? `\n\n${salah.length} baris dilewati karena bermasalah:\n${salah.slice(0, 8).join('\n')}` : ''))) return;
 
-  for (const t of tulis) {
-    if (spek.jenis) {
-      await buang('ip_tunjangan_penyaluran', `guru_id=eq.${enc(t.isi.guru_id)}&jenis=eq.${enc(t.isi.jenis)}&berlaku_mulai=eq.${enc(t.isi.berlaku_mulai)}`);
-      await simpanBaru('ip_tunjangan_penyaluran', [t.isi]);
-    } else if (t.lama && t.isi.berlaku_mulai > t.lama.berlaku_mulai) {
-      await ubah('ip_potongan', `id=eq.${t.lama.id}`, { berlaku_sampai: bulanSebelum(t.isi.berlaku_mulai) });
-      await simpanBaru('ip_potongan', [t.isi]);
-    } else if (t.lama) {
-      await ubah('ip_potongan', `id=eq.${t.lama.id}`, t.isi);
-    } else {
-      await simpanBaru('ip_potongan', [t.isi]);
-    }
-  }
+  // Seluruh isian dalam satu transaksi: tersimpan semua atau tidak sama
+  // sekali, bukan berhenti di baris ke-sekian bila sambungan putus.
+  const daftar = tulis.flatMap(t => {
+    if (spek.jenis) return [
+      langkah.hapus('ip_tunjangan_penyaluran', { guru_id: t.isi.guru_id, jenis: t.isi.jenis, berlaku_mulai: t.isi.berlaku_mulai }),
+      langkah.tambah('ip_tunjangan_penyaluran', [t.isi])];
+    if (t.lama && t.isi.berlaku_mulai > t.lama.berlaku_mulai) return [
+      langkah.ubah('ip_potongan', { id: t.lama.id }, { berlaku_sampai: bulanSebelum(t.isi.berlaku_mulai) }),
+      langkah.tambah('ip_potongan', [t.isi])];
+    if (t.lama) return [langkah.ubah('ip_potongan', { id: t.lama.id }, t.isi)];
+    return [langkah.tambah('ip_potongan', [t.isi])];
+  });
+  await tulisBersama(daftar);
   await muatTunjangan();
-  D.rekap = null; D.setoran = null;
+  buangHitungan();
   toast(`${tulis.length} perubahan ${spek.nama} tersimpan${salah.length ? `; ${salah.length} baris dilewati` : ''}.`);
 }
 
@@ -1744,16 +1867,16 @@ function ubahKeanggotaan(guruId, jadiAnggota) {
     dialogAturPotongan('koperasi', guruId); return;
   }
   jalankan('Menyimpan…', async () => {
-    for (const p of iuranRows) {
-      if (p.berlaku_mulai < bulanAcuan) await ubah('ip_potongan', `id=eq.${p.id}`, { berlaku_sampai: bulanSebelum(bulanAcuan) });
-      else await buang('ip_potongan', `id=eq.${p.id}`);
-    }
-    if (!jadiAnggota) await simpanBaru('ip_potongan', [{
+    const daftar = iuranRows.map(p => p.berlaku_mulai < bulanAcuan
+      ? langkah.ubah('ip_potongan', { id: p.id }, { berlaku_sampai: bulanSebelum(bulanAcuan) })
+      : langkah.hapus('ip_potongan', { id: p.id }));
+    if (!jadiAnggota) daftar.push(langkah.tambah('ip_potongan', [{
       guru_id: guruId, kelompok: 'koperasi', jenis: IURAN_KOPERASI, nominal: 0,
       berlaku_mulai: bulanAcuan, berlaku_sampai: null, keterangan: 'Bukan anggota koperasi'
-    }]);
+    }]));
+    if (daftar.length) await tulisBersama(daftar);
     await muatTunjangan();
-    D.rekap = null; D.setoran = null;
+    buangHitungan();
     toast(`${g.nama}: ${jadiAnggota ? 'anggota koperasi, iuran mengikuti bawaan' : 'bukan anggota koperasi, iuran Rp 0'} sejak ${blnIndo(bulanAcuan)}.`);
   });
 }
@@ -1863,7 +1986,7 @@ function dialogPenyaluran(guruId, jenis) {
     jalankan('Menghapus…', async () => {
       await buang('ip_tunjangan_penyaluran', `id=eq.${r.id}`);
       await muatTunjangan();
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       gambar();
       toast(`${h.nama}: versi ${tglIndo(r.berlaku_mulai)} dihapus`);
       dialogPenyaluran(guruId, jenis);
@@ -1885,13 +2008,13 @@ function dialogPenyaluran(guruId, jenis) {
     tutupModal();
     jalankan('Menyimpan…', async () => {
       // Versi dengan tanggal berlaku yang sama ditulis ulang, seperti besaran.
-      await buang('ip_tunjangan_penyaluran',
-        `guru_id=eq.${enc(guruId)}&jenis=eq.${enc(jenis)}&berlaku_mulai=eq.${enc(isi.berlaku_mulai)}`);
-      await simpanBaru('ip_tunjangan_penyaluran', [isi]);
+      await tulisBersama([
+        langkah.hapus('ip_tunjangan_penyaluran', { guru_id: guruId, jenis, berlaku_mulai: isi.berlaku_mulai }),
+        langkah.tambah('ip_tunjangan_penyaluran', [isi])]);
       const acuanPindah = isi.berlaku_mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = isi.berlaku_mulai; await muatSemua(); }
       await muatTunjangan();
-      D.rekap = null; D.setoran = null;   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
+      buangHitungan();   // rekap yang sudah dihitung tidak lagi mencerminkan penyaluran baru
       const a = angkaTunjangan(jenis, isi);
       toast(`${h.nama}: ${isi.bentuk}, dari sekolah ${rupiah(a.nominal)}${a.nominalKhusus ? '' : ' (bawaan)'}, `
         + `potongan ${rupiah(a.potongan)}${a.potonganKhusus ? '' : ' (bawaan)'}/bulan, berlaku ${tglIndo(isi.berlaku_mulai)}`
@@ -2021,8 +2144,9 @@ function dialogRincianTambahan(jenis, id, guruId) {
     tutupModal();
     jalankan('Menyimpan…', async () => {
       if (lama && mulai > lama.berlaku_mulai) {
-        await ubah('ip_tunjangan_rincian', `id=eq.${lama.id}`, { berlaku_sampai: bulanSebelum(mulai) });
-        await simpanBaru('ip_tunjangan_rincian', [isi]);
+        await tulisBersama([
+          langkah.ubah('ip_tunjangan_rincian', { id: lama.id }, { berlaku_sampai: bulanSebelum(mulai) }),
+          langkah.tambah('ip_tunjangan_rincian', [isi])]);
       } else if (lama) {
         await ubah('ip_tunjangan_rincian', `id=eq.${lama.id}`, isi);
       } else {
@@ -2031,7 +2155,7 @@ function dialogRincianTambahan(jenis, id, guruId) {
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = mulai; await muatSemua(); }
       await muatTunjangan();
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       toast(`${nama}: ${TUNJANGAN[jenis]} ke ${isi.tujuan} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
         + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
         + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(mulai)} supaya terlihat.` : ''));
@@ -2048,7 +2172,7 @@ function hapusRincian(r) {
   jalankan('Menghapus…', async () => {
     await buang('ip_tunjangan_rincian', `id=eq.${r.id}`);
     await muatTunjangan();
-    D.rekap = null; D.setoran = null;
+    buangHitungan();
     toast(`Rincian ${TUNJANGAN[r.jenis]} ke ${r.tujuan} milik ${nama} dihapus.`);
   });
   return true;
@@ -2080,7 +2204,7 @@ function dialogAkhiriRincian(id) {
     jalankan('Menyimpan…', async () => {
       await ubah('ip_tunjangan_rincian', `id=eq.${r.id}`, { berlaku_sampai: sampai });
       await muatTunjangan();
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       toast(`${nama}: ${TUNJANGAN[r.jenis]} ke ${r.tujuan} berakhir ${blnIndo(sampai)}.`);
     });
   };
@@ -2168,7 +2292,7 @@ function hapusPotongan(p) {
   jalankan('Menghapus…', async () => {
     await buang('ip_potongan', `id=eq.${p.id}`);
     await muatTunjangan();
-    D.rekap = null; D.setoran = null;
+    buangHitungan();
     toast(`Potongan ${p.jenis} milik ${namaGuru} dihapus.`);
   });
   return true;
@@ -2250,8 +2374,9 @@ function dialogPotongan(kelompok, id, guruTetap, jenisAwal) {
     jalankan('Menyimpan…', async () => {
       if (lama && mulai > lama.berlaku_mulai) {
         // Versi baru: baris lama berakhir pada bulan sebelum mulai yang baru.
-        await ubah('ip_potongan', `id=eq.${lama.id}`, { berlaku_sampai: bulanSebelum(mulai) });
-        await simpanBaru('ip_potongan', [isi]);
+        await tulisBersama([
+          langkah.ubah('ip_potongan', { id: lama.id }, { berlaku_sampai: bulanSebelum(mulai) }),
+          langkah.tambah('ip_potongan', [isi])]);
       } else if (lama) {
         await ubah('ip_potongan', `id=eq.${lama.id}`, isi);
       } else {
@@ -2260,7 +2385,7 @@ function dialogPotongan(kelompok, id, guruTetap, jenisAwal) {
       const acuanPindah = mulai > ui.acuan;
       if (acuanPindah) { ui.acuan = mulai; await muatSemua(); }
       await muatTunjangan();
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       toast(`${namaGuru}: ${isi.jenis} ${rupiah(isi.nominal)}/bulan, mulai ${blnIndo(mulai)}`
         + (sampai ? ` sampai ${blnIndo(sampai)}` : '')
         + (acuanPindah ? `. Tanggal acuan dipindahkan ke ${tglIndo(mulai)} supaya terlihat.` : '')
@@ -2295,7 +2420,7 @@ function dialogAkhiriPotongan(id) {
     jalankan('Menyimpan…', async () => {
       await ubah('ip_potongan', `id=eq.${p.id}`, { berlaku_sampai: sampai });
       await muatTunjangan();
-      D.rekap = null; D.setoran = null;
+      buangHitungan();
       toast(`${namaGuru}: ${p.jenis} berakhir ${blnIndo(sampai)}.`);
     });
   };
@@ -2391,14 +2516,14 @@ const bobotHadir = b => b.hadir_tm + b.httm + b.st * 0.2 + b.it * 0.1;
 async function muatHadir() {
   const arg = { p_awal: ui.hadirAwal, p_akhir: ui.hadirAkhir };
   const [hariKerja, kehadiran, wali, pengganti, piket, staf, jamStaf, sesi, ekskul] = await Promise.all([
-    rpc('f_ip_hari_kerja', arg),
-    rpc('f_ip_kehadiran_guru', arg),
-    rpc('f_ip_kehadiran_wali', arg),
-    rpc('f_ip_pengganti_rinci', arg),
-    rpc('f_ip_pelaksanaan_piket', arg),
-    rpc('f_ip_kehadiran_staf', arg),
-    rpc('f_ip_kehadiran_staf_jam', arg),   // empat tab Kehadiran Staf: semua kelompok, termasuk pendukung
-    rpc('f_ip_ekskul_pertemuan', arg),
+    hitung('f_ip_hari_kerja', arg),
+    hitung('f_ip_kehadiran_guru', arg),
+    hitung('f_ip_kehadiran_wali', arg),
+    hitung('f_ip_pengganti_rinci', arg),
+    hitung('f_ip_pelaksanaan_piket', arg),
+    hitung('f_ip_kehadiran_staf', arg),
+    hitung('f_ip_kehadiran_staf_jam', arg),   // empat tab Kehadiran Staf: semua kelompok, termasuk pendukung
+    hitung('f_ip_ekskul_pertemuan', arg),
     ambil('ekskul', 'select=id,nama,pembina_id,kategori,hari,jam_mulai,aktif&order=id')
   ]);
   D.hadir = { awal: ui.hadirAwal, akhir: ui.hadirAkhir, hariKerja: (hariKerja || []).length,
@@ -2840,6 +2965,7 @@ function halHadir() {
   $('#hHitung').onclick = () => {
     tandai();
     if (ui.hadirAwal > ui.hadirAkhir) { toast('Tanggal awal melewati tanggal akhir.', true); return; }
+    buangHitungan();   // Hitung = ambil ulang dari server, bukan dari tembolok
     jalankan('Memuat kehadiran…', muatHadir);
   };
   $$('[data-hadir]').forEach(b => b.onclick = () => {
@@ -3223,19 +3349,21 @@ const rekapDiBagian = tab => Object.entries(REKAP).filter(([, v]) => (v.tab || '
 
 async function muatRekap() {
   const r = REKAP[ui.rekapJenis];
-  const hasil = await rpc(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
+  const hasil = await hitung(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
   if (r === REKAP.pendukung && D.rekap) {
     const mg = [...new Set((D.pendukung || []).map(p => p.guru_id))].filter(mingguan);
     const tandai = (baris, pk, pekanan) => baris.map(b => ({ ...b, periodeAwal: pk.awal, periodeAkhir: pk.akhir, mingguan: pekanan }));
     let semua = tandai(D.rekap.filter(b => !mg.includes(b.guru_id)), { awal: ui.rekapAwal, akhir: ui.rekapAkhir }, false);
-    for (const id of mg) {
+    // Pekan tiap orang mingguan dimuat bersamaan; orang yang pekannya sama
+    // berbagi satu panggilan lewat tembolok hitungan.
+    const milikSemua = await Promise.all(mg.map(async id => {
       const pk = pekanDari(id);
       const milik = pk.ikutAtas ? D.rekap.filter(b => b.guru_id === id)
-        : (await rpc('f_ip_honor_pendukung', { p_awal: pk.awal, p_akhir: pk.akhir }) || []).filter(b => b.guru_id === id);
-      semua = semua.concat(tandai(milik, pk, true));
-    }
-    D.rekap = semua;
+        : (await hitung('f_ip_honor_pendukung', { p_awal: pk.awal, p_akhir: pk.akhir }) || []).filter(b => b.guru_id === id);
+      return tandai(milik, pk, true);
+    }));
+    D.rekap = semua.concat(...milikSemua);
   }
 }
 
@@ -3505,11 +3633,15 @@ function halRekap() {
     ui.rekapAwal = $('#rAwal').value || ui.rekapAwal;
     ui.rekapAkhir = $('#rAkhir').value || ui.rekapAkhir;
     if (ui.rekapAwal > ui.rekapAkhir) { toast('Tanggal awal melewati tanggal akhir.', true); return; }
+    buangHitungan();   // Hitung = hitung ulang dari server, bukan dari tembolok
     jalankan('Menghitung…', muatRekap);
   };
+  // Pindah tab memakai tembolok hitungan: tab yang fungsinya sama (Pembina
+  // Internal/Eksternal/Tahfidz, sub-tab Staf, Keseluruhan dan Cetak Struk)
+  // atau yang sudah pernah dibuka tidak menunggu jaringan.
   $$('[data-rekap]').forEach(b => b.onclick = () => {
     ui.rekapJenis = b.dataset.rekap;
-    D.rekap = null; D.setoran = null;
+    D.rekap = null;
     jalankan('Menghitung…', muatRekap);
   });
   $$('[data-rsub]').forEach(b => b.onclick = () => { ui.rekapSub[ui.rekapJenis] = b.dataset.rsub; gambar(); });
@@ -3518,7 +3650,7 @@ function halRekap() {
     const pertama = rekapDiBagian(b.dataset.rbagian)[0];
     if (!pertama || pertama[0] === ui.rekapJenis) return;
     ui.rekapJenis = pertama[0];
-    D.rekap = null; D.setoran = null;
+    D.rekap = null;
     if (ui.rekapAwal && ui.rekapAkhir) jalankan('Menghitung…', muatRekap); else gambar();
   });
   if ($('#rBentuk')) $('#rBentuk').onchange = e => { ui.rekapBentuk = e.target.value; gambar(); };
@@ -3552,17 +3684,29 @@ function halRekap() {
 }
 
 /* ----------------------------------------------------------- excel */
-async function muatExcelJS() {
-  if (window.ExcelJS) return window.ExcelJS;
-  await new Promise((selesai, gagal) => {
+/* Pustaka dari CDN dimuat sekali saja (dua klik cepat tidak menambah dua
+   <script>), dan hanya bila isinya persis berkas yang sudah diperiksa
+   (Subresource Integrity, 4 Oktober 2026): CDN yang disusupi tidak bisa
+   menjalankan kode di halaman yang sedang memegang sesi bendahara. Hash
+   ExcelJS dari cdnjs, hash docx dicocokkan dengan registri jsDelivr. Bila
+   versinya diganti, hash-nya harus diganti juga. */
+const pustakaDimuat = {};
+function muatPustaka(src, integrity, nama, pesan) {
+  if (window[nama]) return Promise.resolve(window[nama]);
+  if (!pustakaDimuat[src]) pustakaDimuat[src] = new Promise((selesai, gagal) => {
     const sc = document.createElement('script');
-    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js';
-    sc.onload = selesai;
-    sc.onerror = () => gagal(new Error('Pembuat Excel gagal dimuat. Periksa sambungan internet.'));
+    sc.src = src;
+    sc.integrity = integrity;
+    sc.crossOrigin = 'anonymous';
+    sc.onload = () => selesai(window[nama]);
+    sc.onerror = () => { delete pustakaDimuat[src]; sc.remove(); gagal(new Error(pesan)); };
     document.head.appendChild(sc);
   });
-  return window.ExcelJS;
+  return pustakaDimuat[src];
 }
+const muatExcelJS = () => muatPustaka('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js',
+  'sha512-dlPw+ytv/6JyepmelABrgeYgHI0O+frEwgfnPdXDTOIZz+eDgfW07QXG02/O8COfivBdGNINy+Vex+lYmJ5rxw==',
+  'ExcelJS', 'Pembuat Excel gagal dimuat. Periksa sambungan internet.');
 
 /* Penjaga: bila assets/kop-dokumen.js tidak termuat, unduhan gagal dengan
    pesan yang bisa ditindaklanjuti, bukan "undefined". */
@@ -3579,9 +3723,12 @@ const TIPIS = { style: 'thin', color: { argb: 'FF808080' } };
 const KOTAK = { top: TIPIS, left: TIPIS, bottom: TIPIS, right: TIPIS };
 const RP = '"Rp" #,##0';
 
+let logoSimpan = null;   // logo sekolah cukup diunduh sekali per sesi halaman
 async function ambilLogo() {
+  if (logoSimpan) return { buffer: logoSimpan.buffer.slice(0) };   // salinan: pustaka penulis boleh memakainya bebas
   try {
-    return { buffer: await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject()) };
+    logoSimpan = { buffer: await fetch('assets/logo.png').then(r => r.ok ? r.arrayBuffer() : Promise.reject()) };
+    return { buffer: logoSimpan.buffer.slice(0) };
   } catch (e) { return null; /* tanpa logo pun berkasnya tetap terbentuk */ }
 }
 function kepalaExcel(ws, r, judul, F) {
@@ -3884,12 +4031,12 @@ const KOLOM_SETORAN = [
 async function muatSetoran() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
   const [kesehatan, ketenagakerjaan, kopr, lain, rincSehat, rincKerja] = await Promise.all([
-    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
-    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
-    rpc('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
-    rpc('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
-    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }),
-    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' })
+    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
+    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
+    hitung('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
+    hitung('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
+    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }),
+    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' })
   ]);
   D.setoran = { awal: ui.rekapAwal, akhir: ui.rekapAkhir, kesehatan: kesehatan || [], ketenagakerjaan: ketenagakerjaan || [],
                 koperasi: kopr || [], sekolah: lain || [],
@@ -4017,7 +4164,7 @@ function halSetoran() {
     ui.rekapAwal = $('#sAwal').value || ui.rekapAwal;
     ui.rekapAkhir = $('#sAkhir').value || ui.rekapAkhir;
     if (ui.rekapAwal > ui.rekapAkhir) { toast('Tanggal awal melewati tanggal akhir.', true); return; }
-    D.rekap = null;   // periode Honor dan Transpor ikut berubah
+    buangHitungan();   // hitung ulang dari server; periode Honor dan Transpor ikut berubah
     jalankan('Menghitung…', muatSetoran);
   };
   $$('[data-setoran]').forEach(b => b.onclick = () => { ui.setoranTab = b.dataset.setoran; gambar(); });
@@ -4031,17 +4178,9 @@ function halSetoran() {
    subtotal serta diterima bersihnya dari Keseluruhan — sehingga struk
    tidak pernah berbeda dari daftar pembayarannya. Pembuat berkasnya (docx)
    dimuat hanya saat diperlukan, seperti ExcelJS. */
-async function muatDocx() {
-  if (window.docx) return window.docx;
-  await new Promise((selesai, gagal) => {
-    const sc = document.createElement('script');
-    sc.src = 'https://cdn.jsdelivr.net/npm/docx@9.7.2/dist/index.iife.js';
-    sc.onload = selesai;
-    sc.onerror = () => gagal(new Error('Pembuat Word gagal dimuat. Periksa sambungan internet.'));
-    document.head.appendChild(sc);
-  });
-  return window.docx;
-}
+const muatDocx = () => muatPustaka('https://cdn.jsdelivr.net/npm/docx@9.7.2/dist/index.iife.js',
+  'sha384-d/s8hkHbY0IMCgyk/5wQzBC3N/Bj6wMxwUhpiOn47Sk0UxrxpGbjhbX1ryD9WMMT',
+  'docx', 'Pembuat Word gagal dimuat. Periksa sambungan internet.');
 
 /* Nama periode untuk kotak di kop: "Agustus 2026" bila satu bulan penuh,
    selebihnya rentang tanggalnya. */
@@ -4059,32 +4198,32 @@ async function rincianStruk() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
   const [mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek, jadwal, mapel,
          hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung, rincSehat, rincKerja] = await Promise.all([
-    rpc('f_ip_honor_mengajar', arg),
-    rpc('f_ip_honor_wali_kelas', arg),
-    rpc('f_ip_honor_diperbantukan', arg),
-    rpc('f_ip_transport_piket', { ...arg, p_jenis: 'Meja Sekolah' }),
-    rpc('f_ip_honor_pengganti', arg),
-    rpc('f_ip_transport_pembina', arg),
-    rpc('f_ip_transport_piket', { ...arg, p_jenis: 'Parkiran' }),
-    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
-    rpc('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
-    rpc('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
-    rpc('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
+    hitung('f_ip_honor_mengajar', arg),
+    hitung('f_ip_honor_wali_kelas', arg),
+    hitung('f_ip_honor_diperbantukan', arg),
+    hitung('f_ip_transport_piket', { ...arg, p_jenis: 'Meja Sekolah' }),
+    hitung('f_ip_honor_pengganti', arg),
+    hitung('f_ip_transport_pembina', arg),
+    hitung('f_ip_transport_piket', { ...arg, p_jenis: 'Parkiran' }),
+    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'kesehatan' }),
+    hitung('f_ip_tunjangan_bpjs', { ...arg, p_jenis: 'ketenagakerjaan' }),
+    hitung('f_ip_potongan', { ...arg, p_kelompok: 'koperasi' }),
+    hitung('f_ip_potongan', { ...arg, p_kelompok: 'sekolah' }),
     // Mata pelajaran hanya pelengkap; kegagalannya tidak menggagalkan struk.
     ambil('jadwal_kbm', 'select=guru_id,mapel_id').catch(() => []),
     ambil('mapel', 'select=id,nama_mapel').catch(() => []),
     // Persentase kehadiran untuk struk — fungsi yang sama dengan halaman
     // Kehadiran dan Piket, supaya angkanya tidak berbeda. Pelengkap: bila
     // gagal, struk tetap terbit tanpa persentase.
-    rpc('f_ip_kehadiran_guru', arg).catch(() => []),
-    rpc('f_ip_kehadiran_wali', arg).catch(() => []),
-    rpc('f_ip_pelaksanaan_piket', arg).catch(() => []),
+    hitung('f_ip_kehadiran_guru', arg).catch(() => []),
+    hitung('f_ip_kehadiran_wali', arg).catch(() => []),
+    hitung('f_ip_pelaksanaan_piket', arg).catch(() => []),
     // Honor staf (gaji, tunjangan jabatan, transpor, insentif, konsumsi) dan tenaga pendukung.
-    rpc('f_ip_honor_staf', arg),
-    rpc('f_ip_honor_pendukung', arg),
+    hitung('f_ip_honor_staf', arg),
+    hitung('f_ip_honor_pendukung', arg),
     // Rincian tambahan TuSehat/TuKerja: hanya untuk menyebut tujuannya; nominalnya sudah di Keseluruhan.
-    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }).catch(() => []),
-    rpc('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }).catch(() => [])
+    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }).catch(() => []),
+    hitung('f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }).catch(() => [])
   ]);
   const R = {};
   const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [], sehatTambah: [], kerjaTambah: [] });
@@ -4334,12 +4473,17 @@ function susunIsiStruk(b, R, dibayar) {
 }
 
 /* View struk: pratinjau satu struk di layar, isinya dari penyusun yang sama
-   dengan berkas Word. Rincian komponen dimuat sekali per periode. */
-let rincianStrukSimpan = null;
-async function lihatStruk(b) {
+   dengan berkas Word. Rincian komponen dimuat sekali per periode dan dipakai
+   juga oleh Unduh struk — dulu "View struk" lalu "Unduh struk ini" memuat
+   semuanya dua kali. Dibuang oleh buangHitungan() bersama hitungan lain,
+   supaya struk tidak menampilkan angka sebelum perubahan terakhir. */
+async function rincianStrukTembolok() {
   const kunci = ui.rekapAwal + '|' + ui.rekapAkhir;
   if (!rincianStrukSimpan || rincianStrukSimpan.kunci !== kunci) rincianStrukSimpan = { kunci, ...(await rincianStruk()) };
-  const { R, dibayar } = rincianStrukSimpan;
+  return rincianStrukSimpan;
+}
+async function lihatStruk(b) {
+  const { R, dibayar } = await rincianStrukTembolok();
   const isi = susunIsiStruk(b, R, dibayar);
   const p = D.profil || {};
   const baris = isi.bagian.map(x =>
@@ -4374,7 +4518,7 @@ async function lihatStruk(b) {
 async function unduhStruk(baris) {
   const penerima = (baris || []).filter(adaStruk);
   if (!penerima.length) throw new Error('Tidak ada penerima pada periode ini.');
-  const [docx, { R, dibayar }, logo] = await Promise.all([muatDocx(), rincianStruk(), ambilLogo()]);
+  const [docx, { R, dibayar }, logo] = await Promise.all([muatDocx(), rincianStrukTembolok(), ambilLogo()]);
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, ImageRun, PageBreak,
           WidthType, AlignmentType, BorderStyle, ShadingType, VerticalAlign, PageOrientation, TableLayoutType } = docx;
 

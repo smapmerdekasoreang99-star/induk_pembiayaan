@@ -70,6 +70,41 @@ TuSehat/TuKerja per orang di luar penyaluran utama: tujuan, nominal dari sekolah
 sekolah dan koperasi per orang, satu baris satu potongan dengan `berlaku_mulai`
 dan `berlaku_sampai`).
 
+**Menyimpan dan mencatat (4 Oktober 2026).** Penyimpanan yang lebih dari satu
+langkah — versi besaran (hapus versi bertanggal sama lalu sisipkan), komponen
+pendukung, penyaluran, rincian, potongan, keanggotaan koperasi, Hapus versi
+ini, dan seluruh **Unggah isian (xlsx)** — dikirim sekaligus ke `f_ip_tulis`:
+satu transaksi, satu permintaan. Bila sambungan putus, tidak ada yang
+tersimpan; tidak ada lagi versi lama yang terhapus sementara versi barunya
+belum masuk. Fungsinya berjalan dengan hak pemanggil, jadi RLS tetap berlaku,
+dan hanya menerima tabel `ip_*`. Kolom `akun` dan `dibuat_pada` di tiap tabel
+`ip_*` diisi trigger dari token yang masuk (pembuatnya tidak berubah saat
+barisnya diubah), dan setiap tambah, ubah, dan hapus — termasuk yang terhapus
+berantai karena data guru dihapus — tercatat utuh di `ip_log` (siapa, kapan,
+baris lama, baris baru), yang hanya bisa dibaca operator/bendahara dan tidak
+bisa ditulis siapa pun lewat aplikasi. Baris yang dibuat sebelum tanggal ini
+`akun`-nya kosong.
+
+**Jaringan lambat (4 Oktober 2026).** Hasil fungsi hitung `f_ip_*` disimpan di
+memori halaman per nama + argumen dan dipakai bersama oleh Honor dan Transpor,
+Cetak Struk, Nominal Setoran Wajib, dan Kehadiran dan Piket: pindah tab, View
+struk lalu Unduh struk, atau membuka Setoran sesudah Keseluruhan tidak
+menunggu jaringan lagi. Tembolok itu dibuang setiap kali ada yang disimpan,
+tombol **Hitung** ditekan, atau kembali ke tab peramban sesudah 5 menit (dulu
+15 detik, dan tidak selama masih ada pekerjaan berjalan); tidak pernah
+disimpan di penyimpanan peramban. Token akses diperbarui sendiri sebelum
+habis (token penyegar hanya di memori), jadi sesi tidak berakhir setelah satu
+jam; **Keluar** mencabut sesi di server lalu memuat ulang halaman. Permintaan
+dibatalkan setelah 45 detik (baca) atau 90 detik (simpan); pembacaan dicoba
+sekali lagi bila sambungan putus atau server sibuk, penyimpanan tidak pernah
+diulang otomatis. ExcelJS dan docx dimuat sekali dengan Subresource Integrity
+— bila versinya diganti, hash di `muatExcelJS`/`muatDocx` ikut diganti.
+
+Kebijakan RLS `ip_*` memanggil `(select boleh_pembiayaan())` — dihitung sekali
+per perintah, bukan per baris — dan anon tidak punya hak apa pun atas tabel
+`ip_*` maupun fungsi `f_ip_*`. Fungsi `f_ip_*` baru perlu `revoke execute ...
+from public, anon` sendiri, karena Supabase memberinya ke anon secara bawaan.
+
 **Perhitungan ada di database, bukan di aplikasi.** Lima fungsi yang melayani
 tujuh rekap — transport piket memakai satu fungsi dengan argumen jenis:
 
