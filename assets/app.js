@@ -130,7 +130,18 @@ const jeda = ms => new Promise(s => setTimeout(s, ms));
 const bolehUlang = (jalur, opsi) => !opsi.method || opsi.method === 'GET'
   || (jalur.startsWith('/rest/v1/rpc/f_ip_') && !jalur.startsWith('/rest/v1/rpc/f_ip_tulis'));
 
+/* Hanya bendahara yang mengubah data pembiayaan (keputusan 4 Oktober 2026;
+   dijaga database lewat boleh_pembiayaan_tulis). Di sini permintaan tulis
+   dari akun lain ditolak lebih dulu dengan pesan yang jelas — tanpa ini,
+   ubah dan hapus dari operator "berhasil" tanpa mengubah apa pun, karena
+   database menolaknya diam-diam (0 baris). Pembacaan dan fungsi hitung
+   (f_ip_* selain f_ip_tulis) tetap jalan. */
+const permintaanTulis = (jalur, opsi) => opsi.method && opsi.method !== 'GET' && jalur.startsWith('/rest/v1/')
+  && !(jalur.startsWith('/rest/v1/rpc/f_ip_') && !jalur.startsWith('/rest/v1/rpc/f_ip_tulis'));
+
 async function api(jalur, opsi = {}, percobaan = 0) {
+  if (sesi.peran && sesi.peran !== 'bendahara' && permintaanTulis(jalur, opsi))
+    throw new Error('Hanya bendahara yang boleh mengubah data pembiayaan. Akun ini hanya bisa melihat.');
   // Token akses Supabase berumur satu jam; diperbarui diam-diam semenit
   // sebelum habis supaya pekerjaan yang sedang diisi tidak hilang.
   if (sesi.segar && sesi.habis && Date.now() > sesi.habis - 60000) {
@@ -454,7 +465,7 @@ function layarUtama() {
   $('#layar').innerHTML = '';
   $('#layar').appendChild($('#tpl-utama').content.cloneNode(true));
   $('#fPetugas').textContent = sesi.nama;
-  $('#fPeran').textContent = sesi.peran === 'bendahara' ? 'Bendahara' : 'Operator';
+  $('#fPeran').textContent = sesi.peran === 'bendahara' ? 'Bendahara' : 'Operator · lihat saja';
   /* Keluar mencabut sesi di server (token penyegarnya tidak bisa dipakai
      lagi) lalu memuat ulang halaman, supaya angka gaji yang sudah dimuat
      tidak tertinggal di memori tab. */
