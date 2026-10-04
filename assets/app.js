@@ -415,7 +415,9 @@ async function muatSemua() {
     ambil('ip_pendukung_orang', 'select=guru_id,periode_bayar').catch(() => []),
     ambil('v_penanda_tangan', 'select=*&limit=1').catch(e => ({ galat: e.message })),
     // Nama petugas cukup sekali per masuk, bukan setiap muat ulang.
-    sesi.peran ? null : ambil('operator_data', `select=nama,peran&email=eq.${enc(sesi.email)}&limit=1`).catch(() => null)
+    // RLS operator_data hanya memperlihatkan baris milik akun yang masuk, jadi tidak perlu
+    // menyaring email (yang bisa berbeda besar-kecil hurufnya dari ketikan saat masuk).
+    sesi.peran ? null : ambil('operator_data', 'select=nama,peran&limit=1').catch(() => null)
   ]);
 
   // RLS menolak dengan mengembalikan tabel kosong, bukan galat. Tanpa
