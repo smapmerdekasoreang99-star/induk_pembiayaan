@@ -262,8 +262,13 @@ let antreanHitung = null;
 const PAKET_MAKS = 40;   // sama dengan batas di f_ip_paket
 function hitung(nama, argumen) {
   // Periode yang dikunci: angkanya dari arsip (ip_rekap_beku), bukan dihitung ulang.
-  const arsip = D.beku && D.beku.peta && D.beku.peta.get(kunciArsip(nama, argumen));
-  if (arsip !== undefined) return Promise.resolve(structuredClone(arsip));
+  // Hanya bila periodenya memang dikunci DAN hitungan ini ada di arsipnya.
+  // (Jangan memakai a && b && c: bila belum dikunci hasilnya null, bukan
+  // undefined, dan setiap hitungan akan terbaca kosong.)
+  if (D.beku && D.beku.peta) {
+    const k = kunciArsip(nama, argumen);
+    if (D.beku.peta.has(k)) return Promise.resolve(structuredClone(D.beku.peta.get(k)));
+  }
   const kunci = nama + JSON.stringify(argumen);
   if (!tembolokHitung.has(kunci)) {
     if (!antreanHitung) { antreanHitung = []; queueMicrotask(kirimAntreanHitung); }
@@ -278,12 +283,21 @@ function kirimAntreanHitung() {
   if (semua.length === 1) { const x = semua[0]; rpc(x.nama, x.argumen).then(x.ok, x.gagal); return; }
   for (let i = 0; i < semua.length; i += PAKET_MAKS) {
     const isi = semua.slice(i, i + PAKET_MAKS);
+    /* Cadangan (4 Oktober 2026): bila paketnya gagal, atau satu hitungan di
+       dalamnya gagal, hitungan itu dicoba lagi sendiri-sendiri — persis cara
+       sebelum ada paket — supaya satu kegagalan di jalur paket tidak
+       mengosongkan seluruh halaman. Galat paketnya dicatat di konsol (F12)
+       untuk ditelusuri. Sesi yang berakhir tidak dicoba ulang. */
+    const sendiri = (x, sebab) => {
+      console.warn('f_ip_paket: ' + x.nama + ' dicoba sendiri —', sebab && sebab.message ? sebab.message : sebab);
+      rpc(x.nama, x.argumen).then(x.ok, x.gagal);
+    };
     rpc('f_ip_paket', { p_panggilan: isi.map(x => ({ fungsi: x.nama, arg: x.argumen })) })
       .then(h => isi.forEach((x, j) => {
         const r = h && h[j];
         if (r && 'hasil' in r) x.ok(r.hasil);
-        else x.gagal(new Error((r && r.galat) || 'Jawaban server tidak lengkap.'));
-      }), e => isi.forEach(x => x.gagal(e)));
+        else sendiri(x, (r && r.galat) || 'jawaban paket tidak lengkap');
+      }), e => isi.forEach(x => (e && e.message === 'Sesi berakhir') ? x.gagal(e) : sendiri(x, e)));
   }
 }
 function buangHitungan() {
