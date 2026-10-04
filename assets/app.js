@@ -253,11 +253,35 @@ async function masuk(email, sandi) {
    salinan, jadi baris yang diubah di satu tempat tidak mengotori yang lain. */
 const tembolokHitung = new Map();
 let rincianStrukSimpan = null;   // rincian struk satu periode, lihat rincianStrukTembolok()
+/* Panggilan hitung yang dibuat bersamaan (dalam satu giliran kode, mis. satu
+   Promise.all) dikumpulkan dan dikirim sebagai SATU permintaan f_ip_paket —
+   satu perjalanan jaringan dan satu izin CORS, bukan delapan sampai delapan
+   belas. Kunjungan pertama ke Kehadiran, Setoran, dan struk jadi jauh lebih
+   ringan. Fungsi pelengkap yang gagal hanya menggagalkan janjinya sendiri. */
+let antreanHitung = null;
+const PAKET_MAKS = 40;   // sama dengan batas di f_ip_paket
 function hitung(nama, argumen) {
   const kunci = nama + JSON.stringify(argumen);
-  if (!tembolokHitung.has(kunci))
-    tembolokHitung.set(kunci, rpc(nama, argumen).catch(e => { tembolokHitung.delete(kunci); throw e; }));
+  if (!tembolokHitung.has(kunci)) {
+    if (!antreanHitung) { antreanHitung = []; queueMicrotask(kirimAntreanHitung); }
+    const janji = new Promise((ok, gagal) => antreanHitung.push({ nama, argumen, ok, gagal }));
+    tembolokHitung.set(kunci, janji.catch(e => { tembolokHitung.delete(kunci); throw e; }));
+  }
   return tembolokHitung.get(kunci).then(h => structuredClone(h));
+}
+function kirimAntreanHitung() {
+  const semua = antreanHitung;
+  antreanHitung = null;
+  if (semua.length === 1) { const x = semua[0]; rpc(x.nama, x.argumen).then(x.ok, x.gagal); return; }
+  for (let i = 0; i < semua.length; i += PAKET_MAKS) {
+    const isi = semua.slice(i, i + PAKET_MAKS);
+    rpc('f_ip_paket', { p_panggilan: isi.map(x => ({ fungsi: x.nama, arg: x.argumen })) })
+      .then(h => isi.forEach((x, j) => {
+        const r = h && h[j];
+        if (r && 'hasil' in r) x.ok(r.hasil);
+        else x.gagal(new Error((r && r.galat) || 'Jawaban server tidak lengkap.'));
+      }), e => isi.forEach(x => x.gagal(e)));
+  }
 }
 function buangHitungan() {
   tembolokHitung.clear();
@@ -384,9 +408,12 @@ function layarUtama() {
     }
     halaman = b.dataset.hal;
     $$('#nav button').forEach(x => x.classList.toggle('on', x === b));
-    // Pengesahan dilakukan di Data Induk; tiap kali halaman Tunjangan dibuka,
-    // daftarnya dibaca segar supaya yang baru disahkan langsung tampak.
-    if (halaman === 'tunjangan') D.tunjangan = null;
+    // Pengesahan dilakukan di Data Induk, jadi daftar Tunjangan dibaca segar
+    // bila muatannya sudah lebih dari 5 menit — bukan setiap kali dibuka
+    // (4 Oktober 2026): bolak-balik antarhalaman tidak menunggu lima
+    // permintaan lagi. Perubahan dari halaman ini sendiri langsung dimuat
+    // ulang sesudah disimpan.
+    if (halaman === 'tunjangan' && D.tunjangan && Date.now() - (D.tunjangan.dimuat || 0) > 300000) D.tunjangan = null;
     // Rekap yang dibuang karena ada perubahan (potongan, penyaluran) dihitung
     // ulang sendiri dengan periode yang sama, supaya perubahannya langsung
     // terlihat tanpa menekan Hitung lagi.
@@ -1167,7 +1194,8 @@ async function muatTunjangan() {
       ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif'
                      + '&order=tmt_sekolah.asc.nullslast,nama.asc')
     ]);
-    D.tunjangan = { hak: hak || [], salur: salur || [], rincian: rincian || [], potongan: potongan || [], guru: guru || [], galat: null };
+    D.tunjangan = { hak: hak || [], salur: salur || [], rincian: rincian || [], potongan: potongan || [], guru: guru || [], galat: null,
+                    dimuat: Date.now() };
   } catch (e) {
     // Disimpan sebagai galat, bukan dibiarkan kosong: halaman yang memuat
     // ulang terus-menerus lebih membingungkan daripada satu pesan.
@@ -1567,7 +1595,6 @@ async function unggahTemplateTunjangan(tab, berkas) {
    Rincian pada baris total menambah, mengakhiri, atau menghapus rinciannya. */
 function isiTabPenyaluran(jenis) {
   const { hak, salur } = D.tunjangan;
-  const q = (ui.tunjanganCari || '').trim().toLowerCase();
   const bulanAcuan = awalBulan(ui.acuan);
   const semua = hak.filter(h => h.jenis === jenis)
     .map(h => {
@@ -1581,7 +1608,7 @@ function isiTabPenyaluran(jenis) {
                bulanDepan: total - terakhir.reduce((t, r) => t + Number(r.nominal), 0),
                versi: salur.filter(x => x.guru_id === h.id && x.jenis === jenis).length };
     });
-  const baris = semua.filter(h => !q || h.nama.toLowerCase().includes(q));
+  const baris = semua;   // semua digambar; pencarian menyembunyikan baris di tempat (saringBarisTunjangan)
   const perBentuk = {};
   semua.forEach(h => {
     const b = (h.s || {}).bentuk || bentukBawaan(jenis);
@@ -1660,7 +1687,7 @@ function isiTabPenyaluran(jenis) {
             r.berlaku_sampai === bulanAcuan ? ' ' + selesaiTag : ''}</td>
           <td class="act"><button class="btn btn-sm bUbahRincianTj">Ubah</button></td></tr>`).join('')}`).join('')
         : `<tr><td colspan="10"><div class="empty"><b>Tidak ada penerima</b>
-            ${semua.length ? 'Ubah pencarian.' : 'Belum ada yang disahkan di Data Induk.'}</div></td></tr>`
+            Belum ada yang disahkan di Data Induk.</div></td></tr>`
       }</tbody></table></div></div>
 
     <p class="kecil"><button class="btn btn-sm bBawaan" data-kode="${esc(k.nominal)}" style="float:right;margin-left:10px">Ubah bawaan</button>
@@ -1699,7 +1726,6 @@ const keadaanPotongan = (p, tgl) => potonganAktif(p, tgl) ? 'berjalan'
    yang sudah berakhir hanya di riwayat. */
 function isiTabPotongan(kelompok) {
   const { potongan, guru } = D.tunjangan;
-  const q = (ui.tunjanganCari || '').trim().toLowerCase();
   const milik = potongan.filter(p => p.kelompok === kelompok);
   const bulanAcuan = awalBulan(ui.acuan);
   const iuran = iuranBawaan(kelompok);
@@ -1723,7 +1749,7 @@ function isiTabPotongan(kelompok) {
              bulanDepan: nominal - terakhir.reduce((t, p) => t + Number(p.nominal), 0),
              selesai: punya.filter(p => p.keadaan === 'selesai').length };
   });
-  const baris = semua.filter(g => !q || g.nama.toLowerCase().includes(q));
+  const baris = semua;   // semua digambar; pencarian menyembunyikan baris di tempat (saringBarisTunjangan)
   const dipotong = semua.filter(g => g.nominal > 0);
   const total = dipotong.reduce((t, g) => t + g.nominal, 0);
   const perJenis = {};
@@ -1804,7 +1830,7 @@ function isiTabPotongan(kelompok) {
             p.berlaku_sampai === bulanAcuan ? ' ' + selesaiTag : ''}</td>
           <td class="act"><button class="btn btn-sm bUbahPot">Ubah</button></td></tr>`).join('')}`).join('')
         : `<tr><td colspan="8"><div class="empty"><b>Tidak ada guru</b>
-            ${semua.length ? 'Ubah pencarian.' : 'Belum ada guru aktif di Data Induk.'}</div></td></tr>`
+            Belum ada guru aktif di Data Induk.</div></td></tr>`
       }</tbody></table></div></div>
 
     <p class="kecil">${kelompok === 'sekolah'
@@ -1881,12 +1907,44 @@ function ubahKeanggotaan(guruId, jadiAnggota) {
   });
 }
 
+/* Pencarian nama di matriks Tunjangan dan Potongan (4 Oktober 2026): semua
+   orang digambar sekali, lalu baris yang tidak cocok disembunyikan di tempat
+   — baris nama dan baris rinciannya bersama, karena semuanya membawa
+   data-guru. Dulu tiap jeda mengetik menggambar ulang seluruh halaman, kotak
+   pencariannya ikut diganti, dan fokus serta keyboard HP hilang. */
+function saringBarisTunjangan() {
+  const isi = $('#tjIsi');
+  if (!isi || !D.tunjangan) return;
+  const q = (ui.tunjanganCari || '').trim().toLowerCase();
+  const nama = new Map([...D.tunjangan.hak, ...D.tunjangan.guru].map(g => [g.id, String(g.nama || '').toLowerCase()]));
+  let no = 0;
+  $$('tbody tr[data-guru]', isi).forEach(tr => {
+    tr.hidden = !!q && !(nama.get(tr.dataset.guru) || '').includes(q);
+    // Nomor urut hanya pada baris nama (bukan baris rincian ↳), mengikuti yang tampak.
+    if (!tr.hidden && !tr.classList.contains('cicilan')) {
+      const sel = tr.querySelector('.lekat-no');
+      if (sel) sel.textContent = ++no;
+    }
+  });
+  const tbody = $('tbody', isi);
+  let kosong = $('#tjKosong', isi);
+  if (q && !no && tbody && $('tr[data-guru]', tbody)) {
+    if (!kosong) {
+      kosong = document.createElement('tr');
+      kosong.id = 'tjKosong';
+      kosong.innerHTML = `<td colspan="${$('thead tr', isi).children.length}"><div class="empty"><b>Tidak ada yang cocok</b>Ubah pencarian.</div></td>`;
+      tbody.appendChild(kosong);
+    }
+  } else if (kosong) kosong.remove();
+}
+
 function pasangAksiTunjangan() {
   const cari = $('#tjCari');
   if (cari) cari.oninput = e => {
     ui.tunjanganCari = e.target.value;
-    clearTimeout(window._qt); window._qt = setTimeout(gambar, 200);
+    clearTimeout(window._qt); window._qt = setTimeout(saringBarisTunjangan, 120);
   };
+  saringBarisTunjangan();
   $$('.bAtur').forEach(b => b.onclick = () => {
     const tr = b.closest('tr');
     dialogPenyaluran(tr.dataset.guru, tr.dataset.jenis);

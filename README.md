@@ -89,7 +89,14 @@ bisa ditulis siapa pun lewat aplikasi. Baris yang dibuat sebelum tanggal ini
 memori halaman per nama + argumen dan dipakai bersama oleh Honor dan Transpor,
 Cetak Struk, Nominal Setoran Wajib, dan Kehadiran dan Piket: pindah tab, View
 struk lalu Unduh struk, atau membuka Setoran sesudah Keseluruhan tidak
-menunggu jaringan lagi. Tembolok itu dibuang setiap kali ada yang disimpan,
+menunggu jaringan lagi. Panggilan yang dibuat bersamaan dikirim sebagai satu
+permintaan `f_ip_paket` (beberapa fungsi `f_ip_*` STABLE sekaligus, hak
+pemanggil, `f_ip_tulis` tidak bisa lewat situ), jadi membuka Kehadiran,
+Setoran, atau struk pertama kali hanya satu perjalanan jaringan dan satu izin
+CORS, bukan delapan sampai delapan belas. Tunjangan dan Potongan tidak lagi
+dimuat ulang tiap dibuka, hanya bila muatannya lebih dari 5 menit, dan
+pencarian namanya menyembunyikan baris di tempat sehingga kotak pencariannya
+tidak kehilangan fokus. Tembolok itu dibuang setiap kali ada yang disimpan,
 tombol **Hitung** ditekan, atau kembali ke tab peramban sesudah 5 menit (dulu
 15 detik, dan tidak selama masih ada pekerjaan berjalan); tidak pernah
 disimpan di penyimpanan peramban. Token akses diperbarui sendiri sebelum
