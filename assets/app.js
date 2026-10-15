@@ -19,8 +19,8 @@
       Bukan disalin ke sini, supaya kop semua aplikasi benar-benar seragam.
    ===================================================================== */
 const KONFIG = {
-  url:     'https://xgtoneyvzfvfbidicotq.supabase.co',
-  anonKey: 'sb_publishable_rjHVGT0ULc03TC2ljIytSA_2X54xzR1',
+  url:     'https://dcakhvbfuhedebnbjndr.supabase.co',
+  anonKey: 'sb_publishable_j_1jJEBNhjfhhKYXja1FLw_RkFs_Fsx',
   sekolah: 'SMA Plus Merdeka Soreang'
 };
 
