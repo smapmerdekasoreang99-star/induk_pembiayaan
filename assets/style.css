@@ -382,3 +382,23 @@ table.rekap tr.pemisah-kelompok td{background:var(--gelap);color:var(--tinta-ter
   letter-spacing:.02em;border-top:6px solid var(--card, #fff)}
 table.rekap tr.pemisah-kelompok .pk-isi{position:sticky;left:10px}
 table.rekap tr.pemisah-kelompok b{letter-spacing:.06em;text-transform:uppercase}
+
+/* ---- Tombol Panduan di bilah samping (15 Okt 2026, seperti Matdas): PDF untuk dibuka, Word untuk dicetak/disunting.
+   Di HP (≤820 px) tombol pindah ke baris lambang, di ujung kanan. ---- */
+.sidebar .panduan{position:relative;margin:0 12px 12px}
+.panduan>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;
+  border:1.5px solid rgba(255,255,255,.28);color:#fff;font-size:13.5px;font-weight:600;white-space:nowrap}
+.panduan>summary::-webkit-details-marker{display:none}
+.panduan>summary:hover,.panduan[open]>summary{border-color:var(--emas);background:var(--gelap-2)}
+.panduan-menu{position:absolute;left:calc(100% + 12px);bottom:-8px;width:290px;background:var(--kertas-2);color:var(--tinta);
+  border:1px solid var(--garis);border-radius:var(--r3);box-shadow:0 14px 34px -14px rgba(34,30,23,.45);padding:6px;z-index:var(--lapis-tirai)}
+.panduan-menu a{display:block;padding:10px 12px;border-radius:var(--r2);color:var(--gelap);font-weight:700;text-decoration:none}
+.panduan-menu a:hover{background:var(--kertas-3)}
+.panduan-menu small{display:block;font-weight:400;color:var(--tinta-2);font-size:var(--h-xs);margin-top:2px}
+.panduan-menu p{margin:4px 12px 6px;font-size:var(--h-xs);color:var(--tinta-2)}
+@media (max-width:820px){
+  .sidebar .panduan{margin:0 0 0 auto;order:0}
+  .sidebar nav{order:1}
+  .sidebar .foot{order:2}
+  .panduan-menu{position:fixed;left:16px;right:16px;top:70px;bottom:auto;width:auto}
+}
