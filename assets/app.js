@@ -276,12 +276,17 @@ let rincianStrukSimpan = null;   // rincian struk satu periode, lihat rincianStr
    ringan. Fungsi pelengkap yang gagal hanya menggagalkan janjinya sendiri. */
 let antreanHitung = null;
 const PAKET_MAKS = 40;   // sama dengan batas di f_ip_paket
-function hitung(nama, argumen) {
+function hitung(nama, argumen, terkini) {
   // Periode yang dikunci: angkanya dari arsip (ip_rekap_beku), bukan dihitung ulang.
   // Hanya bila periodenya memang dikunci DAN hitungan ini ada di arsipnya.
   // (Jangan memakai a && b && c: bila belum dikunci hasilnya null, bukan
   // undefined, dan setiap hitungan akan terbaca kosong.)
-  if (D.beku && D.beku.peta) {
+  // `terkini`: halaman Kehadiran dan Piket selalu membaca data hari ini —
+  // koreksi kehadiran sesudah kunci tetap terlihat di rekap kehadiran,
+  // sedangkan struk dan rekap honor tetap dari arsip (16 Oktober 2026).
+  // Tembolok hanya pernah berisi hitungan terkini, karena arsip dijawab
+  // sebelum tembolok disentuh.
+  if (!terkini && D.beku && D.beku.peta) {
     const k = kunciArsip(nama, argumen);
     if (D.beku.peta.has(k)) return Promise.resolve(structuredClone(D.beku.peta.get(k)));
   }
@@ -365,7 +370,9 @@ function htmlBeku(denganTombol) {
   if (b) return `<div class="info-box"><b>Periode ini dikunci</b> sejak ${esc(tglIndo(String(b.dikunci_pada).slice(0, 10)))}
       oleh ${esc(b.dikunci_oleh || '—')}${b.catatan ? ' — ' + esc(b.catatan) : ''}. Semua angka di bawah dibaca dari arsip
       saat dikunci; perubahan data sesudahnya tidak menggesernya.
-      ${denganTombol ? '<button class="btn btn-sm" id="bBukaKunci" style="margin-left:8px">Buka kunci…</button>' : ''}</div>`;
+      ${denganTombol ? `<button class="btn btn-sm" id="bKoreksi" style="margin-left:8px"
+        title="Bandingkan yang sudah dibayarkan dengan hitungan dari data sekarang, lalu catat kurang/lebih bayar tanpa membuka kunci">Selisih &amp; koreksi…</button>
+        <button class="btn btn-sm" id="bBukaKunci" style="margin-left:4px">Buka kunci…</button>` : ''}</div>`;
   return denganTombol ? `<div class="bar"><span class="kecil">Sesudah periode ini dibayarkan, kunci supaya angkanya tidak bergeser oleh koreksi di belakang hari.</span>
       <button class="btn btn-sm" id="bKunci">Kunci periode ini</button></div>` : '';
 }
@@ -383,6 +390,7 @@ function pasangBeku(sesudah) {
       toast('Periode dikunci. Angkanya kini dibaca dari arsip.');
     });
   };
+  if ($('#bKoreksi')) $('#bKoreksi').onclick = () => jalankan('Membandingkan dengan arsip…', () => dialogKoreksi(D.beku.baris));
   if ($('#bBukaKunci')) $('#bBukaKunci').onclick = () => {
     const alasan = window.prompt('Buka kunci periode ini? Angkanya akan dihitung ulang dari data sekarang.\n\n'
       + 'Arsipnya tidak dihapus; siapa, kapan, dan alasannya dicatat. Alasan:', '');
@@ -394,6 +402,161 @@ function pasangBeku(sesudah) {
       toast('Kunci dibuka. Angka dihitung ulang dari data sekarang.');
     });
   };
+}
+
+/* Koreksi sesudah kunci (keputusan 16 Oktober 2026). Periode yang sudah
+   dibayar tidak dibuka ulang bila kemudian ditemukan kesalahan: struk dan
+   rekapnya tetap, selisihnya diselesaikan tersendiri —
+     kurang bayar -> kuitansi susulan;
+     lebih bayar  -> bendahara memilih per kasus: dikembalikan tunai (tanda
+                     terima pengembalian) atau dipotong pada bulan berikutnya
+                     (Pot. Lain-lain "Koreksi lebih bayar" di struk bulan itu).
+   Selisihnya dihitung database (f_ip_selisih): tunai menurut data sekarang
+   − tunai di arsip − koreksi yang sudah dicatat, sehingga selisih yang sama
+   tidak bisa dicatat dua kali. Pencatatan dan pembatalan lewat
+   ip_koreksi_catat / ip_koreksi_batal (bendahara saja). */
+const LABEL_KOREKSI = {
+  mengajar: 'Honor Mengajar', wali: 'Honor Wali Kelas', diperbantukan: 'Honor Diperbantukan',
+  piket_meja: 'Transpor Piket Meja', pengganti: 'Transpor Pengganti', ekskul: 'Transpor Pemb. Ekskul',
+  tahfidz: 'Transpor Pemb. Tahfidz', parkiran: 'Transpor Parkiran', staf_gaji: 'Gaji & Tunj. Staf',
+  staf_transpor: 'Transpor Staf', pendukung: 'Honor Pendukung', bpjs: 'TuSehat', bpjs_tk: 'TuKerja',
+  potongan_bpjs: 'Pot. BPJS', potongan_sekolah: 'Pot. Lain-lain', potongan_koperasi: 'Pot. Koperasi'
+};
+const rincianKoreksi = r => Object.entries(r || {})
+  .map(([k, [lama, baru]]) => `${LABEL_KOREKSI[k] || k} ${rupiah(lama)} → ${rupiah(baru)}`).join('; ');
+const PENYELESAIAN = { susulan: 'Kuitansi susulan', kembali_tunai: 'Dikembalikan tunai', potong: 'Dipotong' };
+
+async function dialogKoreksi(beku) {
+  if (!beku) return;
+  const [selisih, tercatat] = await Promise.all([
+    rpc('f_ip_selisih', { p_beku_id: beku.id }),
+    ambil('ip_koreksi', `select=*&beku_id=eq.${beku.id}&order=id`)
+  ]);
+  const bendahara = sesi.peran === 'bendahara';
+  const periode = `${tglIndo(beku.awal)} – ${tglIndo(beku.akhir)}`;
+  // Bawaan bulan potongan: bulan sesudah bulan tanggal akhir periode.
+  const d = new Date(beku.akhir + 'T00:00:00');
+  const bulanDepan = isoLokal(new Date(d.getFullYear(), d.getMonth() + 1, 1)).slice(0, 7);
+  const aktif = tercatat.filter(k => !k.dibatalkan_pada);
+  const batal = tercatat.filter(k => k.dibatalkan_pada);
+
+  const barisSelisih = s => {
+    const kurang = Number(s.selisih) > 0;
+    return `<tr data-orang="${esc(s.orang_id)}">
+      <td style="font-weight:500">${esc(s.nama)}<div class="kecil">${esc(rincianKoreksi(s.rincian) || '—')}</div></td>
+      <td class="num">${esc(rupiah(Number(s.dibayar_arsip) + Number(s.koreksi)))}${Number(s.koreksi)
+        ? `<div class="kecil">termasuk koreksi ${esc(rupiah(s.koreksi))}</div>` : ''}</td>
+      <td class="num">${esc(rupiah(s.seharusnya))}</td>
+      <td class="num" style="font-weight:600;color:${kurang ? 'var(--ok, #2e7d32)' : 'var(--warn)'}">
+        ${kurang ? 'Kurang' : 'Lebih'} ${esc(rupiah(Math.abs(s.selisih)))}</td>
+      <td>${!bendahara ? '' : kurang
+        ? '<button class="btn btn-sm btn-p bKorSusulan">Catat kuitansi susulan</button>'
+        : `<select class="field kor-cara" style="width:auto">
+             <option value="kembali_tunai">Dikembalikan tunai</option>
+             ${s.guru_id ? '<option value="potong">Dipotong bulan…</option>' : ''}
+           </select>
+           <input class="field kor-bulan" type="month" value="${bulanDepan}" style="width:auto" hidden>
+           <button class="btn btn-sm btn-p bKorLebih">Catat</button>`}</td></tr>`;
+  };
+  const barisTercatat = k => {
+    const potongHilang = k.penyelesaian === 'potong' && !k.potongan_id && !k.dibatalkan_pada;
+    return `<tr class="${k.dibatalkan_pada ? 'mati' : ''}" data-id="${k.id}">
+      <td style="font-weight:500">${esc(k.nama)}<div class="kecil">${esc(rincianKoreksi(k.rincian) || '')}</div></td>
+      <td class="num" style="font-weight:600">${Number(k.selisih) > 0 ? 'Kurang' : 'Lebih'} ${esc(rupiah(Math.abs(k.selisih)))}</td>
+      <td>${esc(PENYELESAIAN[k.penyelesaian] || k.penyelesaian)}${k.penyelesaian === 'potong'
+        ? ` ${esc(blnIndo(k.bulan_potong))}` : ''}${potongHilang
+        ? '<div class="kecil" style="color:var(--warn)">baris potongannya sudah dihapus di Potongan</div>' : ''}</td>
+      <td class="kecil">${esc(waktuLog(k.dibuat_pada))}<br>${esc(k.dibuat_oleh || '')}${k.dibatalkan_pada
+        ? `<br><b>dibatalkan</b> ${esc(waktuLog(k.dibatalkan_pada))} — ${esc(k.alasan_batal || '')}` : ''}</td>
+      <td class="act">${k.dibatalkan_pada ? '' : `${k.penyelesaian === 'potong' ? ''
+        : `<button class="btn-unduh bKorUnduh" data-fmt="xlsx">${k.penyelesaian === 'susulan' ? 'Kuitansi' : 'Tanda terima'}</button>`}${
+        bendahara ? ' <button class="btn btn-sm btn-d bKorBatal">Batalkan</button>' : ''}`}</td></tr>`;
+  };
+
+  bukaModal(`<h2>Selisih &amp; koreksi — periode ${esc(periode)}</h2><div class="body">
+    <p class="msg kecil">Periode ini sudah dikunci dan dibayarkan. Di bawah ini orang yang uang tunainya menurut data
+      <b>sekarang</b> berbeda dari yang sudah dibayarkan. Struk dan rekap periode ini <b>tidak berubah</b>; selisihnya
+      diselesaikan di sini. Kurang bayar dibayarkan dengan kuitansi susulan. Lebih bayar dikembalikan tunai
+      (dengan tanda terima) atau dipotong pada bulan berikutnya sebagai Pot. Lain-lain "Koreksi lebih bayar".
+      Periksa dulu kolom yang berubah: bisa jadi bukan kesalahan, melainkan data yang memang diubah sesudahnya.</p>
+    <h3 style="margin:14px 0 6px;font-size:14px">Belum diselesaikan (${selisih.length})</h3>
+    <div class="scroll"><table class="log"><thead><tr><th>Nama dan yang berubah</th><th class="num">Sudah dibayar</th>
+      <th class="num">Seharusnya</th><th class="num">Selisih</th><th></th></tr></thead>
+      <tbody>${selisih.length ? selisih.map(barisSelisih).join('')
+        : '<tr><td colspan="5" class="kecil" style="text-align:center;padding:14px">Tidak ada selisih: yang dibayarkan sudah sama dengan hitungan dari data sekarang.</td></tr>'}</tbody></table></div>
+    <h3 style="margin:18px 0 6px;font-size:14px">Koreksi tercatat (${aktif.length})</h3>
+    <div class="scroll"><table class="log"><thead><tr><th>Nama</th><th class="num">Selisih</th><th>Penyelesaian</th>
+      <th>Dicatat</th><th></th></tr></thead>
+      <tbody>${aktif.concat(batal).length ? aktif.concat(batal).map(barisTercatat).join('')
+        : '<tr><td colspan="5" class="kecil" style="text-align:center;padding:14px">Belum ada koreksi untuk periode ini.</td></tr>'}</tbody></table></div>
+    </div>
+    <div class="aksi"><span class="kecil">${bendahara ? '' : 'Akun ini hanya bisa melihat; koreksi dicatat oleh bendahara.'}</span>
+      <div class="sp" style="flex:1"></div><button class="btn" id="m-batal">Tutup</button></div>`, true);
+  $('#modal-root .modal').style.maxWidth = '1000px';
+  $('#m-batal').onclick = tutupModal;
+
+  const orangDari = b => selisih.find(s => s.orang_id === b.closest('tr').dataset.orang);
+  const koreksiDari = b => tercatat.find(k => k.id === Number(b.closest('tr').dataset.id));
+  const catat = (s, cara, bulan) => jalankan('Mencatat koreksi…', async () => {
+    const id = await rpc('ip_koreksi_catat', { p_beku_id: beku.id, p_orang_id: s.orang_id, p_penyelesaian: cara,
+      p_bulan_potong: bulan ? bulan + '-01' : null, p_keterangan: null });
+    buangHitungan();   // potongan bulan berikutnya ikut mengubah hitungan periode itu
+    const [k] = await ambil('ip_koreksi', `select=*&id=eq.${Number(id)}`);
+    if (k && k.penyelesaian !== 'potong') await unduhDokumenKoreksi(k);
+    toast(cara === 'potong' ? `Dicatat: dipotong ${blnIndo(bulan + '-01')}.` : 'Dicatat. Dokumennya sudah diunduh.');
+    await dialogKoreksi(beku);
+  });
+
+  $$('#modal-root .kor-cara').forEach(sel => sel.onchange = () => {
+    sel.closest('td').querySelector('.kor-bulan').hidden = sel.value !== 'potong';
+  });
+  $$('#modal-root .bKorSusulan').forEach(b => b.onclick = () => {
+    const s = orangDari(b);
+    if (s && confirm(`Catat kekurangan bayar ${s.nama} sebesar ${rupiah(s.selisih)} untuk periode ${periode}?\n\n`
+      + 'Kuitansi susulannya langsung diunduh. Struk dan rekap periode ini tidak berubah.')) catat(s, 'susulan');
+  });
+  $$('#modal-root .bKorLebih').forEach(b => b.onclick = () => {
+    const s = orangDari(b), td = b.closest('td');
+    const cara = td.querySelector('.kor-cara').value, bulan = td.querySelector('.kor-bulan').value;
+    if (!s) return;
+    if (cara === 'potong' && !bulan) { toast('Pilih bulan potongannya.', true); return; }
+    const teks = cara === 'potong'
+      ? `dipotong pada struk ${blnIndo(bulan + '-01')} (Pot. Lain-lain "Koreksi lebih bayar")`
+      : 'dikembalikan tunai kepada bendahara (tanda terima pengembalian langsung diunduh)';
+    if (confirm(`Catat kelebihan bayar ${s.nama} sebesar ${rupiah(Math.abs(s.selisih))} untuk periode ${periode},\n${teks}?`))
+      catat(s, cara, cara === 'potong' ? bulan : null);
+  });
+  $$('#modal-root .bKorUnduh').forEach(b => b.onclick = () => {
+    const k = koreksiDari(b);
+    if (k) jalankan('Menyiapkan berkas…', () => unduhDokumenKoreksi(k));
+  });
+  $$('#modal-root .bKorBatal').forEach(b => b.onclick = () => {
+    const k = koreksiDari(b);
+    if (!k) return;
+    const alasan = window.prompt(`Batalkan koreksi ${k.nama} (${rupiah(Math.abs(k.selisih))})?`
+      + (k.penyelesaian === 'potong' ? `\n\nPotongan ${blnIndo(k.bulan_potong)}-nya ikut dihapus.` : '')
+      + '\n\nKoreksinya tidak dihapus; siapa, kapan, dan alasannya dicatat. Alasan:', '');
+    if (alasan === null) return;
+    jalankan('Membatalkan koreksi…', async () => {
+      await rpc('ip_koreksi_batal', { p_id: k.id, p_alasan: alasan });
+      buangHitungan();
+      toast('Koreksi dibatalkan.');
+      await dialogKoreksi(beku);
+    });
+  });
+}
+
+// Kuitansi susulan (kurang bayar) atau tanda terima pengembalian (lebih bayar tunai).
+function unduhDokumenKoreksi(k) {
+  const susulan = k.penyelesaian === 'susulan';
+  return unduhKuitansi({
+    kuitansi: susulan ? 'kekurangan pembayaran honor' : 'pengembalian kelebihan pembayaran honor',
+    kembali: !susulan
+  }, [{
+    nama: k.nama, jumlah: Math.abs(Number(k.selisih)),
+    periodeLabel: `periode ${tglIndo(k.awal)} – ${tglIndo(k.akhir)}`,
+    rincian: rincianKoreksi(k.rincian), tglAkhir: isoLokal(new Date(k.dibuat_pada))
+  }], k.nama, { awal: k.awal, akhir: k.akhir });
 }
 
 /* -------------------------------------------------------- muat semua */
@@ -2705,14 +2868,14 @@ const bobotHadir = b => b.hadir_tm + b.httm + b.st * 0.2 + b.it * 0.1;
 async function muatHadir() {
   const arg = { p_awal: ui.hadirAwal, p_akhir: ui.hadirAkhir };
   const [hariKerja, kehadiran, wali, pengganti, piket, staf, jamStaf, sesi, ekskul] = await Promise.all([
-    hitung('f_ip_hari_kerja', arg),
-    hitung('f_ip_kehadiran_guru', arg),
-    hitung('f_ip_kehadiran_wali', arg),
-    hitung('f_ip_pengganti_rinci', arg),
-    hitung('f_ip_pelaksanaan_piket', arg),
-    hitung('f_ip_kehadiran_staf', arg),
-    hitung('f_ip_kehadiran_staf_jam', arg),   // empat tab Kehadiran Staf: semua kelompok, termasuk pendukung
-    hitung('f_ip_ekskul_pertemuan', arg),
+    hitung('f_ip_hari_kerja', arg, true),
+    hitung('f_ip_kehadiran_guru', arg, true),
+    hitung('f_ip_kehadiran_wali', arg, true),
+    hitung('f_ip_pengganti_rinci', arg, true),
+    hitung('f_ip_pelaksanaan_piket', arg, true),
+    hitung('f_ip_kehadiran_staf', arg, true),
+    hitung('f_ip_kehadiran_staf_jam', arg, true),   // empat tab Kehadiran Staf: semua kelompok, termasuk pendukung
+    hitung('f_ip_ekskul_pertemuan', arg, true),
     ambil('ekskul', 'select=id,nama,pembina_id,kategori,hari,jam_mulai,aktif&order=id')
   ]);
   D.hadir = { awal: ui.hadirAwal, akhir: ui.hadirAkhir, hariKerja: (hariKerja || []).length,
@@ -4102,7 +4265,11 @@ function labelPeriodeRekap() {
   return `periode ${tglIndo(a)} – ${tglIndo(b)}`;
 }
 
-async function unduhKuitansi(spek, baris, namaBerkas) {
+/* spek.kembali (16 Oktober 2026): tanda terima PENGEMBALIAN kelebihan bayar —
+   arah uangnya terbalik: sekolah (bendahara) menerima dari orangnya.
+   `rentang` (opsional) menggantikan rentang Dari–Sampai untuk nama berkas:
+   koreksi memakai periode arsipnya. */
+async function unduhKuitansi(spek, baris, namaBerkas, rentang) {
   if (!baris || !baris.length) throw new Error('Tidak ada penerima pada periode ini.');
   const ExcelJS = await muatExcelJS();
   const wb = new ExcelJS.Workbook();
@@ -4124,7 +4291,8 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
     ws.columns = [{ width: 3 }, { width: 20 }, { width: 3 }, { width: 16 }, { width: 16 }, { width: 12 }, { width: 20 }, { width: 3 }];
     ws.views = [{ showGridLines: false }];
 
-    const r0 = kopBersama().kopExcel(ws, { wb, logo, profil: p, judul: 'KWITANSI', sub: '', kolomAkhir: KOL, font: F });
+    const r0 = kopBersama().kopExcel(ws, { wb, logo, profil: p, judul: spek.kembali ? 'TANDA TERIMA PENGEMBALIAN' : 'KWITANSI',
+      sub: '', kolomAkhir: KOL, font: F });
     const tulis = (r, c, v, o = {}) => {
       const sel = ws.getCell(r, c);
       sel.value = v;
@@ -4146,7 +4314,8 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
     let r = r0 + 1;
     tulis(r, 2, 'No.', { tebal: true });            tulis(r, 3, ':');  tulis(r, 4, '……………………');
     r += 1;
-    tulis(r, 2, 'Telah terima dari', { tebal: true }); tulis(r, 3, ':'); tulis(r, 4, p.nama_sekolah || KONFIG.sekolah, { tebal: true });
+    tulis(r, 2, 'Telah terima dari', { tebal: true }); tulis(r, 3, ':');
+    tulis(r, 4, spek.kembali ? b.nama : (p.nama_sekolah || KONFIG.sekolah), { tebal: true });
     r += 1;
     tulis(r, 2, 'Uang sebesar', { tebal: true });   tulis(r, 3, ':');
     kotak(r, 4, r, 7).value = terbilang(jumlah);
@@ -4154,7 +4323,7 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
     ws.getCell(r, 4).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     ws.getRow(r).height = 30;
     r += 1;
-    tulis(r, 2, 'Untuk pembayaran', { tebal: true }); tulis(r, 3, ':'); tulis(r, 4, untuk, { lipat: true });
+    tulis(r, 2, spek.kembali ? 'Untuk' : 'Untuk pembayaran', { tebal: true }); tulis(r, 3, ':'); tulis(r, 4, untuk, { lipat: true });
     ws.mergeCells(r, 4, r, 7);
     ws.getRow(r).height = b.rincian ? 15 * Math.max(2, Math.ceil(untuk.length / 55)) : 30;
     r += 2;
@@ -4165,7 +4334,11 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
     r += 2;
 
     // Tiga tanda tangan: setuju, lunas, menerima — simetris di dalam bingkai (kolom B–G).
-    kopBersama().ttdExcel(ws, r, { kolomAwal: 2, kolomAkhir: KOL - 1, font: F, blok: [
+    kopBersama().ttdExcel(ws, r, { kolomAwal: 2, kolomAkhir: KOL - 1, font: F, blok: spek.kembali ? [
+      { atas: ['Mengetahui,', 'Kepala Sekolah,'], nama: p.kepala_sekolah },
+      { atas: ['', 'Yang menyerahkan,'], nama: b.nama },
+      { atas: [`${p.kota || 'Soreang'}, ${tglIndo(b.tglAkhir || ui.rekapAkhir)}`, 'Yang menerima,', 'Bendahara,'], nama: p.bendahara }
+    ] : [
       { atas: ['Setuju dibayar,', 'Kepala Sekolah,'], nama: p.kepala_sekolah },
       { atas: [{ teks: 'LUNAS DIBAYAR', tebal: true }, 'Pada tanggal : ……………', 'Bendahara,'], nama: p.bendahara },
       { atas: [`${p.kota || 'Soreang'}, ${tglIndo(b.tglAkhir || ui.rekapAkhir)}`, 'Yang menerima,'], nama: b.nama }
@@ -4185,7 +4358,8 @@ async function unduhKuitansi(spek, baris, namaBerkas) {
     }
   });
 
-  await simpanBuku(wb, `Kuitansi ${spek.kuitansi}${namaBerkas ? ' ' + namaBerkas : ''} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
+  const rg = rentang || { awal: ui.rekapAwal, akhir: ui.rekapAkhir };
+  await simpanBuku(wb, `${spek.kembali ? 'Tanda terima' : 'Kuitansi'} ${spek.kuitansi}${namaBerkas ? ' ' + namaBerkas : ''} ${rg.awal} sd ${rg.akhir}.xlsx`);
 }
 
 /* ------------------------------------------------ nominal setoran wajib */
@@ -4690,6 +4864,14 @@ async function rincianStrukTembolok() {
   if (!rincianStrukSimpan || rincianStrukSimpan.kunci !== kunci) rincianStrukSimpan = { kunci, ...(await rincianStruk()) };
   return rincianStrukSimpan;
 }
+/* Catatan kaki Identitas Dokumen di setiap struk (16 Oktober 2026): di kiri
+   bawah, kecil dan miring. Ditulis per struk, bukan di kaki halaman, karena
+   dua struk sehalaman digunting dan masing-masing harus membawanya. Ikut
+   pilihan "tampilkan catatan kaki" di Identitas Dokumen; rata kirinya tetap. */
+function kakiStruk() {
+  const p = D.profil || {};
+  return p.catatan_kaki && kopBersama().tataLetak(p.tata_letak).kaki.tampil ? String(p.catatan_kaki) : '';
+}
 async function lihatStruk(b) {
   const { R, dibayar } = await rincianStrukTembolok();
   const isi = susunIsiStruk(b, R, dibayar);
@@ -4716,6 +4898,7 @@ async function lihatStruk(b) {
       ${isi.ringkasHadir ? `<tr><td>Kehadiran</td><td colspan="3">: <b>${esc(isi.ringkasHadir)}</b></td></tr>` : ''}
     </tbody></table>
     <table class="st-isi"><tbody>${baris}</tbody></table>
+    ${kakiStruk() ? `<p class="st-kaki">${esc(kakiStruk())}</p>` : ''}
     </div>
     <div class="aksi"><button class="btn" id="m-batal">Tutup</button>
       <button class="btn-unduh utama" data-fmt="docx" id="m-unduh">Unduh struk ini</button></div>`, true);
@@ -4802,6 +4985,7 @@ async function unduhStruk(baris) {
   const kota = p.kota || 'Soreang';
   const alamat = [p.alamat, p.kota, p.npsn ? 'NPSN ' + p.npsn : ''].filter(Boolean).join('  ·  ');
   const dataLogo = logo && logo.buffer ? new Uint8Array(logo.buffer) : null;
+  const kaki = kakiStruk();
 
   /* Satu struk. Bagian yang tidak ada isinya (nominal maupun kegiatannya
      nol) tidak dicetak, supaya struk pelatih dari luar atau staf tidak
@@ -4874,7 +5058,8 @@ async function unduhStruk(baris) {
       teks('', { size: 6, before: 40 }),
       tabel(KOL, bagian),
       teks('', { size: 6, before: 40 }),
-      ttd
+      ttd,
+      ...(kaki ? [teks(kaki, { size: 13, italics: true, color: KELABU, align: AlignmentType.LEFT, before: 80 })] : [])
     ];
   }
 

@@ -371,6 +371,7 @@ table.st-isi tr.st-info td{color:var(--ink3)}
 table.st-isi tr.st-jumlah td{background:var(--kertas-3);font-weight:600;font-style:italic;border-bottom:1px solid var(--line)}
 table.st-isi tr.st-total td{background:var(--sakit-muda);color:var(--gelap);font-weight:700}
 table.st-isi tr.st-tunai td{background:var(--hadir-muda);color:var(--hadir-tua);font-weight:700;font-size:14px;padding:8px}
+.st-kaki{margin:10px 0 0;font-size:11px;font-style:italic;color:var(--ink3);text-align:left}
 
 /* Pemilih pekan pada kartu pendukung yang dibayar mingguan. */
 .pg-pekan{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);

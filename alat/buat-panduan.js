@@ -11,7 +11,7 @@ const fs = require("fs"), path = require("path"), os = require("os"), { spawn } 
 
 const SUBJUDUL = "Besaran pembiayaan, tunjangan dan potongan, honor dan transpor, struk, dan setoran", UNTUK = "bendahara, operator (lihat saja), dan pimpinan";
 const AKAR = path.join(__dirname, ".."), NAMA = "Panduan_Induk_Pembiayaan";
-const JUDUL = "Panduan Induk Pembiayaan", VERSI = "15 Oktober 2026", MEREK = "INDUK PEMBIAYAAN · SMA PLUS MERDEKA SOREANG";
+const JUDUL = "Panduan Induk Pembiayaan", VERSI = "16 Oktober 2026", MEREK = "INDUK PEMBIAYAAN · SMA PLUS MERDEKA SOREANG";
 
 /* ================= Isi panduan =================
    Blok: H1/H2/H3 (judul, dinomori otomatis), P (paragraf), UL/OL (daftar), TB (tabel: kepala, baris, lebar relatif),
@@ -43,7 +43,8 @@ const ISI = [
     "**Akhir bulan**: pastikan aplikasi asal sudah lengkap (ketidakhadiran, pengganti, piket, ekskul, fingerprint staf). Periksa di **Kehadiran dan Piket**.",
     "Di **Honor dan Transpor**, pilih periode, **Hitung**, periksa tiap tab, lalu unduh daftar penerimaan.",
     "Di tab **Cetak Struk**, unduh struk gaji untuk dibagikan. Di **Nominal Setoran Wajib**, unduh daftar setoran.",
-    "**Sesudah dibayarkan**: **Kunci periode ini** supaya angkanya tidak bergeser oleh koreksi di belakang hari."),
+    "**Sesudah dibayarkan**: **Kunci periode ini** supaya angkanya tidak bergeser oleh koreksi di belakang hari.",
+    "**Bila kemudian ditemukan kesalahan**: jangan buka kunci. Betulkan datanya di aplikasi asal, lalu selesaikan selisihnya lewat **Selisih & koreksi…** (bagian 7)."),
   H2("Menu aplikasi"),
   TB(["Menu", "Isi"], [
     ["**Beranda**", "Ringkasan jenis pembiayaan, peringatan besaran yang belum diisi, sumber data."],
@@ -93,7 +94,8 @@ const ISI = [
   ], [1.5, 4.5]),
   UL("Bobot kehadiran guru: **HTTM** 100%, **ST** (sakit dengan tugas) 20%, **IT** (ijin dengan tugas) 10%, **TK** (tanpa keterangan) 0%. Bobot Hadir = Jam Hadir + HTTM + 20% ST + 10% IT; % Kehadiran = Bobot Hadir ÷ Jam Terjadwal.",
     "Pemegang tugas Staf disembunyikan dari tab guru secara bawaan; tekan **Tampilkan juga** untuk melihatnya.",
-    "Warna persen: hijau ≥95%, emas ≥85%, merah di bawahnya."),
+    "Warna persen: hijau ≥95%, emas ≥85%, merah di bawahnya.",
+    "Halaman ini **selalu membaca data terkini**, juga untuk periode yang sudah dikunci. Koreksi kehadiran sesudah kunci langsung terlihat di sini, sedangkan struk dan rekap honor periode itu tetap dari arsip."),
 
   /* ============================ 5 ============================ */
   H1("Nominal Penggajian"),
@@ -108,6 +110,7 @@ const ISI = [
     "Setiap perubahan disimpan sebagai versi dengan tanggal berlakunya, sehingga honor bulan lalu tetap dihitung dengan besaran bulan lalu. Tekan **Riwayat** untuk melihat semua versi; **Hapus versi ini** hanya untuk merapikan salah isi."),
   H2("Honor tenaga pendukung (per orang)"),
   P("Di tab Staf, panel **Honor Tenaga Pendukung (per orang)** mengatur komponen tiap orang: **+ Tambah orang**, lalu **+ Komponen** (Komponen, Satuan per bulan / per jam hadir / per hari hadir, Nominal, Berlaku mulai). Pilih **Dibayar** Bulanan atau Mingguan. Komponen yang tidak berlaku lagi diakhiri dengan **Akhiri**, bukan dihapus."),
+  P("Yang dibayar **mingguan** dihitung per pekan Senin–Sabtu (supaya hadir hari Sabtu, mis. lembur, tetap terbayar), tetapi kartu dan kuitansinya menulis pekan **sampai hari kerja terakhirnya** menurut Jam Kerja Staf di Data Induk — mis. bekerja Senin–Jumat: \"pekan 12 Okt 2026 – 16 Okt 2026\"."),
 
   /* ============================ 6 ============================ */
   H1("Tunjangan dan Potongan"),
@@ -167,12 +170,30 @@ const ISI = [
   H2("Keseluruhan dan Cetak Struk"),
   UL("**Keseluruhan · Dengan Potongan** menambahkan Pot. BPJS, Pot. Koperasi, Pot. Lain-lain, dan Tunjangan Disetor ke Bank. **Diterima Tunai = Jumlah − Jumlah Potongan − Tunjangan Disetor ke Bank.**",
     "**Cetak Struk**: **View struk** untuk melihat struk satu orang (lalu **Unduh struk ini**); **Unduh struk** untuk memilih banyak penerima sekaligus (Word, dua struk per halaman, siap digunting); **Unduh daftar** untuk rekap Excel.",
-    "Struk berisi rincian pendapatan, potongan, tunjangan yang disetor ke bank, dan jumlah diterima tunai, ditandatangani Bendahara."),
+    "Struk berisi rincian pendapatan, potongan, tunjangan yang disetor ke bank, dan jumlah diterima tunai, ditandatangani Bendahara.",
+    "**Catatan kaki** dari Identitas Dokumen tercetak di **kiri bawah setiap struk** dengan huruf kecil miring — per struk, bukan per halaman, supaya kedua struk yang digunting sama-sama membawanya. Bila catatan kaki disembunyikan di Data Induk → Profil Dokumen, struk juga tidak menampilkannya."),
   H2("Kunci periode"),
   P("Sesudah honor suatu periode dibayarkan, tekan **Kunci periode ini** dan tulis catatannya (mis. \"dibayar 5 Oktober\"). Seluruh hitungan periode itu — semua tab, Keseluruhan, struk, dan setoran — diarsipkan. Koreksi kehadiran di belakang hari **tidak lagi menggeser** angka periode yang terkunci."),
-  UL("Periode terkunci menampilkan kotak \"**Periode ini dikunci** sejak … oleh …\".",
-    "Untuk memperbaiki, tekan **Buka kunci…** dan tulis alasannya. Siapa, kapan, dan alasannya tercatat di Riwayat Perubahan.",
-    "Kunci berlaku untuk pasangan tanggal yang **persis sama** (mis. 1–31 Oktober)."),
+  UL("Periode terkunci menampilkan kotak \"**Periode ini dikunci** sejak … oleh …\" dengan tombol **Selisih & koreksi…** dan **Buka kunci…**.",
+    "Kunci berlaku untuk pasangan tanggal yang **persis sama** (mis. 1–31 Oktober).",
+    "**Buka kunci…** (dengan alasan) hanya bila periodenya belum dibayarkan atau memang harus dihitung ulang seluruhnya. Sesudah dibuka, semua angka dihitung ulang dari data sekarang; arsip lama tetap tersimpan. Siapa, kapan, dan alasannya tercatat di Riwayat Perubahan."),
+  H2("Selisih dan koreksi sesudah kunci"),
+  P("Bila sesudah dibayarkan ditemukan kesalahan (kurang bayar atau lebih bayar), **periode tidak dibuka ulang**. Struk dan rekap yang sudah dibayarkan tetap; selisihnya diselesaikan dengan dokumen tersendiri. Data kehadiran tetap dibetulkan di aplikasi asal, sehingga rekap kehadiran ikut benar."),
+  OL("Betulkan dulu datanya di aplikasi asal (kehadiran, pengganti, piket, ekskul) atau besaran/potongannya.",
+    "Di **Honor dan Transpor**, isi rentang periode yang terkunci, **Hitung**, lalu tekan **Selisih & koreksi…**.",
+    "Bagian **Belum diselesaikan** memuat orang yang uang tunainya menurut data sekarang berbeda dari yang sudah dibayarkan, lengkap dengan kolom yang berubah (mis. \"Honor Mengajar Rp 1.072.000 → Rp 1.052.000\"). Periksa satu per satu: bisa jadi bukan kesalahan, melainkan data yang memang diubah sesudahnya.",
+    "Selesaikan tiap orang (lihat tabel di bawah). Dokumennya langsung terunduh, dan orang itu pindah ke bagian **Koreksi tercatat**."),
+  TB(["Keadaan", "Penyelesaian", "Dokumen"], [
+    ["**Kurang bayar**", "**Catat kuitansi susulan** — dibayarkan sebesar selisihnya.", "Kuitansi \"kekurangan pembayaran honor periode …\" (Excel), bertanda tangan Kepala Sekolah, Bendahara, dan penerima."],
+    ["**Lebih bayar**, dikembalikan", "Pilih **Dikembalikan tunai**, lalu **Catat**.", "Tanda terima pengembalian (Excel): diterima Bendahara dari orangnya, diketahui Kepala Sekolah."],
+    ["**Lebih bayar**, dipotong", "Pilih **Dipotong bulan…**, pilih bulannya (bawaan: bulan berikutnya), lalu **Catat**.", "Tidak ada dokumen terpisah: muncul sebagai **Pot. Lain-lain \"Koreksi lebih bayar\"** di struk bulan itu."],
+  ], [1.4, 2.4, 2.6]),
+  UL("Selisih dihitung oleh database: uang tunai menurut data sekarang − yang tercatat di arsip − koreksi yang sudah dicatat. Karena itu selisih yang sama **tidak bisa dicatat (dibayar) dua kali**.",
+    "Bulan potongan tidak boleh bulan yang sudah masuk periode terkunci (potongannya tidak akan pernah tampil di struk). Pembina dari luar hanya bisa dikembalikan tunai.",
+    "Kuitansi dan tanda terima bisa diunduh ulang dari **Koreksi tercatat**. Koreksi yang salah dicatat bisa **Dibatalkan** dengan alasan; potongan bulan berikutnya ikut dihapus, kecuali bulan itu sudah dikunci. Koreksi tidak pernah dihapus.",
+    "Hanya **bendahara** yang mencatat dan membatalkan koreksi; operator hanya melihat."),
+  KOTAK("info", "Buka kunci atau koreksi?",
+    "Sudah dibayarkan → **Selisih & koreksi**. Belum dibayarkan, atau kuncinya keliru (salah rentang) → **Buka kunci**."),
 
   /* ============================ 8 ============================ */
   H1("Nominal Setoran Wajib"),
@@ -189,7 +210,7 @@ const ISI = [
   H2("Riwayat Perubahan"),
   P("Mencatat setiap perubahan besaran, tunjangan, potongan, dan komponen pendukung: **Waktu**, **Akun**, **Data**, **Aksi** (tambah/ubah/hapus), **Orang**, dan **Perubahan** (nilai lama → baru). Saring per jenis data; **Muat lebih banyak** untuk catatan lama. Panel **Kunci periode** menampilkan riwayat kunci dan buka kunci. Catatan ini dibuat otomatis oleh database dan tidak bisa diubah."),
   H2("Identitas Dokumen"),
-  P("Nama sekolah, alamat, Kepala Sekolah, Bendahara, para Wakasek, dan catatan kaki yang dipakai di kop dan tanda tangan semua dokumen. Halaman ini hanya menampilkan; ubah di **Data Induk → Profil Dokumen**."),
+  P("Nama sekolah, alamat, Kepala Sekolah, Bendahara, para Wakasek, dan catatan kaki yang dipakai di kop, tanda tangan, dan kaki dokumen (termasuk kiri bawah setiap struk). Halaman ini hanya menampilkan; ubah di **Data Induk → Profil Dokumen**."),
   H2("Masalah umum"),
   TB(["Keadaan / pesan", "Yang dilakukan"], [
     ["Email atau kata sandi salah.", "Periksa ejaan; minta operator data mengatur ulang kata sandi bila lupa."],
@@ -201,11 +222,14 @@ const ISI = [
     ["Ini bukan template …", "Unduh template dari tab yang sama, isi, lalu unggah kembali."],
     ["Pembuat Excel / Word gagal dimuat.", "Unduhan butuh internet; coba lagi."],
     ["Tulisan \"Memuat ulang…\" saat kembali ke tab", "Wajar: bila tab ditinggal lebih dari 5 menit, data dimuat ulang supaya perubahan di aplikasi lain ikut terbaca. Tidak perlu masuk lagi."],
-    ["Angka kehadiran tidak sesuai", "Perbaiki di aplikasi asal (bagian 1), lalu **Hitung** lagi. Bila periodenya sudah dikunci, buka kunci dulu."],
+    ["Angka kehadiran tidak sesuai", "Perbaiki di aplikasi asal (bagian 1), lalu **Hitung** lagi. Bila periodenya sudah dikunci dan dibayarkan, selesaikan selisihnya lewat **Selisih & koreksi…** (bagian 7), jangan buka kunci."],
+    ["Server menolak membaca sebagian data (permission denied …)", "Masalah pengaturan database, bukan peran akun Anda. Laporkan ke pengelola aplikasi beserta isi pesannya."],
+    ["Tidak ada selisih untuk orang ini — mungkin sudah dicatat.", "Koreksinya sudah tercatat (lihat **Koreksi tercatat**). Tutup lalu buka lagi **Selisih & koreksi…**."],
   ], [2.6, 3.4]),
   H2("Istilah"),
   TB(["Istilah", "Arti"], [
     ["**TuSehat / TuKerja**", "Tunjangan Kesehatan / Tunjangan Ketenagakerjaan."],
+    ["**Koreksi / kuitansi susulan**", "Penyelesaian kurang atau lebih bayar pada periode yang sudah dikunci, tanpa mengubah struk dan rekap periode itu."],
     ["**Penyaluran utama / rincian tambahan**", "Bentuk utama tunjangan / bagian tunjangan yang disalurkan ke tujuan lain."],
     ["**Bawaan**", "Nominal umum yang berlaku bila seseorang tidak punya angka khusus."],
     ["**Versi**", "Besaran dengan tanggal mulai berlakunya."],
