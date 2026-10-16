@@ -419,12 +419,12 @@ const LABEL_KOREKSI = {
   mengajar: 'Honor Mengajar', wali: 'Honor Wali Kelas', diperbantukan: 'Honor Diperbantukan',
   piket_meja: 'Transpor Piket Meja', pengganti: 'Transpor Pengganti', ekskul: 'Transpor Pemb. Ekskul',
   tahfidz: 'Transpor Pemb. Tahfidz', parkiran: 'Transpor Parkiran', staf_gaji: 'Gaji & Tunj. Staf',
-  staf_transpor: 'Transpor Staf', pendukung: 'Honor Pendukung', bpjs: 'TuSehat', bpjs_tk: 'TuKerja',
+  staf_transpor: 'Transpor Staf', pendukung: 'Honor Pendukung', koreksi: 'Koreksi Periode Lalu', bpjs: 'TuSehat', bpjs_tk: 'TuKerja',
   potongan_bpjs: 'Pot. BPJS', potongan_sekolah: 'Pot. Lain-lain', potongan_koperasi: 'Pot. Koperasi'
 };
 const rincianKoreksi = r => Object.entries(r || {})
   .map(([k, [lama, baru]]) => `${LABEL_KOREKSI[k] || k} ${rupiah(lama)} → ${rupiah(baru)}`).join('; ');
-const PENYELESAIAN = { susulan: 'Kuitansi susulan', kembali_tunai: 'Dikembalikan tunai', potong: 'Dipotong' };
+const PENYELESAIAN = { susulan: 'Kuitansi susulan', tambah: 'Ditambahkan ke struk', kembali_tunai: 'Dikembalikan tunai', potong: 'Dipotong' };
 
 async function dialogKoreksi(beku) {
   if (!beku) return;
@@ -449,26 +449,26 @@ async function dialogKoreksi(beku) {
       <td class="num">${esc(rupiah(s.seharusnya))}</td>
       <td class="num" style="font-weight:600;color:${kurang ? 'var(--ok, #2e7d32)' : 'var(--warn)'}">
         ${kurang ? 'Kurang' : 'Lebih'} ${esc(rupiah(Math.abs(s.selisih)))}</td>
-      <td>${!bendahara ? '' : kurang
-        ? '<button class="btn btn-sm btn-p bKorSusulan">Catat kuitansi susulan</button>'
-        : `<select class="field kor-cara" style="width:auto">
-             <option value="kembali_tunai">Dikembalikan tunai</option>
-             ${s.guru_id ? '<option value="potong">Dipotong bulan…</option>' : ''}
+      <td>${!bendahara ? '' : `<select class="field kor-cara" style="width:auto">${kurang
+          ? `<option value="susulan">Kuitansi susulan</option>
+             <option value="tambah">Ditambahkan ke struk bulan…</option>`
+          : `<option value="kembali_tunai">Dikembalikan tunai</option>
+             ${s.guru_id ? '<option value="potong">Dipotong bulan…</option>' : ''}`}
            </select>
            <input class="field kor-bulan" type="month" value="${bulanDepan}" style="width:auto" hidden>
-           <button class="btn btn-sm btn-p bKorLebih">Catat</button>`}</td></tr>`;
+           <button class="btn btn-sm btn-p bKorCatat">Catat</button>`}</td></tr>`;
   };
   const barisTercatat = k => {
     const potongHilang = k.penyelesaian === 'potong' && !k.potongan_id && !k.dibatalkan_pada;
     return `<tr class="${k.dibatalkan_pada ? 'mati' : ''}" data-id="${k.id}">
       <td style="font-weight:500">${esc(k.nama)}<div class="kecil">${esc(rincianKoreksi(k.rincian) || '')}</div></td>
       <td class="num" style="font-weight:600">${Number(k.selisih) > 0 ? 'Kurang' : 'Lebih'} ${esc(rupiah(Math.abs(k.selisih)))}</td>
-      <td>${esc(PENYELESAIAN[k.penyelesaian] || k.penyelesaian)}${k.penyelesaian === 'potong'
+      <td>${esc(PENYELESAIAN[k.penyelesaian] || k.penyelesaian)}${k.bulan_potong
         ? ` ${esc(blnIndo(k.bulan_potong))}` : ''}${potongHilang
         ? '<div class="kecil" style="color:var(--warn)">baris potongannya sudah dihapus di Potongan</div>' : ''}</td>
       <td class="kecil">${esc(waktuLog(k.dibuat_pada))}<br>${esc(k.dibuat_oleh || '')}${k.dibatalkan_pada
         ? `<br><b>dibatalkan</b> ${esc(waktuLog(k.dibatalkan_pada))} — ${esc(k.alasan_batal || '')}` : ''}</td>
-      <td class="act">${k.dibatalkan_pada ? '' : `${k.penyelesaian === 'potong' ? ''
+      <td class="act">${k.dibatalkan_pada ? '' : `${k.bulan_potong ? ''
         : `<button class="btn-unduh bKorUnduh" data-fmt="xlsx">${k.penyelesaian === 'susulan' ? 'Kuitansi' : 'Tanda terima'}</button>`}${
         bendahara ? ' <button class="btn btn-sm btn-d bKorBatal">Batalkan</button>' : ''}`}</td></tr>`;
   };
@@ -476,8 +476,9 @@ async function dialogKoreksi(beku) {
   bukaModal(`<h2>Selisih &amp; koreksi — periode ${esc(periode)}</h2><div class="body">
     <p class="msg kecil">Periode ini sudah dikunci dan dibayarkan. Di bawah ini orang yang uang tunainya menurut data
       <b>sekarang</b> berbeda dari yang sudah dibayarkan. Struk dan rekap periode ini <b>tidak berubah</b>; selisihnya
-      diselesaikan di sini. Kurang bayar dibayarkan dengan kuitansi susulan. Lebih bayar dikembalikan tunai
-      (dengan tanda terima) atau dipotong pada bulan berikutnya sebagai Pot. Lain-lain "Koreksi lebih bayar".
+      diselesaikan di sini. Kurang bayar dibayarkan dengan kuitansi susulan atau ditambahkan ke struk bulan
+      berikutnya (bagian "Koreksi periode lalu"). Lebih bayar dikembalikan tunai (dengan tanda terima) atau
+      dipotong pada bulan berikutnya sebagai Pot. Lain-lain "Koreksi lebih bayar".
       Periksa dulu kolom yang berubah: bisa jadi bukan kesalahan, melainkan data yang memang diubah sesudahnya.</p>
     <h3 style="margin:14px 0 6px;font-size:14px">Belum diselesaikan (${selisih.length})</h3>
     <div class="scroll"><table class="log"><thead><tr><th>Nama dan yang berubah</th><th class="num">Sudah dibayar</th>
@@ -502,29 +503,32 @@ async function dialogKoreksi(beku) {
       p_bulan_potong: bulan ? bulan + '-01' : null, p_keterangan: null });
     buangHitungan();   // potongan bulan berikutnya ikut mengubah hitungan periode itu
     const [k] = await ambil('ip_koreksi', `select=*&id=eq.${Number(id)}`);
-    if (k && k.penyelesaian !== 'potong') await unduhDokumenKoreksi(k);
-    toast(cara === 'potong' ? `Dicatat: dipotong ${blnIndo(bulan + '-01')}.` : 'Dicatat. Dokumennya sudah diunduh.');
+    if (k && !k.bulan_potong) await unduhDokumenKoreksi(k);
+    toast(cara === 'potong' ? `Dicatat: dipotong ${blnIndo(bulan + '-01')}.`
+      : cara === 'tambah' ? `Dicatat: ditambahkan ke struk ${blnIndo(bulan + '-01')}.` : 'Dicatat. Dokumennya sudah diunduh.');
     await dialogKoreksi(beku);
   });
 
+  // Pilihan berbulan (tambah / potong) memunculkan isian bulannya.
   $$('#modal-root .kor-cara').forEach(sel => sel.onchange = () => {
-    sel.closest('td').querySelector('.kor-bulan').hidden = sel.value !== 'potong';
+    sel.closest('td').querySelector('.kor-bulan').hidden = !['tambah', 'potong'].includes(sel.value);
   });
-  $$('#modal-root .bKorSusulan').forEach(b => b.onclick = () => {
-    const s = orangDari(b);
-    if (s && confirm(`Catat kekurangan bayar ${s.nama} sebesar ${rupiah(s.selisih)} untuk periode ${periode}?\n\n`
-      + 'Kuitansi susulannya langsung diunduh. Struk dan rekap periode ini tidak berubah.')) catat(s, 'susulan');
-  });
-  $$('#modal-root .bKorLebih').forEach(b => b.onclick = () => {
+  $$('#modal-root .bKorCatat').forEach(b => b.onclick = () => {
     const s = orangDari(b), td = b.closest('td');
     const cara = td.querySelector('.kor-cara').value, bulan = td.querySelector('.kor-bulan').value;
     if (!s) return;
-    if (cara === 'potong' && !bulan) { toast('Pilih bulan potongannya.', true); return; }
-    const teks = cara === 'potong'
-      ? `dipotong pada struk ${blnIndo(bulan + '-01')} (Pot. Lain-lain "Koreksi lebih bayar")`
-      : 'dikembalikan tunai kepada bendahara (tanda terima pengembalian langsung diunduh)';
-    if (confirm(`Catat kelebihan bayar ${s.nama} sebesar ${rupiah(Math.abs(s.selisih))} untuk periode ${periode},\n${teks}?`))
-      catat(s, cara, cara === 'potong' ? bulan : null);
+    const berbulan = cara === 'tambah' || cara === 'potong';
+    if (berbulan && !bulan) { toast('Pilih bulannya.', true); return; }
+    const nominal = rupiah(Math.abs(s.selisih));
+    const teks = {
+      susulan: 'dibayarkan dengan kuitansi susulan (langsung diunduh)',
+      tambah: `ditambahkan ke struk ${blnIndo(bulan + '-01')} (bagian "Koreksi periode lalu", ikut Jumlah dan Diterima Tunai bulan itu)`,
+      kembali_tunai: 'dikembalikan tunai kepada bendahara (tanda terima pengembalian langsung diunduh)',
+      potong: `dipotong pada struk ${blnIndo(bulan + '-01')} (Pot. Lain-lain "Koreksi lebih bayar")`
+    }[cara];
+    if (confirm(`Catat ${Number(s.selisih) > 0 ? 'kekurangan' : 'kelebihan'} bayar ${s.nama} sebesar ${nominal} `
+      + `untuk periode ${periode},\n${teks}?\n\nStruk dan rekap periode ${periode} tidak berubah.`))
+      catat(s, cara, berbulan ? bulan : null);
   });
   $$('#modal-root .bKorUnduh').forEach(b => b.onclick = () => {
     const k = koreksiDari(b);
@@ -534,7 +538,8 @@ async function dialogKoreksi(beku) {
     const k = koreksiDari(b);
     if (!k) return;
     const alasan = window.prompt(`Batalkan koreksi ${k.nama} (${rupiah(Math.abs(k.selisih))})?`
-      + (k.penyelesaian === 'potong' ? `\n\nPotongan ${blnIndo(k.bulan_potong)}-nya ikut dihapus.` : '')
+      + (k.penyelesaian === 'potong' ? `\n\nPotongan ${blnIndo(k.bulan_potong)}-nya ikut dihapus.`
+        : k.penyelesaian === 'tambah' ? `\n\nTambahan di struk ${blnIndo(k.bulan_potong)} ikut hilang.` : '')
       + '\n\nKoreksinya tidak dihapus; siapa, kapan, dan alasannya dicatat. Alasan:', '');
     if (alasan === null) return;
     jalankan('Membatalkan koreksi…', async () => {
@@ -3383,6 +3388,8 @@ const REKAP = {
       { k: 'staf_gaji', t: 'Gaji & Tunj. Staf', w: 140, rp: true },
       { k: 'staf_transpor', t: 'Transpor Staf', w: 130, rp: true },
       { k: 'pendukung', t: 'Honor Pendukung', w: 140, rp: true },
+      // Kurang bayar periode terkunci yang ditambahkan ke periode ini (16 Oktober 2026).
+      { k: 'koreksi', t: 'Koreksi Periode Lalu', w: 140, rp: true, nolSembunyi: true },
       { k: 'bpjs', t: 'TuSehat', w: 120, rp: true },
       { k: 'bpjs_tk', t: 'TuKerja', w: 120, rp: true }
     ],
@@ -3839,11 +3846,13 @@ function halRekap() {
      sub yang dipilih menimpa nama, judul, catatan, kolom, dan `ubah`. */
   const subKunci = !induk.sub ? null
     : induk.sub[ui.rekapSub[ui.rekapJenis]] ? ui.rekapSub[ui.rekapJenis] : Object.keys(induk.sub)[0];
-  const spek = subKunci ? { ...induk, ...induk.sub[subKunci], nama: `${induk.nama} — ${induk.sub[subKunci].nama}` } : induk;
+  const spekAsal = subKunci ? { ...induk, ...induk.sub[subKunci], nama: `${induk.nama} — ${induk.sub[subKunci].nama}` } : induk;
   /* Keseluruhan dan Cetak Struk: urut kelompok dari database (guru, pendukung, karyawan, staf khusus,
      pimpinan, pelatih eksternal) lalu masa kerja. Tab lain tidak membawa urutan_kelompok, jadi tetap urut masa kerja. */
-  const semua = D.rekap && (urutMasaKerja(spek.ubah ? D.rekap.map(spek.ubah) : D.rekap) || [])
+  const semua = D.rekap && (urutMasaKerja(spekAsal.ubah ? D.rekap.map(spekAsal.ubah) : D.rekap) || [])
     .sort((a, b) => (a.urutan_kelompok || 9) - (b.urutan_kelompok || 9));
+  // Kolom `nolSembunyi` (Koreksi Periode Lalu) hanya tampil — di layar dan di Excel — bila ada isinya.
+  const spek = { ...spekAsal, kolom: spekAsal.kolom && spekAsal.kolom.filter(k => !k.nolSembunyi || (semua || []).some(r => Number(r[k.k]) !== 0)) };
   const bagian = spek.tab || 'guru';
   /* Pemegang tugas Staf berhonor nol di rekap ini — aturannya ditegakkan di
      fungsi database, bukan di layar. Yang disembunyikan hanya yang
@@ -4431,7 +4440,10 @@ const PANGGILAN_STRUK = arg => [
   ['f_ip_honor_pendukung', arg],
   // Rincian tambahan TuSehat/TuKerja: hanya untuk menyebut tujuannya; nominalnya sudah di Keseluruhan.
   ['f_ip_tunjangan_rincian', { ...arg, p_jenis: 'kesehatan' }, true],
-  ['f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }, true]
+  ['f_ip_tunjangan_rincian', { ...arg, p_jenis: 'ketenagakerjaan' }, true],
+  // Kurang bayar periode lalu yang ditambahkan ke periode ini: untuk menyebut periode asalnya;
+  // nominalnya sudah di Keseluruhan (kolom koreksi).
+  ['f_ip_koreksi_tambah', arg, true]
 ];
 const jalankanPanggilan = daftar => Promise.all(daftar.map(([f, a, pelengkap]) =>
   pelengkap ? hitung(f, a).catch(() => []) : hitung(f, a)));
@@ -4601,14 +4613,14 @@ async function rincianStruk() {
   const arg = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
   await pastikanBeku();
   const [[mengajar, wali, diper, meja, pengganti, pembina, parkir, sehat, kerja, kop, sek,
-          hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung, rincSehat, rincKerja], jadwal, mapel] = await Promise.all([
+          hadirGuru, hadirWali, hadirPiket, honorStaf, honorPendukung, rincSehat, rincKerja, koreksiTambah], jadwal, mapel] = await Promise.all([
     jalankanPanggilan(PANGGILAN_STRUK(arg)),
     // Mata pelajaran hanya pelengkap; kegagalannya tidak menggagalkan struk.
     ambil('jadwal_kbm', 'select=guru_id,mapel_id').catch(() => []),
     ambil('mapel', 'select=id,nama_mapel').catch(() => [])
   ]);
   const R = {};
-  const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [], sehatTambah: [], kerjaTambah: [] });
+  const orang = id => (R[id] = R[id] || { diper: [], ekskul: [], tahfidz: [], koperasi: [], sekolah: [], pendukung: [], sehatTambah: [], kerjaTambah: [], koreksi: [] });
   const dibayar = b => Number(b.jumlah) > 0;
   (mengajar || []).forEach(b => { orang(b.guru_id).mengajar = b; });
   (wali || []).forEach(b => { orang(b.guru_id).wali = b; });
@@ -4624,6 +4636,7 @@ async function rincianStruk() {
   (kerja || []).forEach(b => { orang(b.guru_id).kerja = b; });
   (rincSehat || []).forEach(b => orang(b.guru_id).sehatTambah.push(b));
   (rincKerja || []).forEach(b => orang(b.guru_id).kerjaTambah.push(b));
+  (koreksiTambah || []).forEach(b => orang(b.orang_id).koreksi.push(b));
   (kop || []).forEach(b => orang(b.guru_id).koperasi.push(b));
   (sek || []).forEach(b => orang(b.guru_id).sekolah.push(b));
   (honorStaf || []).forEach(b => { orang(b.guru_id).staf = b; });
@@ -4821,6 +4834,19 @@ function susunIsiStruk(b, R, dibayar) {
       bagian.push(RH(k, 'HONOR TENAGA PENDUKUNG'));
       r.pendukung.forEach((x, i) => bagian.push(RT(i + 1, x.komponen, `${ukuranTeks(x)} × ${rupiah(x.nilai)}`, x.jumlah)));
       bagian.push(RJ(`Jumlah ${k}`, P));
+    }
+    /* Kurang bayar periode terkunci yang ditambahkan ke periode ini (16 Oktober
+       2026): satu baris per koreksi, dengan periode asalnya. Bila rinciannya
+       tidak termuat, nominal Keseluruhan tetap tercetak dalam satu baris. */
+    const K = Number(b.koreksi) || 0;
+    if (K !== 0) {
+      const k = kode();
+      const kor = r.koreksi || [];
+      bagian.push(RH(k, 'KOREKSI PERIODE LALU'));
+      if (kor.length) kor.forEach((x, i) => bagian.push(RT(i + 1, 'Kekurangan bayar',
+        `periode ${tglIndo(x.awal_asal)} – ${tglIndo(x.akhir_asal)}`, x.nominal)));
+      else bagian.push(RT(1, 'Kekurangan bayar periode lalu', '', K));
+      bagian.push(RJ(`Jumlah ${k}`, K));
     }
     if (E > 0) {
       const k = kode();
