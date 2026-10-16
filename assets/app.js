@@ -113,8 +113,13 @@ function pesanRamah(e) {
   const m = e && e.message ? e.message : String(e);
   if (/duplicate key|already exists/i.test(m))
     return 'Sudah ada besaran untuk jenis dan tanggal berlaku itu. Pilih tanggal berlaku yang lain.';
-  if (/row-level security|permission denied/i.test(m))
+  if (/row-level security/i.test(m))
     return 'Akun ini belum berhak membuka Induk Pembiayaan. Hubungi operator untuk didaftarkan sebagai bendahara.';
+  /* Hak database yang hilang (16 Oktober 2026: hak baca ae_pembina hilang
+     sesudah gabung database) bukan soal peran akun: bendahara pun
+     ditolak. Pesan aslinya ikut ditampilkan supaya bisa ditelusuri. */
+  if (/permission denied/i.test(m))
+    return 'Server menolak membaca sebagian data (' + m + '). Ini masalah pengaturan database, bukan peran akun Anda — laporkan ke pengelola aplikasi.';
   return m;
 }
 
@@ -409,7 +414,7 @@ async function muatSemua() {
     ambil('ip_indeks', 'select=kode,berlaku_mulai,kenaikan,sejak_tahun,maksimum,catatan&order=berlaku_mulai.asc'),
     // Honor tenaga pendukung per orang: komponennya, siapa yang berkelompok pendukung, dan daftar guru untuk menambah orang.
     ambil('ip_pendukung', 'select=id,guru_id,komponen,satuan,nilai,berlaku_mulai,berlaku_sampai,catatan&order=guru_id,komponen,berlaku_mulai.asc'),
-    ambil('v_jam_kerja_guru', 'select=guru_id,nama,jabatan,kelompok_tarif&kelompok_tarif=eq.pendukung'),
+    ambil('v_jam_kerja_guru', 'select=guru_id,nama,jabatan,kelompok_tarif,urutan,bekerja&kelompok_tarif=eq.pendukung'),
     ambil('v_guru', 'select=id,nama,tmt_sekolah,status_aktif&status_aktif=eq.Aktif&order=nama'),
     // Periode bayar tenaga pendukung (bulanan / mingguan); tanpa baris = bulanan.
     ambil('ip_pendukung_orang', 'select=guru_id,periode_bayar').catch(() => []),
@@ -829,10 +834,20 @@ function seninDari(iso) {
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
   return isoLokal(d);
 }
+/* Pekan yang DIHITUNG tetap Senin–Sabtu, supaya hadir di luar hari kerjanya
+   (mis. lembur Sabtu) tidak hilang dari bayaran. Yang DITULIS di kartu dan
+   kuitansi berakhir pada hari kerja terakhirnya menurut Jam Kerja Staf di
+   Data Induk (16 Oktober 2026: Herman bekerja Senin–Jumat, kuitansinya
+   tertulis sampai Sabtu dan membingungkan). Tanpa ketentuan: tetap Sabtu. */
+function hariKerjaTerakhir(guruId) {
+  const u = (D.orangPendukung || []).filter(r => r.guru_id === guruId && r.bekerja && r.urutan >= 1 && r.urutan <= 6)
+    .map(r => r.urutan);
+  return u.length ? Math.max(...u) : 6;
+}
 function pekanDari(guruId) {
   const p = ui.pekanPendukung[guruId] || (ui.pekanPendukung[guruId] = { senin: seninDari(hariIniISO()), ikutAtas: false });
   return p.ikutAtas ? { awal: ui.rekapAwal, akhir: ui.rekapAkhir, ikutAtas: true }
-                    : { awal: p.senin, akhir: geserHari(p.senin, 5), ikutAtas: false };
+                    : { awal: p.senin, akhir: geserHari(p.senin, 5), akhirTulis: geserHari(p.senin, hariKerjaTerakhir(guruId) - 1), ikutAtas: false };
 }
 const KOMPONEN_PENDUKUNG = ['Gaji', 'Gaji Bulanan', 'Gaji Mingguan', 'Tunjangan Pendidikan', 'Transpor Kedatangan'];
 const isoLokal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -3528,7 +3543,7 @@ async function muatRekap() {
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
   if (r === REKAP.pendukung && D.rekap) {
     const mg = [...new Set((D.pendukung || []).map(p => p.guru_id))].filter(mingguan);
-    const tandai = (baris, pk, pekanan) => baris.map(b => ({ ...b, periodeAwal: pk.awal, periodeAkhir: pk.akhir, mingguan: pekanan }));
+    const tandai = (baris, pk, pekanan) => baris.map(b => ({ ...b, periodeAwal: pk.awal, periodeAkhir: pk.akhirTulis || pk.akhir, mingguan: pekanan }));
     let semua = tandai(D.rekap.filter(b => !mg.includes(b.guru_id)), { awal: ui.rekapAwal, akhir: ui.rekapAkhir }, false);
     // Pekan tiap orang mingguan dimuat bersamaan; orang yang pekannya sama
     // berbagi satu panggilan lewat tembolok hitungan.
