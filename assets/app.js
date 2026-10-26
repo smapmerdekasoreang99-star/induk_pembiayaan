@@ -1215,7 +1215,9 @@ function formTarif(kode) {
   const indeks = j.bentuk === 'indeks';
   const ind = indeks ? indeksPada(kode, vt.tgl || ui.acuan) : null;
   const mulaiBawaan = vt.tgl && vt.tgl > awalBulan(ui.acuan) ? vt.tgl : awalBulan(ui.acuan);
-  const langkah = indeks ? '0.005' : '500';
+  // Bukan "langkah": nama itu milik pembantu penyimpanan f_ip_tulis (26 Okt 2026:
+  // tertutup di sini, sehingga Simpan di formulir ini gagal sejak 4 Okt).
+  const langkahAngka = indeks ? '0.005' : '500';
 
   const barisJenjang = () => (sekarang.length ? sekarang : [{ batas_min: 0, batas_maks: null, nilai: 0 }])
     .map((t, i) => `<tr>
@@ -1223,7 +1225,7 @@ function formTarif(kode) {
             value="${t.batas_min == null ? 0 : t.batas_min}"></td>
       <td><input class="field num" type="number" min="0" step="1" data-j="maks" data-i="${i}"
             value="${t.batas_maks == null ? '' : t.batas_maks}" placeholder="ke atas"></td>
-      <td><input class="field num" type="number" min="0" step="${langkah}" data-j="nilai" data-i="${i}"
+      <td><input class="field num" type="number" min="0" step="${langkahAngka}" data-j="nilai" data-i="${i}"
             value="${Number(t.nilai) || 0}"></td>
       <td style="text-align:right"><button class="btn btn-sm btn-d" data-hapus-j="${i}">Hapus</button></td>
     </tr>`).join('');
@@ -1250,7 +1252,7 @@ function formTarif(kode) {
         <div class="hint">Kosongkan kolom "Sampai" pada jenjang terakhir agar berlaku ke atas.</div></div>`
       : `
       <div class="fg"><label>${pasangan ? esc(pasangan.utama) : 'Besaran'} <span style="color:var(--danger)">*</span></label>
-        <input class="field num" type="number" min="0" step="${langkah}" id="t-nilai"
+        <input class="field num" type="number" min="0" step="${langkahAngka}" id="t-nilai"
           value="${sekarang.length ? Number(sekarang[0].nilai) : 0}">
         <div class="hint">${esc(j.satuan)}${pasangan ? esc(pasangan.hintUtama) : ''}</div></div>
       ${pasangan ? `
@@ -1288,7 +1290,7 @@ function formTarif(kode) {
       $('#t-jenjang').insertAdjacentHTML('beforeend', `<tr>
         <td><input class="field num" type="number" min="0" step="1" data-j="min" data-i="${i}" value="0"></td>
         <td><input class="field num" type="number" min="0" step="1" data-j="maks" data-i="${i}" placeholder="ke atas"></td>
-        <td><input class="field num" type="number" min="0" step="${langkah}" data-j="nilai" data-i="${i}" value="0"></td>
+        <td><input class="field num" type="number" min="0" step="${langkahAngka}" data-j="nilai" data-i="${i}" value="0"></td>
         <td style="text-align:right"><button class="btn btn-sm btn-d" data-hapus-j="${i}">Hapus</button></td></tr>`);
       pasangHapus();
     };
