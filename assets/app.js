@@ -1085,11 +1085,11 @@ function panelPendukung() {
           belum berlaku pada tanggal acuan.</div>` : ''}
         <p class="pg-penjelasan">${esc(catatan)}</p>
         <div class="pg-aksi"><button class="btn btn-sm btn-p" data-pd-tambah="${esc(o.id)}">+ Komponen</button>
-          <label class="kecil" style="margin-left:auto;display:flex;align-items:center;gap:6px">Dibayar
-            <select class="field sempit" data-pd-periode="${esc(o.id)}" style="width:auto;padding:3px 6px">
+          <label class="kecil pg-dibayar">Dibayar
+            <select class="field sempit" data-pd-periode="${esc(o.id)}">
               <option value="bulanan" ${modeBayar(o.id) === 'bulanan' ? 'selected' : ''}>Bulanan</option>
               <option value="mingguan" ${modeBayar(o.id) === 'mingguan' ? 'selected' : ''}>Mingguan</option>
-              <option value="periode" ${modeBayar(o.id) === 'periode' ? 'selected' : ''}>Per periode (Dari–Sampai)</option></select></label></div></article>`;
+              <option value="periode" ${modeBayar(o.id) === 'periode' ? 'selected' : ''} title="Tanggal Dari–Sampai sendiri; Senin–Jumat dianggap hadir">Per periode</option></select></label></div></article>`;
     }).join('') : '<div class="empty" style="grid-column:1/-1"><b>Belum ada tenaga pendukung</b> Ketuk Tambah orang.</div>'}</div></section>`;
 }
 

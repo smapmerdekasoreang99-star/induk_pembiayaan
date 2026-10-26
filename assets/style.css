@@ -308,7 +308,10 @@ table.rekap tr.awal-kelompok td{border-top:2px solid var(--line)}
 .pg-nol{color:var(--emas-teks);font-weight:600}
 .pg-berikut{font-size:12px;color:var(--emas-teks);background:var(--emas-muda);border-radius:6px;padding:7px 9px;line-height:1.4}
 .pg-penjelasan{font-size:12.5px;color:var(--ink2);margin:0;flex:1;line-height:1.45}
-.pg-aksi{display:flex;gap:6px;padding-top:10px;border-top:1px solid var(--line2)}
+.pg-aksi{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:10px;border-top:1px solid var(--line2)}
+/* Pilihan Dibayar di kartu tenaga pendukung: tetap di dalam kartu; turun ke baris sendiri bila sempit. */
+.pg-dibayar{margin-left:auto;display:flex;align-items:center;gap:6px;min-width:0;max-width:100%}
+.pg-dibayar select{width:auto;min-width:0;max-width:100%;padding:3px 6px}
 
 /* Tabel ringkas untuk daftar rincian di dalam kartu: lebih rapat daripada
    tabel rekap, tanpa bingkai sendiri karena kartunya sudah membingkai. */
