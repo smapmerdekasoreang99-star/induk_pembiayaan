@@ -31,7 +31,8 @@ let ui = { acuan: '', rekapAwal: '', rekapAkhir: '', rekapJenis: 'mengajar',
            hadirAwal: '', hadirAkhir: '', hadirTab: 'kehadiran', hadirSaring: '', hadirIkutStaf: false,
            penggantiRinci: false, ekskulKategori: '', rekapBentuk: '',
            tunjanganTab: 'kesehatan', tunjanganCari: '', gajiTab: 'guru', rekapSub: {}, setoranTab: 'bpjs_kesehatan',
-           pekanPendukung: {} };   // { guru_id: { senin: 'YYYY-MM-DD', ikutAtas: bool } } untuk yang dibayar mingguan
+           pekanPendukung: {},     // { guru_id: { senin: 'YYYY-MM-DD', ikutAtas: bool } } untuk yang dibayar mingguan
+           periodePendukung: {} }; // { guru_id: { awal, akhir } } untuk yang dibayar per periode
 
 /* ---------------------------------------------------------------- util */
 const $  = (s, r) => (r || document).querySelector(s);
@@ -978,6 +979,8 @@ function halNominal() {
       buangHitungan();
       toast(nilai === 'mingguan'
         ? 'Dibayar mingguan: kartunya di Honor dan Transpor memakai pekan sendiri, dan tidak ikut Keseluruhan/struk bulanan.'
+        : nilai === 'periode'
+        ? 'Dibayar per periode: kartunya di Honor dan Transpor memakai tanggal Dari–Sampai sendiri, Senin–Jumat dianggap hadir, dan tidak ikut Keseluruhan/struk bulanan.'
         : 'Dibayar bulanan: ikut rentang Honor dan Transpor, Keseluruhan, dan struk.');
     });
   });
@@ -996,7 +999,19 @@ const SATUAN_PENDUKUNG = ['per bulan', 'per jam hadir', 'per hari hadir'];
    Pendukung punya pemilih pekan sendiri (bawaan pekan ini, Senin–Sabtu),
    bisa "ikuti rentang atas", kuitansinya pekanan, dan ia tidak ikut
    Keseluruhan maupun struk bulanan. */
-const mingguan = guruId => (D.periodeBayar || []).some(p => p.guru_id === guruId && p.periode_bayar === 'mingguan');
+/* Dibayar per periode (26 Oktober 2026, mula-mula Kamal Sore yang jadwalnya
+   berubah-ubah): kartunya punya tanggal Dari–Sampai sendiri (bawaan rentang
+   atas), hadir dianggap tiap Senin–Jumat di luar libur sekolah (dihitung
+   f_ip_honor_pendukung), kuitansinya per periode, dan seperti yang mingguan
+   tidak ikut Keseluruhan maupun struk bulanan. */
+const modeBayar = guruId => ((D.periodeBayar || []).find(p => p.guru_id === guruId) || {}).periode_bayar || 'bulanan';
+const mingguan = guruId => modeBayar(guruId) === 'mingguan';
+const perPeriode = guruId => modeBayar(guruId) === 'periode';
+const bayarTerpisah = guruId => modeBayar(guruId) !== 'bulanan';
+function rentangPeriode(guruId) {
+  const p = ui.periodePendukung[guruId] || (ui.periodePendukung[guruId] = { awal: ui.rekapAwal, akhir: ui.rekapAkhir });
+  return { awal: p.awal || ui.rekapAwal, akhir: p.akhir || ui.rekapAkhir };
+}
 function seninDari(iso) {
   const d = new Date(iso + 'T00:00:00');
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -1072,8 +1087,9 @@ function panelPendukung() {
         <div class="pg-aksi"><button class="btn btn-sm btn-p" data-pd-tambah="${esc(o.id)}">+ Komponen</button>
           <label class="kecil" style="margin-left:auto;display:flex;align-items:center;gap:6px">Dibayar
             <select class="field sempit" data-pd-periode="${esc(o.id)}" style="width:auto;padding:3px 6px">
-              <option value="bulanan" ${mingguan(o.id) ? '' : 'selected'}>Bulanan</option>
-              <option value="mingguan" ${mingguan(o.id) ? 'selected' : ''}>Mingguan</option></select></label></div></article>`;
+              <option value="bulanan" ${modeBayar(o.id) === 'bulanan' ? 'selected' : ''}>Bulanan</option>
+              <option value="mingguan" ${modeBayar(o.id) === 'mingguan' ? 'selected' : ''}>Mingguan</option>
+              <option value="periode" ${modeBayar(o.id) === 'periode' ? 'selected' : ''}>Per periode (Dari–Sampai)</option></select></label></div></article>`;
     }).join('') : '<div class="empty" style="grid-column:1/-1"><b>Belum ada tenaga pendukung</b> Ketuk Tambah orang.</div>'}</div></section>`;
 }
 
@@ -3367,7 +3383,7 @@ const REKAP = {
     fungsi: 'f_ip_rekap_gabungan',
     // Struk gaji tidak lagi di sini (28 September 2026): pindah ke bagian Cetak Struk.
     judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA',
-    catatan: 'Tenaga pendukung yang dibayar mingguan (kuitansi pekanan di Staf → Pendukung) tidak ikut di sini. '
+    catatan: 'Tenaga pendukung yang dibayar mingguan atau per periode (kuitansi sendiri di Staf → Pendukung) tidak ikut di sini. '
            + 'Menjumlahkan seluruh jenis pembiayaan menjadi satu baris per orang, kolomnya mengikuti '
            + 'tab di halaman ini. Pembina ekstrakurikuler yang juga guru sekolah digabung ke baris '
            + 'gurunya, sehingga seorang yang menerima dari beberapa jalur tetap muncul satu kali; '
@@ -3712,16 +3728,24 @@ async function muatRekap() {
   const hasil = await hitung(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
   if (r === REKAP.pendukung && D.rekap) {
-    const mg = [...new Set((D.pendukung || []).map(p => p.guru_id))].filter(mingguan);
-    const tandai = (baris, pk, pekanan) => baris.map(b => ({ ...b, periodeAwal: pk.awal, periodeAkhir: pk.akhirTulis || pk.akhir, mingguan: pekanan }));
-    let semua = tandai(D.rekap.filter(b => !mg.includes(b.guru_id)), { awal: ui.rekapAwal, akhir: ui.rekapAkhir }, false);
+    const mg = [...new Set((D.pendukung || []).map(p => p.guru_id))].filter(bayarTerpisah);
+    const tandai = (baris, pk, cara) => baris.map(b => ({ ...b, periodeAwal: pk.awal, periodeAkhir: pk.akhirTulis || pk.akhir,
+                                                          mingguan: cara === 'mingguan', perPeriode: cara === 'periode' }));
+    let semua = tandai(D.rekap.filter(b => !mg.includes(b.guru_id)), { awal: ui.rekapAwal, akhir: ui.rekapAkhir }, 'bulanan');
     // Pekan tiap orang mingguan dimuat bersamaan; orang yang pekannya sama
     // berbagi satu panggilan lewat tembolok hitungan.
     const milikSemua = await Promise.all(mg.map(async id => {
+      if (perPeriode(id)) {
+        const pk = rentangPeriode(id);
+        const sama = pk.awal === ui.rekapAwal && pk.akhir === ui.rekapAkhir;
+        const milik = sama ? D.rekap.filter(b => b.guru_id === id)
+          : (await hitung('f_ip_honor_pendukung', { p_awal: pk.awal, p_akhir: pk.akhir }) || []).filter(b => b.guru_id === id);
+        return tandai(milik, pk, 'periode');
+      }
       const pk = pekanDari(id);
       const milik = pk.ikutAtas ? D.rekap.filter(b => b.guru_id === id)
         : (await hitung('f_ip_honor_pendukung', { p_awal: pk.awal, p_akhir: pk.akhir }) || []).filter(b => b.guru_id === id);
-      return tandai(milik, pk, true);
+      return tandai(milik, pk, 'mingguan');
     }));
     D.rekap = semua.concat(...milikSemua);
   }
@@ -3738,14 +3762,16 @@ const angkaSel = (b, k) => {
    per orang. `rincian` dipakai kuitansi ("Gaji 1 bulan × Rp …; Transpor
    Kedatangan 104,2 jam × Rp …"). */
 const ukuranTeks = k => k.satuan === 'per bulan' ? `${Number(k.ukuran) || 0} bulan`
-  : k.satuan === 'per jam hadir' ? `${fmtJam(k.ukuran)} jam hadir` : `${Number(k.ukuran) || 0} hari hadir`;
+  : k.satuan === 'per jam hadir' ? `${fmtJam(k.ukuran)} jam${k.perPeriode ? ' (Senin–Jumat)' : ' hadir'}`
+  : `${Number(k.ukuran) || 0} hari${k.perPeriode ? ' Senin–Jumat' : ' hadir'}`;
 function orangDariKomponen(baris) {
   const per = new Map();
   (baris || []).forEach(b => {
     if (!per.has(b.guru_id)) per.set(b.guru_id, { guru_id: b.guru_id, nama: b.nama, jabatan: b.jabatan, komponen: [], jumlah: 0,
-      mingguan: !!b.mingguan, periodeAwal: b.periodeAwal, periodeAkhir: b.periodeAkhir,
-      // Kuitansi pekanan menyebut pekannya sendiri, bukan rentang di atas.
-      periodeLabel: b.mingguan ? `gaji mingguan pekan ${tglIndo(b.periodeAwal)} – ${tglIndo(b.periodeAkhir)}` : null,
+      mingguan: !!b.mingguan, perPeriode: !!b.perPeriode, periodeAwal: b.periodeAwal, periodeAkhir: b.periodeAkhir,
+      // Kuitansi pekanan / per periode menyebut rentangnya sendiri, bukan rentang di atas.
+      periodeLabel: b.mingguan ? `gaji mingguan pekan ${tglIndo(b.periodeAwal)} – ${tglIndo(b.periodeAkhir)}`
+        : b.perPeriode ? `honor periode ${tglIndo(b.periodeAwal)} – ${tglIndo(b.periodeAkhir)}` : null,
       tglAkhir: b.periodeAkhir });
     const o = per.get(b.guru_id);
     o.komponen.push(b);
@@ -3763,7 +3789,12 @@ function kartuRekapOrang(induk, spek, baris, total) {
       <button class="btn-unduh utama" data-fmt="xlsx" id="rUnduh" style="margin-left:10px">Unduh rekap</button>
       <button class="btn-unduh" data-fmt="xlsx" id="rKuitansi" style="margin-left:6px" ${orang.length ? '' : 'disabled'}>Unduh semua kuitansi</button></div>
       ${orang.length ? `<div class="pg-grid" style="padding:16px">${orang.map(o => `<article class="pg-kartu${o.jumlah > 0 ? '' : ' kosong'}">
-        <div class="pg-kartu-atas"><h3>${esc(o.nama)}</h3><span class="pg-satuan">${esc(o.mingguan ? 'Mingguan' : (o.jabatan || 'tanpa tugas Staf'))}</span></div>
+        <div class="pg-kartu-atas"><h3>${esc(o.nama)}</h3><span class="pg-satuan">${esc(o.mingguan ? 'Mingguan' : o.perPeriode ? 'Per periode' : (o.jabatan || 'tanpa tugas Staf'))}</span></div>
+        ${o.perPeriode ? `<div class="pg-pekan">
+          <label>Dari <input type="date" class="field sempit" data-periode-awal="${esc(o.guru_id)}" value="${esc(o.periodeAwal)}" style="width:auto;padding:3px 6px"></label>
+          <label>Sampai <input type="date" class="field sempit" data-periode-akhir="${esc(o.guru_id)}" value="${esc(o.periodeAkhir)}" style="width:auto;padding:3px 6px"></label>
+          <span class="kecil" style="font-weight:400">Senin–Jumat dianggap hadir, di luar hari libur sekolah</span>
+        </div>` : ''}
         ${o.mingguan ? `<div class="pg-pekan">
           ${(ui.pekanPendukung[o.guru_id] || {}).ikutAtas
             ? `<span>Rentang atas: ${esc(tglIndo(o.periodeAwal))} – ${esc(tglIndo(o.periodeAkhir))}</span>
@@ -3778,8 +3809,8 @@ function kartuRekapOrang(induk, spek, baris, total) {
           <td>${esc(rupiah(k.jumlah))}</td></tr>`).join('')}</tbody></table>
         <div class="pg-nilai${o.jumlah > 0 ? '' : ' nol'}">${esc(rupiah(o.jumlah))}</div>
         <div class="pg-meta">${o.jumlah > 0
-          ? 'diterima untuk ' + esc(o.mingguan ? `${tglIndo(o.periodeAwal)} – ${tglIndo(o.periodeAkhir)}` : periode)
-            + (o.mingguan ? ' · tidak ikut Keseluruhan dan struk bulanan' : '')
+          ? 'diterima untuk ' + esc(o.mingguan || o.perPeriode ? `${tglIndo(o.periodeAwal)} – ${tglIndo(o.periodeAkhir)}` : periode)
+            + (o.mingguan || o.perPeriode ? ' · tidak ikut Keseluruhan dan struk bulanan' : '')
           : 'nominal komponennya masih Rp 0 — isi di Nominal Penggajian Staf'}</div>
         <div class="pg-aksi"><button class="btn-unduh" data-fmt="xlsx" data-kuitansi="${esc(o.guru_id)}">Unduh kuitansi</button></div>
       </article>`).join('')}</div>`
@@ -4024,6 +4055,16 @@ function halRekap() {
   const spekKuitansi = { ...spek, kuitansi: spek.kuitansiNama || spek.nama };
   if ($('#rKuitansi')) $('#rKuitansi').onclick = () => jalankan('Menyiapkan berkas…',
     () => unduhKuitansi(spekKuitansi, orangDariKomponen(baris)));
+  // Tanggal Dari–Sampai pada kartu yang dibayar per periode.
+  $$('[data-periode-awal], [data-periode-akhir]').forEach(inp => inp.onchange = () => {
+    const id = inp.dataset.periodeAwal || inp.dataset.periodeAkhir;
+    const p = ui.periodePendukung[id] || (ui.periodePendukung[id] = rentangPeriode(id));
+    const awal = inp.dataset.periodeAwal ? inp.value : p.awal, akhir = inp.dataset.periodeAkhir ? inp.value : p.akhir;
+    if (!awal || !akhir) return toast('Isi tanggal Dari dan Sampai.');
+    if (akhir < awal) { inp.value = inp.dataset.periodeAwal ? p.awal : p.akhir; return toast('Tanggal Sampai lebih awal daripada Dari.'); }
+    p.awal = awal; p.akhir = akhir;
+    jalankan('Menghitung…', muatRekap);
+  });
   // Pemilih pekan pada kartu yang dibayar mingguan.
   $$('[data-pekan-geser]').forEach(b => b.onclick = () => {
     const id = b.dataset.pekanGeser, p = ui.pekanPendukung[id] || (ui.pekanPendukung[id] = { senin: seninDari(hariIniISO()) });
@@ -4640,8 +4681,8 @@ async function rincianStruk() {
   (kop || []).forEach(b => orang(b.guru_id).koperasi.push(b));
   (sek || []).forEach(b => orang(b.guru_id).sekolah.push(b));
   (honorStaf || []).forEach(b => { orang(b.guru_id).staf = b; });
-  // Yang dibayar mingguan tidak ikut struk bulanan (kuitansinya pekanan).
-  (honorPendukung || []).filter(b => !mingguan(b.guru_id)).forEach(b => orang(b.guru_id).pendukung.push(b));
+  // Yang dibayar mingguan / per periode tidak ikut struk bulanan (kuitansinya sendiri).
+  (honorPendukung || []).filter(b => !bayarTerpisah(b.guru_id)).forEach(b => orang(b.guru_id).pendukung.push(b));
 
   /* Persentase kehadiran per orang: mengajar dan wali kelas sudah dihitung
      fungsi databasenya (berbobot: HTTM 100% · ST 20% · IT 10%); piket

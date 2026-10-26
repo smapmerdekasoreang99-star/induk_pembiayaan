@@ -109,8 +109,9 @@ const ISI = [
   KOTAK("info", "Besaran tidak pernah ditimpa diam-diam",
     "Setiap perubahan disimpan sebagai versi dengan tanggal berlakunya, sehingga honor bulan lalu tetap dihitung dengan besaran bulan lalu. Tekan **Riwayat** untuk melihat semua versi; **Hapus versi ini** hanya untuk merapikan salah isi."),
   H2("Honor tenaga pendukung (per orang)"),
-  P("Di tab Staf, panel **Honor Tenaga Pendukung (per orang)** mengatur komponen tiap orang: **+ Tambah orang**, lalu **+ Komponen** (Komponen, Satuan per bulan / per jam hadir / per hari hadir, Nominal, Berlaku mulai). Pilih **Dibayar** Bulanan atau Mingguan. Komponen yang tidak berlaku lagi diakhiri dengan **Akhiri**, bukan dihapus."),
+  P("Di tab Staf, panel **Honor Tenaga Pendukung (per orang)** mengatur komponen tiap orang: **+ Tambah orang**, lalu **+ Komponen** (Komponen, Satuan per bulan / per jam hadir / per hari hadir, Nominal, Berlaku mulai). Pilih **Dibayar** Bulanan, Mingguan, atau **Per periode (Dari–Sampai)**. Komponen yang tidak berlaku lagi diakhiri dengan **Akhiri**, bukan dihapus."),
   P("Yang dibayar **mingguan** dihitung per pekan Senin–Sabtu (supaya hadir hari Sabtu, mis. lembur, tetap terbayar), tetapi kartu dan kuitansinya menulis pekan **sampai hari kerja terakhirnya** menurut Jam Kerja Staf di Data Induk — mis. bekerja Senin–Jumat: \"pekan 12 Okt 2026 – 16 Okt 2026\"."),
+  P("Yang dibayar **per periode** (mis. Kamal Sore, yang jadwalnya kadang berubah) punya tanggal **Dari** dan **Sampai** sendiri di kartunya (bawaannya rentang di atas). Kehadirannya **dianggap Senin–Jumat** di luar hari libur sekolah, tanpa membaca catatan Kehadiran Staf; kuitansinya menyebut periode itu. Seperti yang mingguan, ia tidak ikut Keseluruhan dan struk bulanan."),
 
   /* ============================ 6 ============================ */
   H1("Tunjangan dan Potongan"),
