@@ -3585,10 +3585,15 @@ const REKAP = {
         nama: 'Pembimbing Tahfidz', fungsi: 'f_ip_transport_pembina',
         saring: r => r.jenis === 'Imtaq',
         judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBIMBING TAHFIDZ',
-        catatan: dasar + ' Nominalnya tersendiri (Transport Pembimbing Imtaq), satu skala untuk '
-               + 'pembimbing dari dalam maupun luar sekolah. Jumlah per orang digenapkan ke bawah ke ribuan '
-               + '(bagian per pertemuan dijumlahkan dulu, baru digenapkan sekali).',
-        kolom
+        /* Imtaq dihitung dari RATA-RATA (26 Oktober 2026), berbeda dengan ekskul. */
+        catatan: 'Siswa hadir seluruh pertemuan yang berjalan dalam periode dijumlahkan lalu dibagi banyaknya '
+               + 'pertemuan, dibulatkan (0,5 ke atas): itulah rata-rata siswa hadir periode ini. Rata-rata itu '
+               + 'dikonversi ke nominal menurut jenjang Transport Pembimbing Imtaq di Nominal Penggajian (besaran '
+               + 'yang berlaku pada tanggal akhir periode), lalu dikalikan banyaknya pertemuan yang dihadiri '
+               + 'pembimbing. Nominal itu diterima penuh oleh tiap pembimbing yang hadir, tidak dibagi. '
+               + 'Pertemuan yang ditiadakan dan yang pembimbingnya tidak hadir tidak dibayar. Satu skala untuk '
+               + 'pembimbing dari dalam maupun luar sekolah; jumlah per orang digenapkan ke bawah ke ribuan.',
+        kolom: [kolom[0], { k: 'siswa_hadir', t: 'Rata-rata siswa hadir', w: 120, num: true, jumlah: false }]
       }
     };
   })(),
