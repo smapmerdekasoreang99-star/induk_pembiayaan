@@ -3046,24 +3046,26 @@ function susunTabHadir(tab, h) {
     }[tab];
     const semua = h.piket
       .filter(r => Number(r[J.p + '_terjadwal']) > 0 || Number(r[J.p + '_jaga']) > 0)
-      .map(r => ({ ...r, terjadwal: r[J.p + '_terjadwal'], jaga: r[J.p + '_jaga'],
-                   persen: persenDari(r[J.p + '_jaga'], r[J.p + '_terjadwal']) }));
+      // HTTM (26 Okt 2026): hadir untuk persentase, bukan Jaga (transport dari jaga sungguhan).
+      .map(r => ({ ...r, terjadwal: r[J.p + '_terjadwal'], jaga: r[J.p + '_jaga'], httm: Number(r[J.p + '_httm']) || 0,
+                   persen: persenDari(Number(r[J.p + '_jaga']) + (Number(r[J.p + '_httm']) || 0), r[J.p + '_terjadwal']) }));
     const baris = urutMasaKerja(saring(J.staf ? tanpaStaf(semua) : semua));
-    const total = jumlahkan(baris, ['terjadwal', 'jaga']);
-    total.persen = persenDari(total.jaga, total.terjadwal);
+    const total = jumlahkan(baris, ['terjadwal', 'jaga', 'httm']);
+    total.persen = persenDari(total.jaga + total.httm, total.terjadwal);
     total.nama = `Total (${baris.length} petugas)`;
     return {
       cari: 'Saring nama petugas…', ringkas: `${h.hariKerja} hari kerja · ${periode}`,
       stafDisembunyikan: J.staf ? semua.filter(r => r.staf).length : null,
       kolom: [
         { k: 'nama', t: 'Nama', lekat: true },
-        angka('terjadwal', `Terjadwal (${J.satuan})`, 115), angka('jaga', `Jaga (${J.satuan})`, 90), kolPersen('persen')
+        angka('terjadwal', `Terjadwal (${J.satuan})`, 115), angka('jaga', `Jaga (${J.satuan})`, 90), angka('httm', 'HTTM', 70), kolPersen('persen')
       ],
       baris, total, kosong: J.kosong,
       catatan: `Piket ${J.nama} dihitung per ${J.satuan === 'jam' ? 'JAM pelajaran' : 'HARI jaga'}`
              + (J.p === 'parkiran' ? ' — parkiran memang bukan jam pelajaran, melainkan sekali jaga sesudah bel pulang.' : '.')
              + ' "Terjadwal" dihitung dari jadwal piket pada hari kerja dalam rentang ini, di luar hari libur; '
-             + '"Jaga" adalah yang benar-benar dijalankan; "% Kehadiran" = Jaga ÷ Terjadwal. Piket tidak mengenal '
+             + '"Jaga" adalah yang benar-benar dijalankan (dasar transport); "HTTM" = giliran yang tidak dijaga karena '
+             + 'penugasan, dihitung hadir untuk persentase tetapi tidak ditransport; "% Kehadiran" = (Jaga + HTTM) ÷ Terjadwal. Piket tidak mengenal '
              + 'pengganti, jadi selisih antara keduanya berarti petugasnya tidak hadir, atau gilirannya belum '
              + 'dicatat. Nilai rupiahnya ada di Honor dan Transpor.',
       judul: `REKAP PELAKSANAAN PIKET ${J.nama.toUpperCase()}`, berkas: `Rekap Piket ${J.nama}`, ttd: J.ttd
@@ -4701,9 +4703,10 @@ async function rincianStruk() {
   (hadirWali || []).forEach(b => { orang(b.guru_id).persenWali = b.persen; });
   (hadirPiket || []).forEach(b => {
     const o = orang(b.guru_id);
-    o.persenMeja = persenDari(b.meja_jaga, b.meja_terjadwal);
-    o.persenUnit = persenDari(b.unit_jaga, b.unit_terjadwal);
-    o.persenParkir = persenDari(b.parkiran_jaga, b.parkiran_terjadwal);
+    // HTTM dihitung hadir untuk persentase (kolom *_httm; arsip lama tanpa kolom itu = 0).
+    o.persenMeja = persenDari(Number(b.meja_jaga) + (Number(b.meja_httm) || 0), b.meja_terjadwal);
+    o.persenUnit = persenDari(Number(b.unit_jaga) + (Number(b.unit_httm) || 0), b.unit_terjadwal);
+    o.persenParkir = persenDari(Number(b.parkiran_jaga) + (Number(b.parkiran_httm) || 0), b.parkiran_terjadwal);
   });
 
   // Mata pelajaran dari jadwal KBM, tanpa Upacara dan Bimbingan Wali Kelas

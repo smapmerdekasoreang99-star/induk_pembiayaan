@@ -157,7 +157,7 @@ const ISI = [
     ["**Honor mengajar**", "Jam **kontrak** per minggu × nominal per jam (tidak dikalikan jumlah pekan). Insentif tatap muka per jam hadir, konsumsi per hari datang. Upacara dan Bimbingan Wali Kelas tidak termasuk."],
     ["**Wali kelas**", "Honor tetap per bulan; Upacara dan Bimbingan dibayar per jam hadir (HTTM, sakit, ijin tidak dibayar)."],
     ["**Guru diperbantukan**", "Honor tetap per unit per bulan + transpor per jam jaga."],
-    ["**Piket meja**", "Per jam jaga. Tidak ada pengganti."],
+    ["**Piket meja**", "Per jam jaga. Tidak ada pengganti. Giliran HTTM (penugasan) tidak ditransport, tetapi dihitung hadir untuk persentase kehadiran."],
     ["**Piket parkiran**", "Per hari jaga (Kompensasi Piket Parkiran); staf ikut dihitung."],
     ["**Guru pengganti**", "Satu penugasan GT/PT/Inf = satu jam."],
     ["**Pembina ekskul**", "Per pertemuan yang berjalan dan dihadiri pembina, menurut jumlah siswa hadir pada pertemuan itu. Bila beberapa pembina: dibagi rata kepada yang hadir."],
