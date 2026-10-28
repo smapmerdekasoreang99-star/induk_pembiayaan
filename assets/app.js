@@ -3736,7 +3736,12 @@ const rekapDiBagian = tab => Object.entries(REKAP).filter(([, v]) => (v.tab || '
 async function muatRekap() {
   const r = REKAP[ui.rekapJenis];
   await pastikanBeku();
-  const hasil = await hitung(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) });
+  // Pembina Internal/Eksternal: rincian per pertemuan ikut dimuat untuk tampilan layar (28 Oktober 2026).
+  const [hasil, rinci] = await Promise.all([
+    hitung(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) }),
+    r.jenisPembina ? hitung('f_ip_transport_pembina_rinci', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir }, true) : null
+  ]);
+  D.rekapRinci = rinci;
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
   if (r === REKAP.pendukung && D.rekap) {
     const mg = [...new Set((D.pendukung || []).map(p => p.guru_id))].filter(bayarTerpisah);
@@ -3981,7 +3986,8 @@ function halRekap() {
       Insentif tatap muka dan konsumsinya dibayarkan akhir bulan lewat mesin kehadiran,
       jadi di sini ditulis nol supaya jumlahnya sama dengan yang benar-benar dibayarkan.</div>` : ''}
 
-    ${spek.cetak ? panelCetakStruk(spek, baris, total) : spek.kartu ? kartuRekapOrang(induk, spek, baris, total) : `
+    ${spek.cetak ? panelCetakStruk(spek, baris, total) : spek.kartu ? kartuRekapOrang(induk, spek, baris, total)
+      : spek.jenisPembina && D.rekapRinci ? panelRinciPembina(induk, spek, baris, D.rekapRinci) : `
     <div class="panel"><div class="panel-head"><h3>${esc(induk.nama)}</h3>
       ${induk.sub ? `<div class="pg" style="margin-left:12px">${Object.entries(induk.sub).map(([k, v]) =>
         `<button data-rsub="${k}" class="${k === subKunci ? 'on' : ''}">${esc(v.nama)}</button>`).join('')}</div>` : ''}
@@ -4314,26 +4320,20 @@ async function unduhRekap(spek, baris, total) {
 }
 
 /* Rincian transport pembina per pertemuan (28 Oktober 2026, permintaan
-   bendahara): unduhan tab Pembina Internal dan Pembina Eksternal ditulis
-   seperti Rekap Per Pembina di Absensi Ekskul — satu baris satu pertemuan,
-   dikelompokkan per pembina dan kegiatan — sehingga siswa hadir, rentang
-   siswa, dan nominal tiap pertemuan terlihat dan bisa dihitung ulang. Di
-   bawahnya tabel rentang siswa dan nominal transport yang berlaku, lengkap
-   dengan banyaknya pertemuan di tiap rentang. Angkanya dari
-   f_ip_transport_pembina_rinci; rekap di layar adalah jumlah dari rincian
-   yang sama, jadi keduanya tidak bisa berbeda. */
+   bendahara): tab Pembina Internal dan Pembina Eksternal — di layar maupun
+   di berkas unduhannya — ditulis seperti Rekap Per Pembina di Absensi
+   Ekskul: satu baris satu pertemuan, dikelompokkan per pembina dan
+   kegiatan, sehingga siswa hadir, rentang siswa, dan nominal tiap pertemuan
+   terlihat dan bisa dihitung ulang. Di bawahnya tabel rentang siswa dan
+   nominal transport yang berlaku, lengkap dengan banyaknya pertemuan di tiap
+   rentang. Angkanya dari f_ip_transport_pembina_rinci; rekap pembina adalah
+   jumlah dari rincian yang sama, jadi keduanya tidak bisa berbeda. Layar dan
+   Excel memakai satu penyusun (susunRinciPembina). */
 const teksRentang = (mn, mx) => mn == null && mx == null ? '—'
   : mx == null ? `${mn || 0} siswa ke atas` : `${mn || 0} – ${mx} siswa`;
 
-async function unduhRincianPembina(spek, baris) {
-  const jenis = spek.jenisPembina;
-  const [semua, ExcelJS] = await Promise.all([
-    hitung('f_ip_transport_pembina_rinci', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir }, true),
-    muatExcelJS()
-  ]);
+function susunRinciPembina(semua, jenis, baris) {
   const rinci = (semua || []).filter(r => r.jenis === jenis);
-  if (!rinci.length) throw new Error('Tidak ada pertemuan yang dibayar pada periode ini.');
-
   // Kelompok per pembina (urutan nama dari database), di dalamnya per kegiatan lalu tanggal.
   const orang = [];
   for (const r of rinci) {
@@ -4342,13 +4342,121 @@ async function unduhRincianPembina(spek, baris) {
     o.baris.push(r);
     o.jumlah += Number(r.diterima) || 0;
   }
-  const adaBagi = rinci.some(r => Number(r.pembagi) > 1);
-
+  // Tiap pertemuan tahu apakah ia awal/akhir kelompok kegiatannya dan berapa barisnya.
+  for (const o of orang) {
+    o.baris.forEach((x, j) => {
+      x.awalKeg = j === 0 || o.baris[j - 1].ekskul !== x.ekskul;
+      if (x.awalKeg) {
+        let n = 1;
+        while (j + n < o.baris.length && o.baris[j + n].ekskul === x.ekskul) n += 1;
+        x.barisKeg = n;
+      }
+    });
+  }
+  const total = orang.reduce((t, o) => t + o.jumlah, 0);
   // Periode terkunci: yang dibayar adalah arsip. Bila data pertemuan sudah
-  // berubah sesudah dikunci, berkas ini menyebutnya terang-terangan.
+  // berubah sesudah dikunci, rincian ini menyebutnya terang-terangan.
   const arsip = new Map((baris || []).map(b => [b.pembina_id, Number(b.jumlah) || 0]));
   const beda = orang.filter(o => !arsip.has(o.id) || arsip.get(o.id) !== o.jumlah)
     .concat((baris || []).filter(b => !orang.some(o => o.id === b.pembina_id)).map(b => ({ nama: b.nama })));
+  /* Rentang siswa dan nominal: besaran yang berlaku pada tanggal akhir
+     periode (sama dengan yang dipakai hitungan), ditambah banyaknya
+     pertemuan dan jumlah di tiap rentang. */
+  const kode = jenis === 'Internal' ? 'ekskul_internal' : 'ekskul_eksternal';
+  const versi = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai <= ui.rekapAkhir)
+    .reduce((m, t) => t.berlaku_mulai > m ? t.berlaku_mulai : m, '');
+  const rentang = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai === versi)
+    .sort((a, b) => (a.batas_min || 0) - (b.batas_min || 0))
+    .map(t => {
+      const di = rinci.filter(x => (x.batas_min || 0) === (t.batas_min || 0));
+      return { teks: teksRentang(t.batas_min, t.batas_maks), nilai: Number(t.nilai) || 0,
+               pertemuan: di.length, jumlah: di.reduce((s, x) => s + (Number(x.diterima) || 0), 0) };
+    });
+  const jt = (D.jenis || []).find(j => j.kode === kode);
+  return {
+    rinci, orang, total, beda, rentang, versi,
+    adaBagi: rinci.some(r => Number(r.pembagi) > 1),
+    namaRentang: `Rentang siswa dan nominal ${jt ? jt.nama : 'Transport Pembina ' + jenis}`,
+    rentangPertemuan: rentang.reduce((s, x) => s + x.pertemuan, 0),
+    rentangJumlah: rentang.reduce((s, x) => s + x.jumlah, 0)
+  };
+}
+
+/* Tampilan layar tab Pembina Internal/Eksternal: tabel rincian per pertemuan
+   (No, Nama, Kegiatan, dan Jumlah satu sel setinggi pertemuannya) dan tabel
+   rentang siswa di bawahnya. Tombol Unduh rekap tetap di kepala panel. */
+function panelRinciPembina(induk, spek, baris, semua) {
+  const R = susunRinciPembina(semua, spek.jenisPembina, baris);
+  const kolom = 8 + (R.adaBagi ? 1 : 0);
+  const badan = R.orang.length ? R.orang.map((o, i) => o.baris.map((x, j) => {
+    const rs = n => n > 1 ? ` rowspan="${n}"` : '';
+    return `<tr${j === 0 ? ' class="awal-kelompok"' : ''}>${j === 0 ? `
+      <td class="num lekat-no"${rs(o.baris.length)} style="vertical-align:top">${i + 1}</td>
+      <td class="nama lekat"${rs(o.baris.length)} style="font-weight:500;vertical-align:top">${esc(o.nama)}</td>` : ''}${
+      x.awalKeg ? `<td${rs(x.barisKeg)} style="vertical-align:top">${esc(x.ekskul)}</td>` : ''}
+      <td>${esc(tglIndo(x.tanggal))}</td>
+      <td class="num">${Number(x.siswa_hadir) || 0}</td>
+      <td>${esc(teksRentang(x.batas_min, x.batas_maks))}</td>
+      <td class="num">${rupiah(x.nominal)}</td>${
+      R.adaBagi ? `<td class="num">${Number(x.pembagi) || 1}</td>` : ''}
+      <td class="num">${rupiah(x.diterima)}</td>${j === 0 ? `
+      <td class="num"${rs(o.baris.length)} style="font-weight:600;vertical-align:top">${rupiah(o.jumlah)}</td>` : ''}</tr>`;
+  }).join('')).join('')
+    : `<tr><td colspan="${kolom + 1}"><div class="empty"><b>Tidak ada penerima</b>
+        Tidak ada pertemuan yang dibayar pada periode tersebut.</div></td></tr>`;
+  return `
+    ${R.beda.length ? `<div class="info-box"><b>Periode ini sudah dikunci dan data pertemuannya berubah sesudahnya.</b>
+      Rincian di bawah dihitung dari data terkini; yang dibayarkan menurut arsip kunci berbeda untuk
+      ${esc(R.beda.map(o => o.nama).join(', '))}. Selesaikan selisihnya lewat Koreksi.</div>` : ''}
+    <div class="panel"><div class="panel-head"><h3>${esc(induk.nama)} — rincian per pertemuan</h3>
+      <div class="sp" style="flex:1"></div>
+      <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div>
+      <button class="btn-unduh utama" data-fmt="xlsx" id="rUnduh" style="margin-left:10px">Unduh rekap</button></div>
+      <div class="gulir-petunjuk">Tabel lebih lebar dari layar — geser mendatar untuk melihat
+        seluruh kolom. Kolom nama tetap terlihat saat digeser.</div>
+      <div class="scroll gulir-tegak"><table class="rekap" style="min-width:${R.adaBagi ? 1080 : 980}px"><thead><tr>
+        <th style="width:40px" class="num lekat-no">No</th>
+        <th class="lekat">Nama</th>
+        <th style="width:130px">Kegiatan</th>
+        <th style="width:110px">Tanggal</th>
+        <th style="width:80px" class="num">Siswa hadir</th>
+        <th style="width:130px">Rentang siswa</th>
+        <th style="width:120px" class="num">Nominal per pertemuan</th>${
+        R.adaBagi ? '<th style="width:90px" class="num">Pembina hadir (dibagi)</th>' : ''}
+        <th style="width:110px" class="num">Diterima</th>
+        <th style="width:120px" class="num">Jumlah</th>
+      </tr></thead><tbody>${badan}</tbody>
+      ${R.orang.length ? `<tfoot><tr>
+        <td class="num lekat-no"></td><td class="lekat" style="font-weight:600">Jumlah</td>
+        <td></td><td style="font-weight:600">${R.rinci.length} pertemuan</td>
+        <td></td><td></td><td></td>${R.adaBagi ? '<td></td>' : ''}
+        <td class="num" style="font-weight:600">${rupiah(R.total)}</td>
+        <td class="num" style="font-weight:700">${rupiah(R.total)}</td></tr></tfoot>` : ''}
+      </table></div>
+      <div class="foot"><div class="info">Terbilang: ${esc(terbilang(R.total))}</div></div></div>
+
+    ${R.rentang.length ? `<div class="panel"><div class="panel-head"><h3>${esc(R.namaRentang)}</h3>
+      <div class="sp" style="flex:1"></div>
+      ${R.versi ? `<div class="info">berlaku mulai ${esc(tglIndo(R.versi))}</div>` : ''}</div>
+      <div class="scroll"><table class="rekap" style="min-width:520px"><thead><tr>
+        <th>Rentang siswa</th><th class="num">Nominal per pertemuan</th>
+        <th class="num">Pertemuan</th><th class="num">Jumlah</th></tr></thead>
+      <tbody>${R.rentang.map(t => `<tr><td>${esc(t.teks)}</td><td class="num">${rupiah(t.nilai)}</td>
+        <td class="num">${t.pertemuan}</td><td class="num">${rupiah(t.jumlah)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td style="font-weight:600">Jumlah</td><td></td>
+        <td class="num" style="font-weight:600">${R.rentangPertemuan}</td>
+        <td class="num" style="font-weight:700">${rupiah(R.rentangJumlah)}</td></tr></tfoot>
+      </table></div></div>` : ''}`;
+}
+
+async function unduhRincianPembina(spek, baris) {
+  const [semua, ExcelJS] = await Promise.all([
+    hitung('f_ip_transport_pembina_rinci', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir }, true),
+    muatExcelJS()
+  ]);
+  const R = susunRinciPembina(semua, spek.jenisPembina, baris);
+  if (!R.rinci.length) throw new Error('Tidak ada pertemuan yang dibayar pada periode ini.');
+  const { orang, beda, adaBagi } = R;
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(spek.nama.slice(0, 28), {
@@ -4378,13 +4486,10 @@ async function unduhRincianPembina(spek, baris) {
 
   orang.forEach((o, i) => {
     const mulai = r;
-    let mulaiKeg = r;
     o.baris.forEach((x, j) => {
-      const awalKeg = j === 0 || o.baris[j - 1].ekskul !== x.ekskul;
-      if (awalKeg) mulaiKeg = r;
       sel(r, K.NO, j === 0 ? i + 1 : '', { rata: 'center' });
       sel(r, K.NAMA, j === 0 ? o.nama : '');
-      sel(r, K.KEGIATAN, awalKeg ? x.ekskul : '');
+      sel(r, K.KEGIATAN, x.awalKeg ? x.ekskul : '');
       sel(r, K.TANGGAL, tglIndo(x.tanggal), { rata: 'center' });
       sel(r, K['SISWA HADIR'], Number(x.siswa_hadir) || 0, { rata: 'center' });
       sel(r, K['RENTANG SISWA'], teksRentang(x.batas_min, x.batas_maks), { rata: 'center' });
@@ -4394,12 +4499,15 @@ async function unduhRincianPembina(spek, baris) {
       sel(r, K.JUMLAH, j === 0 ? o.jumlah : '', { fmt: RP, tebal: true });
       sel(r, K['TANDA TANGAN'], j === 0 ? `${i + 1}. ……………………` : '');
       ws.getRow(r).height = 18;
-      const akhirKeg = j === o.baris.length - 1 || o.baris[j + 1].ekskul !== x.ekskul;
-      if (akhirKeg) {
-        gabung(mulaiKeg, r, K.KEGIATAN);
-        ws.getCell(mulaiKeg, K.KEGIATAN).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
-      }
       r += 1;
+    });
+    // Kegiatan satu kotak setinggi pertemuannya.
+    let rk = mulai;
+    o.baris.forEach(x => {
+      if (!x.awalKeg) return;
+      gabung(rk, rk + x.barisKeg - 1, K.KEGIATAN);
+      ws.getCell(rk, K.KEGIATAN).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      rk += x.barisKeg;
     });
     // Nomor, nama, jumlah, dan tanda tangan satu kotak setinggi pertemuannya.
     [K.NO, K.NAMA, K.JUMLAH, K['TANDA TANGAN']].forEach(k => {
@@ -4409,32 +4517,21 @@ async function unduhRincianPembina(spek, baris) {
     });
   });
 
-  const total = orang.reduce((t, o) => t + o.jumlah, 0);
   for (let k = 1; k <= KOL; k++) sel(r, k, '', { abu: true });
   sel(r, 1, 'JUMLAH', { rata: 'center', tebal: true, abu: true });
   ws.mergeCells(r, 1, r, 3);
-  sel(r, K.TANGGAL, `${rinci.length} pertemuan`, { rata: 'center', tebal: true, abu: true });
-  sel(r, K.DITERIMA, total, { fmt: RP, tebal: true, abu: true });
-  sel(r, K.JUMLAH, total, { fmt: RP, tebal: true, abu: true });
+  sel(r, K.TANGGAL, `${R.rinci.length} pertemuan`, { rata: 'center', tebal: true, abu: true });
+  sel(r, K.DITERIMA, R.total, { fmt: RP, tebal: true, abu: true });
+  sel(r, K.JUMLAH, R.total, { fmt: RP, tebal: true, abu: true });
   r += 1;
   ws.getCell(r, 1).value = 'Terbilang:';
   ws.getCell(r, 1).font = { name: F, size: 10, bold: true };
   ws.mergeCells(r, 2, r, KOL);
-  ws.getCell(r, 2).value = terbilang(total);
+  ws.getCell(r, 2).value = terbilang(R.total);
   ws.getCell(r, 2).font = { name: F, size: 10, italic: true };
   r += 2;
 
-  /* Tabel rentang siswa dan nominal transport: besaran yang berlaku pada
-     tanggal akhir periode (sama dengan yang dipakai hitungan), ditambah
-     banyaknya pertemuan dan jumlah di tiap rentang. */
-  const kode = jenis === 'Internal' ? 'ekskul_internal' : 'ekskul_eksternal';
-  const versi = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai <= ui.rekapAkhir)
-    .reduce((m, t) => t.berlaku_mulai > m ? t.berlaku_mulai : m, '');
-  const jenjang = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai === versi)
-    .sort((a, b) => (a.batas_min || 0) - (b.batas_min || 0));
-  const jt = (D.jenis || []).find(j => j.kode === kode);
-  ws.getCell(r, 2).value = `RENTANG SISWA DAN NOMINAL ${(jt ? jt.nama : 'Transport Pembina ' + jenis).toUpperCase()}`
-    + (versi ? ` (berlaku mulai ${tglIndo(versi)})` : '');
+  ws.getCell(r, 2).value = R.namaRentang.toUpperCase() + (R.versi ? ` (berlaku mulai ${tglIndo(R.versi)})` : '');
   ws.getCell(r, 2).font = { name: F, size: 10, bold: true };
   ws.mergeCells(r, 2, r, 7);
   r += 1;
@@ -4449,24 +4546,20 @@ async function unduhRincianPembina(spek, baris) {
   ws.mergeCells(r, 2, r, 3); ws.mergeCells(r, 6, r, 7);
   ws.getRow(r).height = 30;
   r += 1;
-  let nPert = 0, nJml = 0;
-  jenjang.forEach(t => {
-    const di = rinci.filter(x => (x.batas_min || 0) === (t.batas_min || 0));
-    const jml = di.reduce((s, x) => s + (Number(x.diterima) || 0), 0);
-    nPert += di.length; nJml += jml;
-    sel(r, 2, teksRentang(t.batas_min, t.batas_maks), { rata: 'center' }); sel(r, 3, '');
+  R.rentang.forEach(t => {
+    sel(r, 2, t.teks, { rata: 'center' }); sel(r, 3, '');
     ws.mergeCells(r, 2, r, 3);
-    sel(r, 4, Number(t.nilai) || 0, { fmt: RP });
-    sel(r, 5, di.length, { rata: 'center' });
-    sel(r, 6, jml, { fmt: RP }); sel(r, 7, '');
+    sel(r, 4, t.nilai, { fmt: RP });
+    sel(r, 5, t.pertemuan, { rata: 'center' });
+    sel(r, 6, t.jumlah, { fmt: RP }); sel(r, 7, '');
     ws.mergeCells(r, 6, r, 7);
     r += 1;
   });
   sel(r, 2, 'Jumlah', { rata: 'center', tebal: true, abu: true }); sel(r, 3, '', { abu: true });
   ws.mergeCells(r, 2, r, 3);
   sel(r, 4, '', { abu: true });
-  sel(r, 5, nPert, { rata: 'center', tebal: true, abu: true });
-  sel(r, 6, nJml, { fmt: RP, tebal: true, abu: true }); sel(r, 7, '', { abu: true });
+  sel(r, 5, R.rentangPertemuan, { rata: 'center', tebal: true, abu: true });
+  sel(r, 6, R.rentangJumlah, { fmt: RP, tebal: true, abu: true }); sel(r, 7, '', { abu: true });
   ws.mergeCells(r, 6, r, 7);
   r += 2;
 
