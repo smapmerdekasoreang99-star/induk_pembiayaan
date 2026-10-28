@@ -3568,6 +3568,7 @@ const REKAP = {
       ekskul_internal: { tab: 'guru',
         nama: 'Pembina Internal', fungsi: 'f_ip_transport_pembina',
         saring: r => r.jenis === 'Internal',
+        jenisPembina: 'Internal',   // unduhan dirinci per pertemuan (unduhRincianPembina)
         judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBINA EKSTRAKURIKULER INTERNAL',
         catatan: dasar + ' Pembina internal adalah guru sekolah yang tercatat sebagai Pembina Ekskul '
                + 'di Data Induk; nominalnya Transport Pembina Internal di Nominal Penggajian. Pelatih dari '
@@ -3577,6 +3578,7 @@ const REKAP = {
       ekskul_eksternal: { tab: 'guru',
         nama: 'Pembina Eksternal', fungsi: 'f_ip_transport_pembina',
         saring: r => r.jenis === 'Eksternal',
+        jenisPembina: 'Eksternal',   // unduhan dirinci per pertemuan (unduhRincianPembina)
         judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBINA EKSTRAKURIKULER EKSTERNAL',
         catatan: dasar + ' Pembina eksternal adalah pelatih dari luar sekolah yang tidak terdaftar '
                + 'sebagai guru; nominalnya Transport Pembina Eksternal di Nominal Penggajian. Guru sekolah '
@@ -4059,7 +4061,8 @@ function halRekap() {
   });
   if ($('#rBentuk')) $('#rBentuk').onchange = e => { ui.rekapBentuk = e.target.value; gambar(); };
   if ($('#rUnduh')) $('#rUnduh').onclick = () => jalankan('Menyiapkan berkas…',
-    () => spek.kuitansi ? unduhKuitansi(spek, baris) : unduhRekap(spek, baris, total));
+    () => spek.kuitansi ? unduhKuitansi(spek, baris)
+      : spek.jenisPembina ? unduhRincianPembina(spek, baris) : unduhRekap(spek, baris, total));
   // Tab berbentuk kartu: kuitansi per orang (komponennya dirinci di baris "Untuk pembayaran").
   const spekKuitansi = { ...spek, kuitansi: spek.kuitansiNama || spek.nama };
   if ($('#rKuitansi')) $('#rKuitansi').onclick = () => jalankan('Menyiapkan berkas…',
@@ -4308,6 +4311,188 @@ async function unduhRekap(spek, baris, total) {
   ws.pageSetup.printTitlesRow = `${baris1}:${baris1}`;
 
   await simpanBuku(wb, `${spek.nama} ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
+}
+
+/* Rincian transport pembina per pertemuan (28 Oktober 2026, permintaan
+   bendahara): unduhan tab Pembina Internal dan Pembina Eksternal ditulis
+   seperti Rekap Per Pembina di Absensi Ekskul — satu baris satu pertemuan,
+   dikelompokkan per pembina dan kegiatan — sehingga siswa hadir, rentang
+   siswa, dan nominal tiap pertemuan terlihat dan bisa dihitung ulang. Di
+   bawahnya tabel rentang siswa dan nominal transport yang berlaku, lengkap
+   dengan banyaknya pertemuan di tiap rentang. Angkanya dari
+   f_ip_transport_pembina_rinci; rekap di layar adalah jumlah dari rincian
+   yang sama, jadi keduanya tidak bisa berbeda. */
+const teksRentang = (mn, mx) => mn == null && mx == null ? '—'
+  : mx == null ? `${mn || 0} siswa ke atas` : `${mn || 0} – ${mx} siswa`;
+
+async function unduhRincianPembina(spek, baris) {
+  const jenis = spek.jenisPembina;
+  const [semua, ExcelJS] = await Promise.all([
+    hitung('f_ip_transport_pembina_rinci', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir }, true),
+    muatExcelJS()
+  ]);
+  const rinci = (semua || []).filter(r => r.jenis === jenis);
+  if (!rinci.length) throw new Error('Tidak ada pertemuan yang dibayar pada periode ini.');
+
+  // Kelompok per pembina (urutan nama dari database), di dalamnya per kegiatan lalu tanggal.
+  const orang = [];
+  for (const r of rinci) {
+    let o = orang.find(x => x.id === r.pembina_id);
+    if (!o) orang.push(o = { id: r.pembina_id, nama: r.nama, baris: [], jumlah: 0 });
+    o.baris.push(r);
+    o.jumlah += Number(r.diterima) || 0;
+  }
+  const adaBagi = rinci.some(r => Number(r.pembagi) > 1);
+
+  // Periode terkunci: yang dibayar adalah arsip. Bila data pertemuan sudah
+  // berubah sesudah dikunci, berkas ini menyebutnya terang-terangan.
+  const arsip = new Map((baris || []).map(b => [b.pembina_id, Number(b.jumlah) || 0]));
+  const beda = orang.filter(o => !arsip.has(o.id) || arsip.get(o.id) !== o.jumlah)
+    .concat((baris || []).filter(b => !orang.some(o => o.id === b.pembina_id)).map(b => ({ nama: b.nama })));
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(spek.nama.slice(0, 28), {
+    pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0,
+                 margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 } }
+  });
+  const F = 'Calibri';
+  const judul = ['NO', 'NAMA', 'KEGIATAN', 'TANGGAL', 'SISWA HADIR', 'RENTANG SISWA', 'NOMINAL PER PERTEMUAN',
+                 ...(adaBagi ? ['PEMBINA HADIR (DIBAGI)'] : []), 'DITERIMA', 'JUMLAH', 'TANDA TANGAN'];
+  const KOL = judul.length;
+  const K = Object.fromEntries(judul.map((t, i) => [t, i + 1]));
+  ws.columns = [{ width: 5 }, { width: 28 }, { width: 16 }, { width: 19 }, { width: 9 }, { width: 16 }, { width: 14 },
+                ...(adaBagi ? [{ width: 11 }] : []), { width: 14 }, { width: 15 }, { width: 20 }];
+  ws.views = [{ showGridLines: false }];
+  const p = D.profil || {};
+  const baris1 = kopBersama().kopExcel(ws, {
+    wb, logo: await ambilLogo(), profil: p,
+    judul: spek.judul + ' (RINCIAN PER PERTEMUAN)',
+    sub: `Periode ${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`,
+    kolomAkhir: KOL, font: F
+  });
+  let r = baris1;
+  kepalaExcel(ws, r, judul, F);
+  r += 1;
+  const sel = penulisSel(ws, F);
+  const gabung = (r1, r2, k) => { if (r2 > r1) ws.mergeCells(r1, k, r2, k); };
+
+  orang.forEach((o, i) => {
+    const mulai = r;
+    let mulaiKeg = r;
+    o.baris.forEach((x, j) => {
+      const awalKeg = j === 0 || o.baris[j - 1].ekskul !== x.ekskul;
+      if (awalKeg) mulaiKeg = r;
+      sel(r, K.NO, j === 0 ? i + 1 : '', { rata: 'center' });
+      sel(r, K.NAMA, j === 0 ? o.nama : '');
+      sel(r, K.KEGIATAN, awalKeg ? x.ekskul : '');
+      sel(r, K.TANGGAL, tglIndo(x.tanggal), { rata: 'center' });
+      sel(r, K['SISWA HADIR'], Number(x.siswa_hadir) || 0, { rata: 'center' });
+      sel(r, K['RENTANG SISWA'], teksRentang(x.batas_min, x.batas_maks), { rata: 'center' });
+      sel(r, K['NOMINAL PER PERTEMUAN'], Number(x.nominal) || 0, { fmt: RP });
+      if (adaBagi) sel(r, K['PEMBINA HADIR (DIBAGI)'], Number(x.pembagi) || 1, { rata: 'center' });
+      sel(r, K.DITERIMA, Number(x.diterima) || 0, { fmt: RP });
+      sel(r, K.JUMLAH, j === 0 ? o.jumlah : '', { fmt: RP, tebal: true });
+      sel(r, K['TANDA TANGAN'], j === 0 ? `${i + 1}. ……………………` : '');
+      ws.getRow(r).height = 18;
+      const akhirKeg = j === o.baris.length - 1 || o.baris[j + 1].ekskul !== x.ekskul;
+      if (akhirKeg) {
+        gabung(mulaiKeg, r, K.KEGIATAN);
+        ws.getCell(mulaiKeg, K.KEGIATAN).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+      }
+      r += 1;
+    });
+    // Nomor, nama, jumlah, dan tanda tangan satu kotak setinggi pertemuannya.
+    [K.NO, K.NAMA, K.JUMLAH, K['TANDA TANGAN']].forEach(k => {
+      gabung(mulai, r - 1, k);
+      const c = ws.getCell(mulai, k);
+      c.alignment = { ...(c.alignment || {}), vertical: 'middle', wrapText: true };
+    });
+  });
+
+  const total = orang.reduce((t, o) => t + o.jumlah, 0);
+  for (let k = 1; k <= KOL; k++) sel(r, k, '', { abu: true });
+  sel(r, 1, 'JUMLAH', { rata: 'center', tebal: true, abu: true });
+  ws.mergeCells(r, 1, r, 3);
+  sel(r, K.TANGGAL, `${rinci.length} pertemuan`, { rata: 'center', tebal: true, abu: true });
+  sel(r, K.DITERIMA, total, { fmt: RP, tebal: true, abu: true });
+  sel(r, K.JUMLAH, total, { fmt: RP, tebal: true, abu: true });
+  r += 1;
+  ws.getCell(r, 1).value = 'Terbilang:';
+  ws.getCell(r, 1).font = { name: F, size: 10, bold: true };
+  ws.mergeCells(r, 2, r, KOL);
+  ws.getCell(r, 2).value = terbilang(total);
+  ws.getCell(r, 2).font = { name: F, size: 10, italic: true };
+  r += 2;
+
+  /* Tabel rentang siswa dan nominal transport: besaran yang berlaku pada
+     tanggal akhir periode (sama dengan yang dipakai hitungan), ditambah
+     banyaknya pertemuan dan jumlah di tiap rentang. */
+  const kode = jenis === 'Internal' ? 'ekskul_internal' : 'ekskul_eksternal';
+  const versi = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai <= ui.rekapAkhir)
+    .reduce((m, t) => t.berlaku_mulai > m ? t.berlaku_mulai : m, '');
+  const jenjang = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai === versi)
+    .sort((a, b) => (a.batas_min || 0) - (b.batas_min || 0));
+  const jt = (D.jenis || []).find(j => j.kode === kode);
+  ws.getCell(r, 2).value = `RENTANG SISWA DAN NOMINAL ${(jt ? jt.nama : 'Transport Pembina ' + jenis).toUpperCase()}`
+    + (versi ? ` (berlaku mulai ${tglIndo(versi)})` : '');
+  ws.getCell(r, 2).font = { name: F, size: 10, bold: true };
+  ws.mergeCells(r, 2, r, 7);
+  r += 1;
+  // Kolom tabel bawah: Rentang (B–C), Nominal (D), Pertemuan (E), Jumlah (F–G).
+  ['RENTANG SISWA', '', 'NOMINAL PER PERTEMUAN', 'PERTEMUAN', 'JUMLAH', ''].forEach((t, i) => {
+    const c = ws.getCell(r, 2 + i);
+    c.value = t; c.font = { name: F, size: 9, bold: true };
+    c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    c.border = KOTAK;
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+  });
+  ws.mergeCells(r, 2, r, 3); ws.mergeCells(r, 6, r, 7);
+  ws.getRow(r).height = 30;
+  r += 1;
+  let nPert = 0, nJml = 0;
+  jenjang.forEach(t => {
+    const di = rinci.filter(x => (x.batas_min || 0) === (t.batas_min || 0));
+    const jml = di.reduce((s, x) => s + (Number(x.diterima) || 0), 0);
+    nPert += di.length; nJml += jml;
+    sel(r, 2, teksRentang(t.batas_min, t.batas_maks), { rata: 'center' }); sel(r, 3, '');
+    ws.mergeCells(r, 2, r, 3);
+    sel(r, 4, Number(t.nilai) || 0, { fmt: RP });
+    sel(r, 5, di.length, { rata: 'center' });
+    sel(r, 6, jml, { fmt: RP }); sel(r, 7, '');
+    ws.mergeCells(r, 6, r, 7);
+    r += 1;
+  });
+  sel(r, 2, 'Jumlah', { rata: 'center', tebal: true, abu: true }); sel(r, 3, '', { abu: true });
+  ws.mergeCells(r, 2, r, 3);
+  sel(r, 4, '', { abu: true });
+  sel(r, 5, nPert, { rata: 'center', tebal: true, abu: true });
+  sel(r, 6, nJml, { fmt: RP, tebal: true, abu: true }); sel(r, 7, '', { abu: true });
+  ws.mergeCells(r, 6, r, 7);
+  r += 2;
+
+  if (beda.length) {
+    ws.getCell(r, 2).value = 'Perhatian: periode ini sudah dikunci dan data pertemuan berubah sesudahnya. Rincian ini '
+      + 'dihitung dari data terkini; yang dibayarkan menurut arsip kunci berbeda untuk: '
+      + beda.map(o => o.nama).join(', ') + '. Selesaikan selisihnya lewat Koreksi.';
+    ws.getCell(r, 2).font = { name: F, size: 9, bold: true, color: { argb: 'FFB42318' } };
+    ws.mergeCells(r, 2, r, KOL);
+    ws.getCell(r, 2).alignment = { wrapText: true, vertical: 'top' };
+    ws.getRow(r).height = 28;
+    r += 2;
+  }
+  ws.getCell(r, 2).value = 'Keterangan: ' + spek.catatan;
+  ws.getCell(r, 2).font = { name: F, size: 8, italic: true };
+  ws.mergeCells(r, 2, r, KOL);
+  ws.getRow(r).height = 36;
+  ws.getCell(r, 2).alignment = { wrapText: true, vertical: 'top' };
+  r += 2;
+  kopBersama().ttdExcel(ws, r, { kolomAkhir: KOL, font: F, blok: [
+    { atas: ['Mengetahui,', 'Kepala Sekolah,'], nama: p.kepala_sekolah },
+    { atas: [`${p.kota || 'Soreang'}, ${tglIndo(ui.rekapAkhir)}`, 'Bendahara,'], nama: p.bendahara }
+  ] });
+  ws.pageSetup.printTitlesRow = `${baris1}:${baris1}`;
+  if (beda.length) toast('Periode terkunci: rincian berbeda dari arsip — lihat catatan merah di berkas.');
+  await simpanBuku(wb, `${spek.nama} rincian ${ui.rekapAwal} sd ${ui.rekapAkhir}.xlsx`);
 }
 
 /* Kuitansi perorangan — untuk pembiayaan yang penerimanya seorang (Pembina
