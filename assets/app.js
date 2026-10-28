@@ -3588,6 +3588,7 @@ const REKAP = {
       tahfidz: { tab: 'guru',
         nama: 'Pembimbing Tahfidz', fungsi: 'f_ip_transport_pembina',
         saring: r => r.jenis === 'Imtaq',
+        tabelImtaq: true,   // tabel rata-rata & besaran di bawahnya (panelImtaq / tulisImtaqExcel)
         judul: 'DAFTAR PENERIMAAN TRANSPORT PEMBIMBING TAHFIDZ',
         /* Imtaq dihitung dari RATA-RATA (26 Oktober 2026), berbeda dengan ekskul. */
         catatan: 'Siswa hadir seluruh pertemuan yang berjalan dalam periode dijumlahkan lalu dibagi banyaknya '
@@ -3739,7 +3740,7 @@ async function muatRekap() {
   // Pembina Internal/Eksternal: rincian per pertemuan ikut dimuat untuk tampilan layar (28 Oktober 2026).
   const [hasil, rinci] = await Promise.all([
     hitung(r.fungsi, { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir, ...(r.arg || {}) }),
-    r.jenisPembina ? hitung('f_ip_transport_pembina_rinci', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir }, true) : null
+    r.jenisPembina || r.tabelImtaq ? hitung('f_ip_transport_pembina_rinci', { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir }, true) : null
   ]);
   D.rekapRinci = rinci;
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
@@ -4037,6 +4038,7 @@ function halRekap() {
       </table></div>
       <div class="foot"><div class="info">Terbilang: ${esc(terbilang(total.jumlah || 0))}</div></div></div>
 `}
+    ${spek.tabelImtaq && D.rekapRinci ? panelImtaq(D.rekapRinci) : ''}
 
     <p class="kecil">${esc(spek.catatan)}</p>`}`;
 
@@ -4299,6 +4301,8 @@ async function unduhRekap(spek, baris, total) {
   ws.getCell(r, 2).value = terbilang((spek.cetak ? total.bersih : total.jumlah) || 0);
   ws.getCell(r, 2).font = { name: F, size: 10, italic: true };
   r += 2;
+  // Pembimbing Tahfidz: tabel rata-rata siswa hadir dan besaran nominal (28 Oktober 2026).
+  if (spek.tabelImtaq && D.rekapRinci) r = tulisImtaqExcel(ws, r, sel, F, D.rekapRinci);
 
   ws.getCell(r, 2).value = 'Keterangan: ' + spek.catatan;
   ws.getCell(r, 2).font = { name: F, size: 8, italic: true };
@@ -4447,6 +4451,157 @@ function panelRinciPembina(induk, spek, baris, semua) {
         <td class="num" style="font-weight:600">${R.rentangPertemuan}</td>
         <td class="num" style="font-weight:700">${rupiah(R.rentangJumlah)}</td></tr></tfoot>
       </table></div></div>` : ''}`;
+}
+
+/* Pembimbing Tahfidz (28 Oktober 2026, permintaan bendahara): di bawah
+   tabel penerima — di layar maupun di berkas unduhan — ada dua tabel:
+   1. rata-rata siswa hadir per kegiatan pada periode (bulan) ini: tiap
+      pertemuan dan siswa hadirnya, jumlah, rata-rata, jenjang, dan nominal
+      per pertemuan yang dihasilkannya;
+   2. besaran Transport Pembimbing Imtaq yang berlaku pada tanggal akhir
+      periode (sama dengan hitungan), dengan banyaknya pertemuan dibayar dan
+      jumlah di tiap jenjang.
+   Angkanya dari f_ip_transport_pembina_rinci, jadi sama dengan rekapnya.
+   Rata-rata dari database dihitung atas SEMUA pertemuan yang berjalan —
+   termasuk yang pembimbingnya tidak hadir, yang tidak ada di rincian
+   dibayar. Bila rata-rata pertemuan yang tercantum berbeda, tabel
+   menyebutnya. */
+function susunImtaq(semua) {
+  const rinci = (semua || []).filter(r => r.jenis === 'Imtaq');
+  const keg = [];
+  for (const r of rinci) {
+    let k = keg.find(x => x.nama === r.ekskul);
+    if (!k) keg.push(k = { nama: r.ekskul, sesi: new Map(), rata: Number(r.rata) || 0,
+                           batas_min: r.batas_min, batas_maks: r.batas_maks, nominal: Number(r.nominal) || 0 });
+    if (!k.sesi.has(r.sesi_id)) k.sesi.set(r.sesi_id, { tanggal: r.tanggal, hadir: Number(r.siswa_hadir) || 0 });
+  }
+  for (const k of keg) {
+    k.pertemuan = [...k.sesi.values()].sort((a, b) => a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : 0);
+    k.jumlahHadir = k.pertemuan.reduce((s, x) => s + x.hadir, 0);
+    k.cocok = k.pertemuan.length > 0 && Math.round(k.jumlahHadir / k.pertemuan.length) === k.rata;
+    k.daftar = k.pertemuan.map(x => `${tglIndo(x.tanggal).replace(/ \d{4}$/, '')}: ${x.hadir}`).join(' · ');
+  }
+  const kode = 'ekskul_imtaq';
+  const versi = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai <= ui.rekapAkhir)
+    .reduce((m, t) => t.berlaku_mulai > m ? t.berlaku_mulai : m, '');
+  const jenjang = (D.tarifSemua || []).filter(t => t.kode === kode && t.berlaku_mulai === versi)
+    .sort((a, b) => (a.batas_min || 0) - (b.batas_min || 0))
+    .map(t => {
+      const di = rinci.filter(x => (x.batas_min || 0) === (t.batas_min || 0));
+      return { teks: teksRentang(t.batas_min, t.batas_maks),
+               nilai: Number(t.nilai) || 0, pertemuan: di.length,
+               jumlah: di.reduce((s, x) => s + (Number(x.diterima) || 0), 0) };
+    });
+  const jt = (D.jenis || []).find(j => j.kode === kode);
+  return { rinci, keg, jenjang, versi, namaJenjang: jt ? jt.nama : 'Transport Pembimbing Imtaq',
+           jenjangPertemuan: jenjang.reduce((s, x) => s + x.pertemuan, 0),
+           jenjangJumlah: jenjang.reduce((s, x) => s + x.jumlah, 0) };
+}
+
+const catatanCocokImtaq = k => k.cocok ? '' : 'Rata-rata dari database juga menghitung pertemuan yang berjalan tanpa pembimbing hadir, yang tidak tercantum di sini.';
+
+function panelImtaq(semua) {
+  const R = susunImtaq(semua);
+  if (!R.keg.length && !R.jenjang.length) return '';
+  return `
+    ${R.keg.length ? `<div class="panel"><div class="panel-head"><h3>Rata-rata siswa hadir per kegiatan</h3>
+      <div class="sp" style="flex:1"></div>
+      <div class="info">${esc(tglIndo(ui.rekapAwal))} – ${esc(tglIndo(ui.rekapAkhir))}</div></div>
+      <div class="scroll"><table class="rekap" style="min-width:820px"><thead><tr>
+        <th style="width:120px">Kegiatan</th><th>Siswa hadir tiap pertemuan</th>
+        <th style="width:85px" class="num">Pertemuan</th><th style="width:105px" class="num">Jumlah siswa hadir</th>
+        <th style="width:90px" class="num">Rata-rata</th><th style="width:150px">Jenjang</th>
+        <th style="width:120px" class="num">Nominal per pertemuan</th></tr></thead>
+      <tbody>${R.keg.map(k => `<tr><td style="font-weight:500">${esc(k.nama)}</td>
+        <td class="small">${esc(k.daftar)}${k.cocok ? '' : `<div class="kecil" style="color:var(--warn)">${esc(catatanCocokImtaq(k))}</div>`}</td>
+        <td class="num">${k.pertemuan.length}</td><td class="num">${k.jumlahHadir}</td>
+        <td class="num" style="font-weight:600">${k.rata}</td>
+        <td>${esc(teksRentang(k.batas_min, k.batas_maks))}</td>
+        <td class="num" style="font-weight:600">${rupiah(k.nominal)}</td></tr>`).join('')}</tbody>
+      </table></div>
+      <div class="foot"><div class="info">Rata-rata = jumlah siswa hadir ÷ banyaknya pertemuan, dibulatkan (0,5 ke atas).</div></div></div>` : ''}
+
+    ${R.jenjang.length ? `<div class="panel"><div class="panel-head"><h3>Besaran ${esc(R.namaJenjang)}</h3>
+      <div class="sp" style="flex:1"></div>
+      ${R.versi ? `<div class="info">berlaku mulai ${esc(tglIndo(R.versi))}</div>` : ''}</div>
+      <div class="scroll"><table class="rekap" style="min-width:560px"><thead><tr>
+        <th>Rata-rata siswa hadir</th><th class="num">Nominal per pertemuan</th>
+        <th class="num">Pertemuan dibayar</th><th class="num">Jumlah</th></tr></thead>
+      <tbody>${R.jenjang.map(t => `<tr${t.pertemuan ? ' style="font-weight:600"' : ''}><td>${esc(t.teks)}</td>
+        <td class="num">${rupiah(t.nilai)}</td><td class="num">${t.pertemuan}</td><td class="num">${rupiah(t.jumlah)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td style="font-weight:600">Jumlah</td><td></td>
+        <td class="num" style="font-weight:600">${R.jenjangPertemuan}</td>
+        <td class="num" style="font-weight:700">${rupiah(R.jenjangJumlah)}</td></tr></tfoot>
+      </table></div>
+      <div class="foot"><div class="info">Pertemuan dibayar dihitung per pembimbing yang hadir; tiap pembimbing menerima nominal penuh.</div></div></div>` : ''}`;
+}
+
+/* Dua tabel Imtaq di berkas unduhan, mulai baris r (kolom B–F). Mengembalikan baris berikutnya. */
+function tulisImtaqExcel(ws, r, sel, F, semua) {
+  const R = susunImtaq(semua);
+  const kepala = (teks, gabung) => {
+    teks.forEach((t, i) => {
+      const c = ws.getCell(r, 2 + i);
+      c.value = t; c.font = { name: F, size: 9, bold: true };
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      c.border = KOTAK;
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+    });
+    (gabung || []).forEach(([a, b]) => ws.mergeCells(r, a, r, b));
+    ws.getRow(r).height = 30;
+    r += 1;
+  };
+  const judulTabel = teks => {
+    ws.getCell(r, 2).value = teks;
+    ws.getCell(r, 2).font = { name: F, size: 10, bold: true };
+    ws.mergeCells(r, 2, r, 6);
+    r += 1;
+  };
+  if (R.keg.length) {
+    judulTabel(`RATA-RATA SISWA HADIR PER KEGIATAN (${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)})`);
+    kepala(['KEGIATAN', 'PERTEMUAN', 'JUMLAH SISWA HADIR', 'RATA-RATA (JENJANG)', 'NOMINAL PER PERTEMUAN']);
+    R.keg.forEach(k => {
+      sel(r, 2, k.nama);
+      sel(r, 3, k.pertemuan.length, { rata: 'center' });
+      sel(r, 4, k.jumlahHadir, { rata: 'center' });
+      sel(r, 5, `${k.rata} (${teksRentang(k.batas_min, k.batas_maks)})`, { rata: 'center', tebal: true });
+      sel(r, 6, k.nominal, { fmt: RP, tebal: true });
+      ws.getRow(r).height = 18;
+      r += 1;
+      // Siswa hadir tiap pertemuan, satu baris setinggi tabel di bawah kegiatannya.
+      for (let c = 2; c <= 6; c++) sel(r, c, '');
+      ws.mergeCells(r, 2, r, 6);
+      const c = ws.getCell(r, 2);
+      c.value = 'Siswa hadir: ' + k.daftar + (k.cocok ? '' : ' — ' + catatanCocokImtaq(k));
+      c.font = { name: F, size: 9, italic: true };
+      c.alignment = { wrapText: true, vertical: 'middle', horizontal: 'left' };
+      ws.getRow(r).height = 18;
+      r += 1;
+    });
+    ws.getCell(r, 2).value = 'Rata-rata = jumlah siswa hadir ÷ banyaknya pertemuan, dibulatkan (0,5 ke atas).';
+    ws.getCell(r, 2).font = { name: F, size: 8, italic: true };
+    ws.mergeCells(r, 2, r, 6);
+    r += 2;
+  }
+  if (R.jenjang.length) {
+    judulTabel(`BESARAN ${R.namaJenjang.toUpperCase()}${R.versi ? ` (berlaku mulai ${tglIndo(R.versi)})` : ''}`);
+    kepala(['RATA-RATA SISWA HADIR', '', 'NOMINAL PER PERTEMUAN', 'PERTEMUAN DIBAYAR', 'JUMLAH'], [[2, 3]]);
+    R.jenjang.forEach(t => {
+      sel(r, 2, t.teks, { rata: 'center', tebal: !!t.pertemuan }); sel(r, 3, '');
+      ws.mergeCells(r, 2, r, 3);
+      sel(r, 4, t.nilai, { fmt: RP, tebal: !!t.pertemuan });
+      sel(r, 5, t.pertemuan, { rata: 'center' });
+      sel(r, 6, t.jumlah, { fmt: RP });
+      r += 1;
+    });
+    sel(r, 2, 'Jumlah', { rata: 'center', tebal: true, abu: true }); sel(r, 3, '', { abu: true });
+    ws.mergeCells(r, 2, r, 3);
+    sel(r, 4, '', { abu: true });
+    sel(r, 5, R.jenjangPertemuan, { rata: 'center', tebal: true, abu: true });
+    sel(r, 6, R.jenjangJumlah, { fmt: RP, tebal: true, abu: true });
+    r += 2;
+  }
+  return r;
 }
 
 async function unduhRincianPembina(spek, baris) {
