@@ -994,7 +994,8 @@ function halNominal() {
    punya komponen — Firman, misalnya, tidak memegang tugas Staf. Komponen
    berversi: Ubah = versi baru sejak tanggal tertentu (versi lama diakhiri
    sehari sebelumnya), Akhiri = berhenti pada tanggal tertentu.           */
-const SATUAN_PENDUKUNG = ['per bulan', 'per jam hadir', 'per hari hadir'];
+// 'per hari hadir × % hadir' (29 Oktober 2026): hari hadir × nominal × % Hadir Kehadiran Staf (jam hadir ÷ jam terjadwal).
+const SATUAN_PENDUKUNG = ['per bulan', 'per jam hadir', 'per hari hadir', 'per hari hadir × % hadir'];
 /* Dibayar mingguan (28 September 2026): kartunya di Honor dan Transpor →
    Pendukung punya pemilih pekan sendiri (bawaan pekan ini, Senin–Sabtu),
    bisa "ikuti rentang atas", kuitansinya pekanan, dan ia tidak ikut
@@ -1065,7 +1066,8 @@ function panelPendukung() {
       <button class="btn btn-sm" data-pd-orang>+ Tambah orang</button></header>
     <p class="kecil" style="margin:0 0 12px;line-height:1.5">Tenaga pendukung tidak memakai formulasi umum staf (gaji pokok per jam, tunjangan
       jabatan, indeks), melainkan komponen per orang: <b>per bulan</b> (× bulan periode), <b>per jam hadir</b>, atau
-      <b>per hari hadir</b> (× kehadiran fingerprint di Kehadiran Staf). Daftar pembayarannya di Honor dan Transpor → Staf →
+      <b>per hari hadir</b> (× kehadiran fingerprint di Kehadiran Staf), atau <b>per hari hadir × % hadir</b> (hari hadir × nominal × % Hadir
+      di Kehadiran Staf, yaitu jam hadir ÷ jam terjadwal, paling tinggi 100%). Daftar pembayarannya di Honor dan Transpor → Staf →
       Pendukung. Yang termasuk: pemegang tugas Staf berkelompok tarif Tenaga Pendukung (Data Induk → Jam Kerja Staf) atau siapa
       pun yang diberi komponen di sini.</p>
     <div class="pg-grid">${orang.length ? orang.map(o => {
@@ -1104,7 +1106,7 @@ function formPendukung(guruId, lama) {
       <div class="hint">Mis. Gaji, Tunjangan Pendidikan, Transpor Kedatangan. Nama ini yang tercetak di daftar.</div></div>
     <div class="fg"><label>Satuan <span style="color:var(--danger)">*</span></label>
       <select class="field" id="pd-satuan">${SATUAN_PENDUKUNG.map(x => `<option ${lama && lama.satuan === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
-      <div class="hint">Per bulan dikalikan jumlah bulan periode; per jam hadir dan per hari hadir dikalikan kehadiran fingerprint di Kehadiran Staf.</div></div>
+      <div class="hint">Per bulan dikalikan jumlah bulan periode; per jam hadir dan per hari hadir dikalikan kehadiran fingerprint di Kehadiran Staf; per hari hadir × % hadir = hari hadir × nominal × % Hadir (jam hadir ÷ jam terjadwal, paling tinggi 100%).</div></div>
     <div class="fg"><label>Nominal <span style="color:var(--danger)">*</span></label>
       <input class="field num" type="number" min="0" step="500" id="pd-nilai" value="${lama ? Number(lama.nilai) : 0}"></div>
     <div class="fg"><label>Berlaku mulai <span style="color:var(--danger)">*</span></label>
@@ -3424,7 +3426,7 @@ const REKAP = {
         nama: 'Dengan Potongan',
         judul: 'REKAPITULASI PEMBIAYAAN PER PENERIMA DENGAN POTONGAN',
         ubah: r => {
-          const tunj = (Number(r.bpjs) || 0) + (Number(r.bpjs_tk) || 0);
+          const tunj = (Number(r.bpjs) || 0) + (Number(r.bpjs_tk) || 0) - ((D.tunjBjb || {})[r.orang_id] || 0);
           return { ...r, disetor: tunj, tunai: (Number(r.bersih) || 0) - tunj };
         },
         sesudah: [
@@ -3438,7 +3440,8 @@ const REKAP = {
         catatan: 'Sama dengan Tanpa Potongan, ditambah potongan dan yang diterima, persis seperti struk gaji: '
                + 'Pot. BPJS (porsi guru TuSehat/TuKerja), Pot. Koperasi, dan Pot. Lain-lain dari halaman Tunjangan dan '
                + 'Potongan; Jumlah Potongan = ketiganya. Tunjangan (TuSehat + TuKerja) disetor sekolah langsung ke bank '
-               + 'atau penyelenggara, jadi Diterima Tunai = Jumlah − Jumlah Potongan − Tunjangan Disetor ke Bank.'
+               + 'atau penyelenggara, jadi Diterima Tunai = Jumlah − Jumlah Potongan − Tunjangan Disetor ke Bank. Kecuali yang '
+               + 'disalurkan ke DPLK BJB: BJB memotongnya langsung dari rekening guru, jadi tidak disetor sekolah dan ikut diterima tunai.'
       }
     }
   },
@@ -3630,7 +3633,8 @@ const REKAP = {
     catatan: 'Honor tenaga pendukung disusun per orang menurut komponennya masing-masing (Nominal Penggajian Staf → '
            + 'Honor Tenaga Pendukung): komponen per bulan dikalikan jumlah bulan periode (bulan yang lebih dari '
            + 'setengah harinya masuk rentang); per jam hadir dan per hari hadir dikalikan kehadiran fingerprint '
-           + 'di Kehadiran Staf, jam hadir dipotong pada ketentuan masuk–pulang. Satu baris satu komponen; nama '
+           + 'di Kehadiran Staf, jam hadir dipotong pada ketentuan masuk–pulang; per hari hadir × % hadir = hari hadir × '
+           + 'nominal × % Hadir (jam hadir ÷ jam terjadwal di Kehadiran Staf, paling tinggi 100%). Satu baris satu komponen; nama '
            + 'yang sama berulang untuk tiap komponennya.',
     kolom: [
       { k: 'jabatan', t: 'Jabatan', w: 130, jumlah: false },
@@ -3744,6 +3748,14 @@ async function muatRekap() {
   ]);
   D.rekapRinci = rinci;
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
+  if (r === REKAP.gabungan) {
+    const a = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
+    const [s, k, rs, rk] = await jalankanPanggilan([['f_ip_tunjangan_bpjs', { ...a, p_jenis: 'kesehatan' }], ['f_ip_tunjangan_bpjs', { ...a, p_jenis: 'ketenagakerjaan' }],
+      ['f_ip_tunjangan_rincian', { ...a, p_jenis: 'kesehatan' }, true], ['f_ip_tunjangan_rincian', { ...a, p_jenis: 'ketenagakerjaan' }, true]]);
+    D.tunjBjb = {};
+    [...(s || []), ...(k || [])].forEach(x => { D.tunjBjb[x.guru_id] = (D.tunjBjb[x.guru_id] || 0) + tunjanganBjb(x); });
+    [...(rs || []), ...(rk || [])].forEach(x => { D.tunjBjb[x.guru_id] = (D.tunjBjb[x.guru_id] || 0) + tunjanganBjb(null, [x]); });
+  }
   if (r === REKAP.pendukung && D.rekap) {
     const mg = [...new Set((D.pendukung || []).map(p => p.guru_id))].filter(bayarTerpisah);
     const tandai = (baris, pk, cara) => baris.map(b => ({ ...b, periodeAwal: pk.awal, periodeAkhir: pk.akhirTulis || pk.akhir,
@@ -3780,6 +3792,7 @@ const angkaSel = (b, k) => {
    Kedatangan 104,2 jam × Rp …"). */
 const ukuranTeks = k => k.satuan === 'per bulan' ? `${Number(k.ukuran) || 0} bulan`
   : k.satuan === 'per jam hadir' ? `${fmtJam(k.ukuran)} jam${k.perPeriode ? ' (Senin–Jumat)' : ' hadir'}`
+  : k.satuan === 'per hari hadir × % hadir' ? `${Number(k.ukuran) || 0} hari hadir × ${fmtPersen(k.persen)} hadir`
   : `${Number(k.ukuran) || 0} hari${k.perPeriode ? ' Senin–Jumat' : ' hadir'}`;
 function orangDariKomponen(baris) {
   const per = new Map();
@@ -4865,6 +4878,14 @@ async function unduhKuitansi(spek, baris, namaBerkas, rentang) {
      jenis   — TuSehat/TuKerja yang bentuk penyalurannya = bentuk
      koperasi — seluruh Potongan Koperasi, termasuk iuran keanggotaan bawaan
      tabungan — potongan lain-lain berjenis itu (tabungan hari tua guru)  */
+/* TuSehat/TuKerja yang disalurkan ke DPLK BJB (29 Oktober 2026) TIDAK disetor
+   sekolah: BJB memotongnya langsung dari rekening guru. Karena itu bagian itu
+   ikut diterima tunai (bukan "Tunjangan disetor ke bank"), dan di Daftar Setoran
+   DPLK BJB tetap tampil bertanda tetapi tidak dijumlahkan ke setoran sekolah. */
+const BJB = 'DPLK BJB';
+const tunjanganBjb = (utama, tambah) => (utama && utama.bentuk === BJB ? Number(utama.jumlah) || 0 : 0)
+  + (tambah || []).filter(x => x.tujuan === BJB).reduce((s, x) => s + (Number(x.jumlah) || 0), 0);
+
 const SETORAN = {
   bpjs_kesehatan: { nama: 'BPJS Kesehatan',      jenis: ['kesehatan'],       bentuk: 'BPJS Kesehatan',
     judul: 'DAFTAR SETORAN BPJS KESEHATAN' },
@@ -4951,12 +4972,12 @@ function halSetoran() {
   const sumber = !semua ? null : urutMasaKerja([
     ...spekTab.jenis.flatMap(j => (semua[j] || [])
       .filter(r => r.bentuk === spekTab.bentuk)
-      .map(r => ({ ...r, program: TUNJANGAN[j], sekolah: Number(r.jumlah) || 0,
+      .map(r => ({ ...r, program: TUNJANGAN[j] + (r.bentuk === BJB ? ' · dipotong BJB' : ''), bjb: r.bentuk === BJB, sekolah: Number(r.jumlah) || 0,
                    jumlah: (Number(r.jumlah) || 0) + (Number(r.potongan) || 0) }))),
     // Rincian tambahan TuSehat/TuKerja yang tujuannya tab ini (29 September 2026): seluruhnya dari sekolah.
     ...spekTab.jenis.flatMap(j => ((semua.rincian || {})[j] || [])
       .filter(r => r.tujuan === spekTab.bentuk && Number(r.jumlah) > 0)
-      .map(r => ({ ...r, program: `${TUNJANGAN[j]} (rincian)`, tarif: Number(r.nominal) || 0, potongan_bulan: 0,
+      .map(r => ({ ...r, program: `${TUNJANGAN[j]} (rincian)${r.tujuan === BJB ? ' · dipotong BJB' : ''}`, bjb: r.tujuan === BJB, tarif: Number(r.nominal) || 0, potongan_bulan: 0,
                    sekolah: Number(r.jumlah) || 0, potongan: 0, jumlah: Number(r.jumlah) || 0 }))),
     ...(spekTab.koperasi ? (semua.koperasi || []).filter(r => Number(r.jumlah) > 0).sort(bandingPotongan('koperasi')).map(dariPotongan) : []),
     ...(spekTab.tabungan ? (semua.sekolah || []).filter(r => r.jenis === spekTab.tabungan && Number(r.jumlah) > 0).map(dariPotongan) : [])
@@ -4973,7 +4994,8 @@ function halSetoran() {
     });
     perOrang.forEach(isi => {
       if (isi.length === 1) { baris.push(isi[0]); return; }
-      const jml = k => isi.reduce((t, r) => t + (Number(r[k]) || 0), 0);
+      // Yang dipotong BJB dari rekening guru tidak ikut Total setoran sekolah.
+      const jml = k => isi.reduce((t, r) => t + (r.bjb ? 0 : Number(r[k]) || 0), 0);
       baris.push({ guru_id: isi[0].guru_id, nama: isi[0].nama, tmt_sekolah: isi[0].tmt_sekolah,
         program: 'Total setoran', nomor_peserta: null,
         bulan: Math.max(...isi.map(r => Number(r.bulan) || 0)),
@@ -4981,7 +5003,7 @@ function halSetoran() {
         sekolah: jml('sekolah'), potongan: jml('potongan'), jumlah: jml('jumlah'), sumberDana: isi });
     });
   }
-  const total = (baris || []).reduce((t, r) => {
+  const total = (baris || []).filter(r => !r.bjb).reduce((t, r) => {
     for (const k of ['bulan', 'sekolah', 'potongan', 'jumlah']) t[k] = (t[k] || 0) + (Number(r[k]) || 0);
     return t;
   }, {});
@@ -4994,7 +5016,9 @@ function halSetoran() {
            + 'keduanya dari penyaluran per orang di halaman Tunjangan dan Potongan (bila belum ditetapkan, bawaan dari '
            + 'Nominal Penggajian). Jumlah bulan mengikuti aturan bulan yang lebih dari setengah harinya masuk periode. '
            + 'Hanya orang yang bentuk penyalurannya ' + spekTab.nama + ' dan berhak pada periode ini, ditambah rincian '
-           + 'tambahan TuSehat/TuKerja yang tujuannya ' + spekTab.nama + ' (Program bertanda "rincian", seluruhnya dari sekolah).' };
+           + 'tambahan TuSehat/TuKerja yang tujuannya ' + spekTab.nama + ' (Program bertanda "rincian", seluruhnya dari sekolah).'
+           + (spekTab.bentuk === BJB ? ' TuSehat/TuKerja bertanda "dipotong BJB" tidak disetor sekolah: BJB memotongnya langsung dari '
+             + 'rekening guru, jadi tetap tercantum sebagai catatan tetapi tidak dijumlahkan ke setoran.' : '') };
 
   $('#isi').innerHTML = `
     <div class="head"><div><h1>Nominal Setoran Wajib</h1>
@@ -5357,8 +5381,12 @@ function susunIsiStruk(b, R, dibayar) {
        tetapi yang dibawa guru adalah bersih dikurangi tunjangan itu. Baris
        "Tunjangan disetor ke bank" sudah menjelaskannya; Catatan tidak
        mengulanginya. */
-    const diterima = (Number(b.bersih) || 0) - E;
-    if (E > 0) bagian.push(RT('', 'Tunjangan disetor ke bank', 'TuSehat & TuKerja, tidak diterima tunai', E));
+    const bjb = tunjanganBjb(r.sehat, r.sehatTambah) + tunjanganBjb(r.kerja, r.kerjaTambah);
+    const disetor = E - bjb;
+    const diterima = (Number(b.bersih) || 0) - disetor;
+    if (E > 0) bagian.push(RT('', 'Tunjangan disetor ke bank', bjb > 0
+      ? (disetor > 0 ? 'TuSehat & TuKerja, tidak diterima tunai; DPLK BJB dipotong BJB dari rekening guru' : 'DPLK BJB: dipotong BJB langsung dari rekening guru')
+      : 'TuSehat & TuKerja, tidak diterima tunai', disetor));
     bagian.push({ t: 'tunai', nilai: diterima });
     bagian.push({ t: 'terbilang', teks: `Terbilang: ${terbilang(diterima)}` });
     return { bagian, masaKerja, ringkasHadir, diterima };
