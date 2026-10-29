@@ -3748,7 +3748,7 @@ async function muatRekap() {
   ]);
   D.rekapRinci = rinci;
   D.rekap = r.saring ? (hasil || []).filter(r.saring) : hasil;
-  if (r === REKAP.gabungan) {
+  if (r === REKAP.gabungan || r === REKAP.cetak_struk) {
     const a = { p_awal: ui.rekapAwal, p_akhir: ui.rekapAkhir };
     const [s, k, rs, rk] = await jalankanPanggilan([['f_ip_tunjangan_bpjs', { ...a, p_jenis: 'kesehatan' }], ['f_ip_tunjangan_bpjs', { ...a, p_jenis: 'ketenagakerjaan' }],
       ['f_ip_tunjangan_rincian', { ...a, p_jenis: 'kesehatan' }, true], ['f_ip_tunjangan_rincian', { ...a, p_jenis: 'ketenagakerjaan' }, true]]);
@@ -3867,7 +3867,8 @@ function pemisahKelompok(baris, i, kolom, kunciSub) {
 
 function panelCetakStruk(spek, baris, total) {
   const periode = `${tglIndo(ui.rekapAwal)} – ${tglIndo(ui.rekapAkhir)}`;
-  const tunaiDari = b => (Number(b.bersih) || 0) - (Number(b.bpjs) || 0) - (Number(b.bpjs_tk) || 0);
+  // TuSehat/TuKerja DPLK BJB dipotong BJB dari rekening guru, jadi ikut diterima tunai (sama dengan struk).
+  const tunaiDari = b => (Number(b.bersih) || 0) - (Number(b.bpjs) || 0) - (Number(b.bpjs_tk) || 0) + ((D.tunjBjb || {})[b.orang_id] || 0);
   return `<div class="panel"><div class="panel-head"><h3>Rekapitulasi Pendapatan per Guru dan Staf</h3>
       <div class="sp" style="flex:1"></div>
       <div class="info">${esc(periode)}</div>
@@ -3934,9 +3935,10 @@ function halRekap() {
   const fp = baris ? baris.filter(r => r.fingerprint).length : 0;
   const sesudah = spek.sesudah || [];   // kolom yang berdiri SESUDAH Jumlah (potongan, diterima)
 
-  const kunciJumlah = ['jumlah',
+  // Tanpa kunci ganda (29 Oktober 2026): Cetak Struk punya kolom `jumlah` (Pendapatan), dulu terjumlah dua kali.
+  const kunciJumlah = [...new Set(['jumlah',
     ...spek.kolom.filter(k => k.jumlah !== false && (k.num || k.rp)).map(k => k.k),
-    ...sesudah.map(k => k.k)];
+    ...sesudah.map(k => k.k)])];
   /* Baris staf yang tidak dibayar TIDAK ikut dijumlahkan, walaupun sedang
      ditampilkan: komponennya adalah angka "seandainya guru biasa" untuk
      analisis, bukan yang dibayarkan. Total harus tetap sama dengan gabungan. */
