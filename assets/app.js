@@ -1067,7 +1067,7 @@ function panelPendukung() {
     <p class="kecil" style="margin:0 0 12px;line-height:1.5">Tenaga pendukung tidak memakai formulasi umum staf (gaji pokok per jam, tunjangan
       jabatan, indeks), melainkan komponen per orang: <b>per bulan</b> (× bulan periode), <b>per jam hadir</b>, atau
       <b>per hari hadir</b> (× kehadiran fingerprint di Kehadiran Staf), atau <b>per hari hadir × % hadir</b> (hari hadir × nominal × % Hadir
-      di Kehadiran Staf, yaitu jam hadir ÷ jam terjadwal, paling tinggi 100%). Daftar pembayarannya di Honor dan Transpor → Staf →
+      di Kehadiran Staf, yaitu jam hadir ÷ jam terjadwal, paling tinggi 100%; hasilnya dibulatkan ke ribuan terdekat). Daftar pembayarannya di Honor dan Transpor → Staf →
       Pendukung. Yang termasuk: pemegang tugas Staf berkelompok tarif Tenaga Pendukung (Data Induk → Jam Kerja Staf) atau siapa
       pun yang diberi komponen di sini.</p>
     <div class="pg-grid">${orang.length ? orang.map(o => {
@@ -1106,7 +1106,7 @@ function formPendukung(guruId, lama) {
       <div class="hint">Mis. Gaji, Tunjangan Pendidikan, Transpor Kedatangan. Nama ini yang tercetak di daftar.</div></div>
     <div class="fg"><label>Satuan <span style="color:var(--danger)">*</span></label>
       <select class="field" id="pd-satuan">${SATUAN_PENDUKUNG.map(x => `<option ${lama && lama.satuan === x ? 'selected' : ''}>${x}</option>`).join('')}</select>
-      <div class="hint">Per bulan dikalikan jumlah bulan periode; per jam hadir dan per hari hadir dikalikan kehadiran fingerprint di Kehadiran Staf; per hari hadir × % hadir = hari hadir × nominal × % Hadir (jam hadir ÷ jam terjadwal, paling tinggi 100%).</div></div>
+      <div class="hint">Per bulan dikalikan jumlah bulan periode; per jam hadir dan per hari hadir dikalikan kehadiran fingerprint di Kehadiran Staf; per hari hadir × % hadir = hari hadir × nominal × % Hadir (jam hadir ÷ jam terjadwal, paling tinggi 100%), dibulatkan ke ribuan terdekat.</div></div>
     <div class="fg"><label>Nominal <span style="color:var(--danger)">*</span></label>
       <input class="field num" type="number" min="0" step="500" id="pd-nilai" value="${lama ? Number(lama.nilai) : 0}"></div>
     <div class="fg"><label>Berlaku mulai <span style="color:var(--danger)">*</span></label>
@@ -3634,7 +3634,7 @@ const REKAP = {
            + 'Honor Tenaga Pendukung): komponen per bulan dikalikan jumlah bulan periode (bulan yang lebih dari '
            + 'setengah harinya masuk rentang); per jam hadir dan per hari hadir dikalikan kehadiran fingerprint '
            + 'di Kehadiran Staf, jam hadir dipotong pada ketentuan masuk–pulang; per hari hadir × % hadir = hari hadir × '
-           + 'nominal × % Hadir (jam hadir ÷ jam terjadwal di Kehadiran Staf, paling tinggi 100%). Satu baris satu komponen; nama '
+           + 'nominal × % Hadir (jam hadir ÷ jam terjadwal di Kehadiran Staf, paling tinggi 100%), dibulatkan ke ribuan terdekat. Satu baris satu komponen; nama '
            + 'yang sama berulang untuk tiap komponennya.',
     kolom: [
       { k: 'jabatan', t: 'Jabatan', w: 130, jumlah: false },
@@ -3794,6 +3794,8 @@ const ukuranTeks = k => k.satuan === 'per bulan' ? `${Number(k.ukuran) || 0} bul
   : k.satuan === 'per jam hadir' ? `${fmtJam(k.ukuran)} jam${k.perPeriode ? ' (Senin–Jumat)' : ' hadir'}`
   : k.satuan === 'per hari hadir × % hadir' ? `${Number(k.ukuran) || 0} hari hadir × ${fmtPersen(k.persen)} hadir`
   : `${Number(k.ukuran) || 0} hari${k.perPeriode ? ' Senin–Jumat' : ' hadir'}`;
+// Satuan × % hadir dibulatkan ke ribuan terdekat oleh f_ip_honor_pendukung (29 Oktober 2026).
+const tandaBulat = k => k.satuan === 'per hari hadir × % hadir' ? ', dibulatkan ke ribuan' : '';
 function orangDariKomponen(baris) {
   const per = new Map();
   (baris || []).forEach(b => {
@@ -3808,7 +3810,7 @@ function orangDariKomponen(baris) {
     o.jumlah += Number(b.jumlah) || 0;
   });
   return [...per.values()].map(o => ({ ...o,
-    rincian: o.komponen.map(k => `${k.komponen} ${ukuranTeks(k)} × ${rupiah(k.nilai)}`).join('; ') }));
+    rincian: o.komponen.map(k => `${k.komponen} ${ukuranTeks(k)} × ${rupiah(k.nilai)}${tandaBulat(k)}`).join('; ') }));
 }
 function kartuRekapOrang(induk, spek, baris, total) {
   const orang = orangDariKomponen(baris);
@@ -3835,7 +3837,7 @@ function kartuRekapOrang(induk, spek, baris, total) {
                <button class="btn btn-sm" data-pekan-ikut="${esc(o.guru_id)}" title="Pakai rentang Dari–Sampai di atas">Ikuti rentang atas</button>`}
         </div>` : ''}
         <table class="pg-jenjang"><tbody>${o.komponen.map(k => `<tr>
-          <td>${esc(k.komponen)}<div class="kecil">${esc(ukuranTeks(k))} × ${esc(rupiah(k.nilai))} ${esc(k.satuan)}</div></td>
+          <td>${esc(k.komponen)}<div class="kecil">${esc(ukuranTeks(k))} × ${esc(rupiah(k.nilai))} ${esc(k.satuan)}${esc(tandaBulat(k))}</div></td>
           <td>${esc(rupiah(k.jumlah))}</td></tr>`).join('')}</tbody></table>
         <div class="pg-nilai${o.jumlah > 0 ? '' : ' nol'}">${esc(rupiah(o.jumlah))}</div>
         <div class="pg-meta">${o.jumlah > 0
@@ -5340,7 +5342,7 @@ function susunIsiStruk(b, R, dibayar) {
     if (P > 0 || r.pendukung.length) {
       const k = kode();
       bagian.push(RH(k, 'HONOR TENAGA PENDUKUNG'));
-      r.pendukung.forEach((x, i) => bagian.push(RT(i + 1, x.komponen, `${ukuranTeks(x)} × ${rupiah(x.nilai)}`, x.jumlah)));
+      r.pendukung.forEach((x, i) => bagian.push(RT(i + 1, x.komponen, `${ukuranTeks(x)} × ${rupiah(x.nilai)}${tandaBulat(x)}`, x.jumlah)));
       bagian.push(RJ(`Jumlah ${k}`, P));
     }
     /* Kurang bayar periode terkunci yang ditambahkan ke periode ini (16 Oktober
